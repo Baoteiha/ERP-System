@@ -1,0 +1,100 @@
+<div>
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="page-title">Finance & Accounting</h1>
+      <p class="page-subtitle">March 2026 — Financial overview</p>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm" style="border:1px solid var(--border);background:white"><i class="bi bi-download me-1"></i>Export</button>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>New Invoice</button>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    @for (kpi of kpis; track kpi.label) {
+      <div class="col-md-6 col-xl-3">
+        <div class="kpi-card d-flex align-items-start justify-content-between">
+          <div>
+            <div class="kpi-label">{{ kpi.label }}</div>
+            <div class="kpi-value mt-1">{{ kpi.value }}</div>
+            <div class="kpi-change" [class.up]="kpi.up" [class.down]="!kpi.up">
+              <i class="bi" [class.bi-arrow-up-right]="kpi.up" [class.bi-arrow-down-right]="!kpi.up"></i> {{ kpi.change }}
+            </div>
+          </div>
+          <div class="kpi-icon" [ngClass]="kpi.color"><i class="bi {{ kpi.icon }}"></i></div>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Tabs -->
+  <div class="erp-card">
+    <div style="border-bottom:1px solid var(--border);margin:-1.25rem -1.25rem 1.25rem;padding:0 1.25rem;display:flex;gap:0">
+      @for (tab of ['overview','invoices','expenses']; track tab) {
+        <button (click)="activeTab=tab"
+          style="padding:12px 16px;font-size:0.85rem;border:none;background:none;border-bottom:2px solid transparent;cursor:pointer;text-transform:capitalize"
+          [style.border-bottom-color]="activeTab===tab ? 'var(--primary)' : 'transparent'"
+          [style.color]="activeTab===tab ? 'var(--primary)' : 'var(--text-muted)'"
+          [style.font-weight]="activeTab===tab ? '600' : '400'">
+          {{ tab }}
+        </button>
+      }
+    </div>
+
+    @if (activeTab === 'invoices') {
+      <table class="erp-table">
+        <thead>
+          <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Due Date</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          @for (inv of invoices; track inv.id) {
+            <tr>
+              <td style="font-weight:600;color:var(--blue)">{{ inv.id }}</td>
+              <td>{{ inv.customer }}</td>
+              <td>{{ inv.amount }}</td>
+              <td style="color:var(--text-muted)">{{ inv.due }}</td>
+              <td><span [class]="getStatusClass(inv.status)">{{ inv.status }}</span></td>
+              <td>
+                <div class="d-flex gap-1">
+                  <button class="btn btn-sm" style="padding:3px 8px;border:1px solid var(--border);font-size:0.75rem"><i class="bi bi-eye"></i></button>
+                  <button class="btn btn-sm" style="padding:3px 8px;border:1px solid var(--border);font-size:0.75rem"><i class="bi bi-send"></i></button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+
+    @if (activeTab === 'overview') {
+      <div class="row g-3">
+        <div class="col-md-7">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem">Revenue vs Expenses</h6>
+          <canvas baseChart
+            [data]="revenueExpenseData"
+            [options]="revenueExpenseOptions"
+            type="bar"
+            style="max-height:220px">
+          </canvas>
+        </div>
+        <div class="col-md-5">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem">Expense Breakdown</h6>
+          <canvas baseChart
+            [data]="expenseBreakdownData"
+            [options]="expenseBreakdownOptions"
+            type="doughnut"
+            style="max-height:220px">
+          </canvas>
+        </div>
+      </div>
+    }
+
+    @if (activeTab === 'expenses') {
+      <div style="text-align:center;padding:3rem;color:var(--text-muted)">
+        <i class="bi bi-wallet2" style="font-size:2.5rem;display:block;margin-bottom:12px;color:var(--border)"></i>
+        <div style="font-size:0.9rem">Expense tracking coming soon</div>
+        <button class="btn btn-primary btn-sm mt-3" disabled>Record Expense</button>
+      </div>
+    }
+  </div>
+</div>

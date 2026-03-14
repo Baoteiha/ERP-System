@@ -1,0 +1,45 @@
+<div style="min-height:100vh;background:var(--bg);display:flex;align-items:center;justify-content:center">
+  <div style="width:100%;max-width:400px;padding:1rem">
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:2rem">
+      <div style="width:56px;height:56px;background:var(--primary);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px">
+        <span style="color:white;font-weight:900;font-size:1.4rem">N</span>
+      </div>
+      <h1 style="font-size:1.25rem;font-weight:700;margin:0">Núi Thần Tài ERP</h1>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px">Sign in to your account</p>
+    </div>
+
+    <!-- Card -->
+    <div class="erp-card">
+      @if (error) {
+        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:0.85rem;color:#DC2626">
+          <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
+        </div>
+      }
+
+      <form (ngSubmit)="submit()">
+        <div class="mb-3">
+          <label style="font-size:0.82rem;font-weight:600;color:var(--text);display:block;margin-bottom:6px">Email</label>
+          <input [(ngModel)]="email" name="email" type="email" class="form-control form-control-sm"
+            placeholder="you@company.com" style="border-color:var(--border)" [disabled]="loading">
+        </div>
+        <div class="mb-4">
+          <label style="font-size:0.82rem;font-weight:600;color:var(--text);display:block;margin-bottom:6px">Password</label>
+          <input [(ngModel)]="password" name="password" type="password" class="form-control form-control-sm"
+            placeholder="••••••••" style="border-color:var(--border)" [disabled]="loading">
+        </div>
+        <button type="submit" class="btn btn-primary w-100" [disabled]="loading">
+          @if (loading) {
+            <span class="spinner-border spinner-border-sm me-2"></span>Signing in...
+          } @else {
+            Sign in
+          }
+        </button>
+        <div style="text-align:center;font-size:0.82rem;color:var(--text-muted);margin-top:1rem">
+          Don't have an account?
+          <a routerLink="/register" style="color:var(--blue);text-decoration:none;font-weight:600">Create account</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

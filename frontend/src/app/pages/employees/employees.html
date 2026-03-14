@@ -1,0 +1,40 @@
+<div>
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="page-title">Employees</h1>
+      <p class="page-subtitle">{{ employees.length }} total · 2 on leave</p>
+    </div>
+    <button class="btn btn-primary btn-sm"><i class="bi bi-person-plus me-1"></i>Add Employee</button>
+  </div>
+
+  <div class="erp-card mb-3">
+    <div style="position:relative;max-width:360px">
+      <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:0.875rem"></i>
+      <input [(ngModel)]="searchTerm" type="text" class="form-control form-control-sm" placeholder="Search by name, role, or department..." style="padding-left:32px;border-color:var(--border)">
+    </div>
+  </div>
+
+  <div class="row g-3">
+    @for (emp of filtered; track emp.email) {
+      <div class="col-md-6 col-xl-4">
+        <div class="erp-card d-flex align-items-start gap-3">
+          <div style="width:44px;height:44px;min-width:44px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem">
+            {{ emp.initials }}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:0.9rem">{{ emp.name }}</div>
+            <div style="font-size:0.78rem;color:var(--text-muted)">{{ emp.role }}</div>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px">
+              <i class="bi bi-building me-1"></i>{{ emp.dept }} ·
+              <i class="bi bi-calendar3 ms-1 me-1"></i>{{ emp.joined }}
+            </div>
+            <div style="font-size:0.75rem;color:var(--blue);margin-top:4px">
+              <i class="bi bi-envelope me-1"></i>{{ emp.email }}
+            </div>
+          </div>
+          <span [class]="getStatusClass(emp.status)">{{ getStatusLabel(emp.status) }}</span>
+        </div>
+      </div>
+    }
+  </div>
+</div>

@@ -1,0 +1,100 @@
+<div style="font-family:'Segoe UI',system-ui,sans-serif;color:#1A2332">
+
+  <!-- Nav -->
+  <nav style="position:sticky;top:0;z-index:100;background:white;border-bottom:1px solid #E2E8F0;padding:0 2rem;height:64px;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:38px;height:38px;background:#3A8C4A;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;color:white;font-size:1.1rem">N</div>
+      <div>
+        <div style="font-weight:700;font-size:0.95rem;line-height:1">Núi Thần Tài</div>
+        <div style="font-size:0.65rem;color:#6B7280;letter-spacing:0.05em">ERP PLATFORM</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:0.75rem">
+      <a routerLink="/login" style="font-size:0.875rem;color:#1A2332;text-decoration:none;font-weight:500;padding:6px 14px">Sign in</a>
+      <a routerLink="/register" style="font-size:0.875rem;background:#3A8C4A;color:white;text-decoration:none;font-weight:600;padding:7px 18px;border-radius:8px">Get started</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section style="background:linear-gradient(135deg,#2D6A38 0%,#3A8C4A 50%,#4CAF60 100%);padding:6rem 2rem;text-align:center;position:relative;overflow:hidden">
+    <!-- decorative circles -->
+    <div style="position:absolute;top:-80px;right:-80px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,0.05)"></div>
+    <div style="position:absolute;bottom:-60px;left:-60px;width:240px;height:240px;border-radius:50%;background:rgba(255,255,255,0.05)"></div>
+
+    <div style="position:relative;max-width:720px;margin:0 auto">
+      <span style="display:inline-block;background:rgba(244,135,30,0.2);color:#F4871E;font-size:0.78rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:5px 14px;border-radius:20px;margin-bottom:1.5rem;border:1px solid rgba(244,135,30,0.3)">
+        Hot Springs Park · Núi Thần Tài
+      </span>
+      <h1 style="color:white;font-size:clamp(2rem,5vw,3.25rem);font-weight:800;line-height:1.15;margin:0 0 1.25rem">
+        Run your entire operation<br>from one place
+      </h1>
+      <p style="color:rgba(255,255,255,0.8);font-size:1.1rem;line-height:1.7;margin:0 0 2.5rem;max-width:540px;margin-left:auto;margin-right:auto">
+        Inventory, sales, finance, and HR — unified in a modern ERP built for the food and hospitality industry.
+      </p>
+      <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+        <a routerLink="/register" style="background:#F4871E;color:white;text-decoration:none;font-weight:700;padding:13px 28px;border-radius:10px;font-size:0.95rem;display:inline-flex;align-items:center;gap:8px">
+          <i class="bi bi-arrow-right-circle"></i> Start for free
+        </a>
+        <a routerLink="/login" style="background:rgba(255,255,255,0.15);color:white;text-decoration:none;font-weight:600;padding:13px 28px;border-radius:10px;font-size:0.95rem;border:1px solid rgba(255,255,255,0.3)">
+          Sign in to dashboard
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats bar -->
+  <section style="background:#1A2332;padding:2rem">
+    <div style="max-width:900px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1.5rem;text-align:center">
+      @for (stat of stats; track stat.label) {
+        <div>
+          <div style="font-size:1.75rem;font-weight:800;color:#F4871E">{{ stat.value }}</div>
+          <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-top:2px;text-transform:uppercase;letter-spacing:0.05em">{{ stat.label }}</div>
+        </div>
+      }
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section style="padding:5rem 2rem;background:#F5F7FA">
+    <div style="max-width:1000px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:3rem">
+        <h2 style="font-size:2rem;font-weight:800;margin:0 0 0.75rem">Everything you need to operate</h2>
+        <p style="color:#6B7280;font-size:1rem;max-width:480px;margin:0 auto">Six integrated modules designed for food-industry operations teams, managers, and executives.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem">
+        @for (f of features; track f.title) {
+          <div style="background:white;border-radius:12px;border:1px solid #E2E8F0;padding:1.5rem;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+            <div style="width:44px;height:44px;border-radius:10px;background:#EAF4EC;display:flex;align-items:center;justify-content:center;margin-bottom:1rem">
+              <i class="bi {{ f.icon }}" style="font-size:1.2rem;color:#3A8C4A"></i>
+            </div>
+            <h3 style="font-size:1rem;font-weight:700;margin:0 0 0.5rem">{{ f.title }}</h3>
+            <p style="font-size:0.875rem;color:#6B7280;line-height:1.6;margin:0">{{ f.desc }}</p>
+          </div>
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section style="background:linear-gradient(135deg,#F4871E,#e8720a);padding:5rem 2rem;text-align:center">
+    <div style="max-width:560px;margin:0 auto">
+      <h2 style="color:white;font-size:2rem;font-weight:800;margin:0 0 1rem">Ready to get started?</h2>
+      <p style="color:rgba(255,255,255,0.85);font-size:1rem;line-height:1.7;margin:0 0 2rem">
+        Create your account and have your ERP running in minutes.
+      </p>
+      <a routerLink="/register" style="display:inline-block;background:white;color:#F4871E;text-decoration:none;font-weight:700;padding:13px 32px;border-radius:10px;font-size:0.95rem">
+        Create free account
+      </a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer style="background:#1A2332;padding:2rem;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:0.75rem">
+      <div style="width:28px;height:28px;background:#3A8C4A;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:900;color:white;font-size:0.85rem">N</div>
+      <span style="color:white;font-weight:600;font-size:0.9rem">Núi Thần Tài ERP</span>
+    </div>
+    <p style="color:rgba(255,255,255,0.35);font-size:0.78rem;margin:0">© 2026 Hot Springs Park · Núi Thần Tài. All rights reserved.</p>
+  </footer>
+
+</div>

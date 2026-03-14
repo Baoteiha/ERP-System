@@ -1,8 +1,10 @@
 const express = require('express');
 require('dotenv').config();
 
-const authRoutes = require('./routes/authRoutes');
-const errorHandler = require('./middleware/errorHandler');
+const authRoutes = require('./routes/auth.routes');
+const productRoutes = require('./routes/product.routes');
+const productTypeRoutes = require('./routes/product-type.routes');
+const errorHandler = require('./middleware/error-handler.middleware');
 
 const app = express();
 
@@ -15,6 +17,8 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/product-types', productTypeRoutes);
 
 // 404
 app.use((_req, res) => {

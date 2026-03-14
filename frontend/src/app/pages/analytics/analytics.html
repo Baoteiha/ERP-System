@@ -1,0 +1,70 @@
+<div>
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="page-title">Analytics & Reports</h1>
+      <p class="page-subtitle">Business performance insights — March 2026</p>
+    </div>
+    <div class="d-flex gap-2">
+      <select class="form-select form-select-sm" style="width:auto;border-color:var(--border)">
+        <option>Last 6 months</option>
+        <option>Last 3 months</option>
+        <option>This year</option>
+      </select>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-download me-1"></i>Export</button>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Monthly Revenue -->
+    <div class="col-xl-8">
+      <div class="erp-card">
+        <h6 class="fw-bold mb-3">Monthly Revenue</h6>
+        <canvas baseChart
+          [data]="revenueData"
+          [options]="revenueOptions"
+          type="line"
+          style="max-height:260px">
+        </canvas>
+      </div>
+    </div>
+
+    <!-- Sales by Category -->
+    <div class="col-xl-4">
+      <div class="erp-card">
+        <h6 class="fw-bold mb-3">Sales by Category</h6>
+        <canvas baseChart
+          [data]="categoryData"
+          [options]="categoryOptions"
+          type="doughnut"
+          style="max-height:260px">
+        </canvas>
+      </div>
+    </div>
+
+    <!-- Stock Levels -->
+    <div class="col-xl-6">
+      <div class="erp-card">
+        <h6 class="fw-bold mb-3">Stock Levels by Category</h6>
+        <canvas baseChart
+          [data]="stockData"
+          [options]="stockOptions"
+          type="bar"
+          style="max-height:240px">
+        </canvas>
+      </div>
+    </div>
+
+    <!-- Top Products -->
+    <div class="col-xl-6">
+      <div class="erp-card">
+        <h6 class="fw-bold mb-3">Top Selling Products</h6>
+        <canvas baseChart
+          [data]="topProductsData"
+          [options]="topProductsOptions"
+          type="bar"
+          style="max-height:240px">
+        </canvas>
+      </div>
+    </div>
+  </div>
+</div>

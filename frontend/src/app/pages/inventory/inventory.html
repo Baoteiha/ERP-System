@@ -1,0 +1,362 @@
+<div>
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="page-title">Inventory Overview</h1>
+      <p class="page-subtitle">Summary of stock levels, values, and alerts</p>
+    </div>
+  </div>
+
+  @if (loading) {
+    <div style="text-align:center;padding:4rem;color:var(--text-muted)">
+      <div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div>
+      <div style="margin-top:8px;font-size:0.85rem">Loading inventory...</div>
+    </div>
+  } @else if (error) {
+    <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 16px;font-size:0.85rem;color:#DC2626">
+      <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
+    </div>
+  } @else {
+
+    <!-- KPI Cards -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-6 col-xl-3">
+        <div class="kpi-card d-flex align-items-start justify-content-between">
+          <div>
+            <div class="kpi-label">Total Products</div>
+            <div class="kpi-value mt-1">{{ totalProducts }}</div>
+            <div class="kpi-change up"><i class="bi bi-arrow-up-right"></i> across all categories</div>
+          </div>
+          <div class="kpi-icon blue"><i class="bi bi-box-seam"></i></div>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <div class="kpi-card d-flex align-items-start justify-content-between">
+          <div>
+            <div class="kpi-label">Inventory Value</div>
+            <div class="kpi-value mt-1">₫{{ totalValue.toLocaleString() }}</div>
+            <div class="kpi-change up"><i class="bi bi-arrow-up-right"></i> total stock value</div>
+          </div>
+          <div class="kpi-icon green"><i class="bi bi-currency-exchange"></i></div>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <div class="kpi-card d-flex align-items-start justify-content-between">
+          <div>
+            <div class="kpi-label">Low Stock</div>
+            <div class="kpi-value mt-1">{{ lowStockItems.length }}</div>
+            <div class="kpi-change" [class.down]="lowStockItems.length > 0" [class.up]="lowStockItems.length === 0">
+              <i class="bi" [class.bi-arrow-down-right]="lowStockItems.length > 0" [class.bi-arrow-up-right]="lowStockItems.length === 0"></i>
+              items need restocking
+            </div>
+          </div>
+          <div class="kpi-icon orange"><i class="bi bi-exclamation-triangle"></i></div>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <div class="kpi-card d-flex align-items-start justify-content-between">
+          <div>
+            <div class="kpi-label">Out of Stock</div>
+            <div class="kpi-value mt-1">{{ outOfStockItems.length }}</div>
+            <div class="kpi-change" [class.down]="outOfStockItems.length > 0" [class.up]="outOfStockItems.length === 0">
+              <i class="bi" [class.bi-arrow-down-right]="outOfStockItems.length > 0" [class.bi-arrow-up-right]="outOfStockItems.length === 0"></i>
+              items unavailable
+            </div>
+          </div>
+          <div class="kpi-icon" style="background:#FEE2E2;color:#EF4444"><i class="bi bi-slash-circle"></i></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+
+      <!-- Low Stock Alerts -->
+      <div class="col-xl-8">
+        <div class="erp-card h-100">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="fw-bold mb-0">Low Stock Alerts</h6>
+            @if (lowStockItems.length > 0) {
+              <span class="badge-pending">{{ lowStockItems.length }} items</span>
+            } @else {
+              <span class="badge-active">All stocked</span>
+            }
+          </div>
+          @if (lowStockItems.length === 0) {
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem">
+              <i class="bi bi-check-circle" style="font-size:1.5rem;color:#3A8C4A;display:block;margin-bottom:8px"></i>
+              No low stock items
+            </div>
+          } @else {
+            <table class="erp-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Stock / Min</th>
+                  <th>Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of lowStockItems; track p._id) {
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;font-size:0.875rem">{{ p.name }}</div>
+                      <div style="font-family:monospace;font-size:0.72rem;color:var(--text-muted)">{{ p.sku }}</div>
+                    </td>
+                    <td style="color:var(--text-muted);font-size:0.82rem">{{ p.category || p.productType?.name || '—' }}</td>
+                    <td>
+                      <span style="font-weight:700;color:#F4871E">{{ p.stock }}</span>
+                      <span style="color:var(--text-muted);font-size:0.8rem"> / {{ p.lowStockThreshold }} {{ p.unit }}</span>
+                    </td>
+                    <td style="min-width:100px">
+                      <div style="background:#F3F4F6;border-radius:99px;height:6px;overflow:hidden">
+                        <div [style.width.%]="stockPercent(p)" [style.background]="stockBarColor(p)" style="height:100%;border-radius:99px;transition:width 0.3s"></div>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </div>
+
+      <!-- Category Breakdown -->
+      <div class="col-xl-4">
+        <div class="erp-card h-100">
+          <h6 class="fw-bold mb-3">By Category</h6>
+          @if (categoryBreakdown.length === 0) {
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem">No data</div>
+          } @else {
+            <div style="display:flex;flex-direction:column;gap:10px">
+              @for (cat of categoryBreakdown; track cat.name) {
+                <div>
+                  <div class="d-flex justify-content-between align-items-center mb-1" style="font-size:0.82rem">
+                    <span style="text-transform:capitalize">{{ cat.name.replace('_', ' ') }}</span>
+                    <span style="font-weight:600;color:var(--text-muted)">{{ cat.count }}</span>
+                  </div>
+                  <div style="background:#F3F4F6;border-radius:99px;height:5px;overflow:hidden">
+                    <div [style.width.%]="(cat.count / totalProducts) * 100" style="height:100%;background:var(--primary);border-radius:99px"></div>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+
+      <!-- Top Products by Value -->
+      <div class="col-xl-8">
+        <div class="erp-card">
+          <h6 class="fw-bold mb-3">Top Products by Stock Value</h6>
+          @if (topValueProducts.length === 0) {
+            <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem">No products</div>
+          } @else {
+            <table class="erp-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Price</th>
+                  <th>Stock</th>
+                  <th>Total Value</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of topValueProducts; track p._id) {
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;font-size:0.875rem">{{ p.name }}</div>
+                      <div style="font-family:monospace;font-size:0.72rem;color:var(--text-muted)">{{ p.sku }}</div>
+                    </td>
+                    <td style="color:var(--text-muted)">₫{{ p.price.toLocaleString() }}</td>
+                    <td style="font-weight:600">{{ p.stock }} <span style="font-size:0.75rem;color:var(--text-muted)">{{ p.unit }}</span></td>
+                    <td style="font-weight:700;color:var(--primary)">₫{{ (p.price * p.stock).toLocaleString() }}</td>
+                    <td>
+                      <span [class]="p.status === 'active' ? 'badge-active' : p.status === 'inactive' ? 'badge-inactive' : 'badge-pending'">
+                        {{ p.status }}
+                      </span>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </div>
+
+      <!-- Stock Status -->
+      <div class="col-xl-4">
+        <div class="erp-card">
+          <h6 class="fw-bold mb-3">Product Status</h6>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            @for (s of statusBreakdown; track s.label) {
+              <div class="d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                  <div style="width:10px;height:10px;border-radius:50%" [style.background]="s.color"></div>
+                  <span style="font-size:0.85rem">{{ s.label }}</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span style="font-weight:700;font-size:0.95rem">{{ s.count }}</span>
+                  <span style="font-size:0.78rem;color:var(--text-muted)">
+                    ({{ totalProducts > 0 ? ((s.count / totalProducts) * 100).toFixed(0) : 0 }}%)
+                  </span>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (outOfStockItems.length > 0) {
+            <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+              <div class="fw-bold mb-2" style="font-size:0.82rem;color:#EF4444">
+                <i class="bi bi-slash-circle me-1"></i>Out of Stock Items
+              </div>
+              @for (p of outOfStockItems; track p._id) {
+                <div style="font-size:0.8rem;padding:4px 0;border-bottom:1px solid var(--border);color:var(--text-muted)">
+                  {{ p.name }}
+                  <span style="font-family:monospace;font-size:0.72rem;margin-left:6px">{{ p.sku }}</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Product Types -->
+    <div class="row g-3 mt-0">
+      <div class="col-12">
+        <div class="erp-card">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="fw-bold mb-0">Product Types</h6>
+            <span style="font-size:0.8rem;color:var(--text-muted)">{{ productTypes.length }} types defined</span>
+          </div>
+
+          <div class="row g-3">
+            <!-- Existing types list -->
+            <div class="col-xl-8">
+              @if (productTypes.length === 0) {
+                <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem">
+                  No product types yet. Create one to get started.
+                </div>
+              } @else {
+                <table class="erp-table">
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Description</th>
+                      <th>Products</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (t of productTypes; track t._id) {
+                      <tr>
+                        <td>
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="kpi-icon blue" style="width:28px;height:28px;min-width:28px;border-radius:7px;font-size:0.8rem">
+                              <i class="bi {{ t.icon }}"></i>
+                            </div>
+                            <span style="font-weight:600;font-size:0.875rem">{{ t.name }}</span>
+                          </div>
+                        </td>
+                        <td style="color:var(--text-muted);font-size:0.82rem">{{ t.description || '—' }}</td>
+                        <td>
+                          <span style="font-weight:600">{{ productCountForType(t._id) }}</span>
+                          <span style="font-size:0.78rem;color:var(--text-muted)"> products</span>
+                        </td>
+                        <td>
+                          <button
+                            (click)="deleteProductType(t._id)"
+                            class="btn btn-sm"
+                            style="padding:3px 8px;border:1px solid #FECACA;color:#EF4444;font-size:0.75rem;background:white"
+                            [disabled]="productCountForType(t._id) > 0"
+                            [title]="productCountForType(t._id) > 0 ? 'Cannot delete: type is in use' : 'Delete type'"
+                          >
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </div>
+
+            <!-- Create form -->
+            <div class="col-xl-4">
+              <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px">
+                <div style="font-weight:600;font-size:0.85rem;margin-bottom:12px">New Product Type</div>
+                @if (typeFormError) {
+                  <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:8px 12px;font-size:0.8rem;color:#DC2626;margin-bottom:10px">
+                    {{ typeFormError }}
+                  </div>
+                }
+                <div class="mb-2">
+                  <input
+                    [(ngModel)]="newTypeName"
+                    type="text"
+                    class="form-control form-control-sm"
+                    placeholder="Type name (e.g. Food, Equipment)"
+                    style="border-color:var(--border)"
+                  >
+                </div>
+                <div class="mb-2">
+                  <input
+                    [(ngModel)]="newTypeDescription"
+                    type="text"
+                    class="form-control form-control-sm"
+                    placeholder="Description (optional)"
+                    style="border-color:var(--border)"
+                  >
+                </div>
+                <div class="mb-3">
+                  <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:6px">Icon</div>
+                  <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:4px">
+                    @for (icon of iconOptions; track icon) {
+                      <button
+                        type="button"
+                        (click)="newTypeIcon = icon"
+                        class="btn btn-sm"
+                        [style.background]="newTypeIcon === icon ? 'var(--primary)' : 'var(--bg)'"
+                        [style.color]="newTypeIcon === icon ? 'white' : 'var(--text-muted)'"
+                        [style.border]="newTypeIcon === icon ? '1px solid var(--primary)' : '1px solid var(--border)'"
+                        style="padding:5px;font-size:0.85rem;border-radius:6px"
+                        [title]="icon"
+                      >
+                        <i class="bi {{ icon }}"></i>
+                      </button>
+                    }
+                  </div>
+                  <div class="d-flex align-items-center gap-2 mt-2">
+                    <div class="kpi-icon blue" style="width:26px;height:26px;min-width:26px;border-radius:6px;font-size:0.78rem">
+                      <i class="bi {{ newTypeIcon }}"></i>
+                    </div>
+                    <span style="font-size:0.78rem;color:var(--text-muted)">{{ newTypeIcon }}</span>
+                  </div>
+                </div>
+                <button
+                  (click)="createProductType()"
+                  class="btn btn-primary btn-sm w-100"
+                  [disabled]="!newTypeName.trim() || typeFormLoading"
+                >
+                  @if (typeFormLoading) {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                  } @else {
+                    <i class="bi bi-plus-lg me-1"></i>
+                  }
+                  Create Type
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  }
+</div>

@@ -1,0 +1,35 @@
+<div>
+  <div class="mb-4">
+    <h1 class="page-title">Settings & Access Control</h1>
+    <p class="page-subtitle">Manage roles and permissions</p>
+  </div>
+  <div class="erp-card">
+    <h6 class="fw-bold mb-3">Role Permissions</h6>
+    <table class="erp-table">
+      <thead>
+        <tr>
+          <th>Role</th>
+          @for (perm of permissions; track perm) {
+            <th style="text-align:center">{{ perm }}</th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (role of roles; track role.name) {
+          <tr>
+            <td style="font-weight:600">{{ role.name }}</td>
+            @for (perm of permissions; track perm) {
+              <td style="text-align:center">
+                @if (role.access.includes(perm)) {
+                  <i class="bi bi-check-circle-fill" style="color:var(--primary)"></i>
+                } @else {
+                  <i class="bi bi-x-circle" style="color:var(--border)"></i>
+                }
+              </td>
+            }
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>
