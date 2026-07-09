@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/erpcafe
+    username: erpcafe
+    password: erpcafe
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8090
+  error:
+    include-stacktrace: always
+
+app:
+  security:
+    jwt:
+      secret: dev-erp-cafe-jwt-secret-change-me-in-production-0123456789
+    bootstrap:
+      admin-email: admin@esscafe.vn
+      admin-password: admin1234
+
+logging:
+  level:
+    vn.essvn.erpcafe: DEBUG
+    org.hibernate.SQL: DEBUG

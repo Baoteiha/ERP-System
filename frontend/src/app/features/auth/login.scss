@@ -1,0 +1,30 @@
+:host { display: block; height: 100%; }
+.auth-wrap { display: grid; grid-template-columns: 1.1fr 1fr; height: 100vh; }
+
+.auth-art {
+  background:
+    radial-gradient(120% 90% at 15% 10%, rgba(234,88,12,.35), transparent 55%),
+    radial-gradient(100% 90% at 90% 90%, rgba(109,40,217,.28), transparent 50%),
+    var(--nav-bg);
+  color: #fff; display: flex; align-items: center; padding: 3rem;
+}
+.art-inner { max-width: 400px; }
+.art-logo { font-size: 46px; margin-bottom: 1rem; }
+.art-inner h1 { font-size: 34px; margin-bottom: 1rem; letter-spacing: -.02em; }
+.art-inner p { color: rgba(255,255,255,.72); font-size: 15px; line-height: 1.65; }
+.art-list { list-style: none; padding: 0; margin: 2rem 0 0; }
+.art-list li { color: rgba(255,255,255,.6); padding: .35rem 0; font-size: 13.5px; }
+
+.auth-form { display: flex; align-items: center; justify-content: center; padding: 2rem; background: var(--bg); }
+.auth-card { width: 100%; max-width: 380px; }
+.auth-card h2 { font-size: 24px; }
+.auth-card > .soft { margin: .3rem 0 1.8rem; }
+.auth-error { background: var(--red-soft); color: var(--red); padding: .7rem .9rem;
+  border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 1rem; font-weight: 500; }
+.hint-line { text-align: center; margin-top: 1.4rem; color: var(--text-muted); font-size: 12px; }
+.hint-line code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
+
+@media (max-width: 780px) {
+  .auth-wrap { grid-template-columns: 1fr; }
+  .auth-art { display: none; }
+}

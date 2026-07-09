@@ -1,0 +1,25 @@
+# Test profile. The datasource is supplied at runtime by the Testcontainers
+# Postgres container (see AbstractIntegrationTest); everything else mirrors dev
+# but quiet.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+
+app:
+  security:
+    jwt:
+      access-token-ttl: 15m
+      refresh-token-ttl: 30d
+      secret: test-erp-cafe-jwt-secret-key-for-tests-0123456789
+    bootstrap:
+      admin-email: admin@esscafe.vn
+      admin-password: admin1234
+
+logging:
+  level:
+    vn.essvn.erpcafe: INFO
+    org.hibernate.SQL: WARN

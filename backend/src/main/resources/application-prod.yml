@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    show-sql: false
+
+server:
+  error:
+    include-stacktrace: never
+
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+    bootstrap:
+      admin-email: ${ADMIN_EMAIL}
+      admin-password: ${ADMIN_PASSWORD}
+
+logging:
+  level:
+    vn.essvn.erpcafe: INFO
