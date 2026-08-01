@@ -104,16 +104,17 @@ export interface AddModifierRequest {
 
 /* ---- inventory -------------------------------------------------------- */
 export interface IngredientResponse {
-  id: UUID; companyId: UUID; name: string; baseUnit: string; category?: string; active: boolean;
+  id: UUID; companyId: UUID; name: string; baseUnit: string; category?: string; active: boolean; version: number;
 }
-export interface IngredientRequest { name: string; baseUnit: string; category?: string; active?: boolean; }
+// version echoes the loaded value on update so the server can reject stale-form edits (409).
+export interface IngredientRequest { name: string; baseUnit: string; category?: string; active?: boolean; version?: number; }
 
 export interface SupplierResponse {
   id: UUID; companyId: UUID; name: string; contactPhone?: string; contactEmail?: string;
-  address?: string; active: boolean;
+  address?: string; active: boolean; version: number;
 }
 export interface SupplierRequest {
-  name: string; contactPhone?: string; contactEmail?: string; address?: string; active?: boolean;
+  name: string; contactPhone?: string; contactEmail?: string; address?: string; active?: boolean; version?: number;
 }
 
 export interface StockItemResponse {

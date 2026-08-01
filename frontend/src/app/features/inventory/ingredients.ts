@@ -202,7 +202,7 @@ export class IngredientsComponent {
   }
 
   openNew() { this.form = { name: '', baseUnit: '', category: '', active: true }; this.editing.set({} as IngredientResponse); }
-  openEdit(i: IngredientResponse) { this.form = { id: i.id, name: i.name, baseUnit: i.baseUnit, category: i.category, active: i.active }; this.editing.set(i); }
+  openEdit(i: IngredientResponse) { this.form = { id: i.id, name: i.name, baseUnit: i.baseUnit, category: i.category, active: i.active, version: i.version }; this.editing.set(i); }
 
   save() {
     if (!this.form.name || !this.form.baseUnit) { this.toast.error('Name and base unit are required'); return; }

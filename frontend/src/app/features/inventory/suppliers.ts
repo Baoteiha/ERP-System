@@ -144,7 +144,7 @@ export class SuppliersComponent {
   }
 
   openNew() { this.form = { name: '', contactPhone: '', contactEmail: '', address: '', active: true }; this.editing.set({} as SupplierResponse); }
-  openEdit(s: SupplierResponse) { this.form = { id: s.id, name: s.name, contactPhone: s.contactPhone, contactEmail: s.contactEmail, address: s.address, active: s.active }; this.editing.set(s); }
+  openEdit(s: SupplierResponse) { this.form = { id: s.id, name: s.name, contactPhone: s.contactPhone, contactEmail: s.contactEmail, address: s.address, active: s.active, version: s.version }; this.editing.set(s); }
 
   save() {
     if (!this.form.name) { this.toast.error('Supplier name is required'); return; }
