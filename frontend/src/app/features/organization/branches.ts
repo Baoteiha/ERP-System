@@ -5,18 +5,19 @@ import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
+import { IconComponent } from '../../shared/icon';
 import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/models';
 
 @Component({
   selector: 'app-branches',
   standalone: true,
-  imports: [FormsModule, ModalComponent],
+  imports: [FormsModule, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
         <div><h1>Branches</h1><div class="sub">Physical outlets. A branch id scopes all operational data.</div></div>
         @if (auth.can('branch:write')) {
-          <button class="btn btn-primary" (click)="openNew()">＋ New branch</button>
+          <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New branch</button>
         }
       </div>
 
@@ -25,11 +26,12 @@ import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/model
         @else {
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>Name</th><th>Code</th><th>Address</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+              <caption class="sr-only">Branches with code, address, phone and status</caption>
+              <thead><tr><th scope="col">Name</th><th scope="col">Code</th><th scope="col">Address</th><th scope="col">Phone</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 @for (b of items(); track b.id) {
                   <tr>
-                    <td><b>{{ b.name }}</b></td>
+                    <td><span class="name-cell"><span class="mini-coin" aria-hidden="true"><app-icon name="store" [size]="14" /></span><b>{{ b.name }}</b></span></td>
                     <td><span class="badge badge-gray">{{ b.code }}</span></td>
                     <td class="soft">{{ b.address || '—' }}</td>
                     <td class="soft">{{ b.phone || '—' }}</td>
@@ -41,11 +43,11 @@ import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/model
                     <td class="row-actions">
                       @if (auth.can('branch:write')) {
                         <button class="btn btn-sm btn-ghost" (click)="openEdit(b)">Edit</button>
-                        <button class="btn btn-sm btn-ghost" (click)="remove(b)">🗑</button>
+                        <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(b)" [attr.aria-label]="'Delete ' + b.name"><app-icon name="trash" [size]="16" /></button>
                       }
                     </td>
                   </tr>
-                } @empty { <tr><td colspan="6"><div class="empty"><div class="big">📍</div>No branches yet</div></td></tr> }
+                } @empty { <tr><td colspan="6"><div class="empty"><div class="big"><app-icon name="pin" [size]="30" /></div>No branches yet</div></td></tr> }
               </tbody>
             </table>
           </div>
@@ -56,21 +58,21 @@ import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/model
     @if (editing()) {
       <app-modal [title]="form.id ? 'Edit branch' : 'New branch'" (close)="editing.set(null)">
         <div class="field">
-          <label>Company</label>
-          <select class="select" [(ngModel)]="form.companyId">
+          <label for="br-company">Company <span class="req" aria-hidden="true">*</span></label>
+          <select id="br-company" class="select" [(ngModel)]="form.companyId" required>
             <option value="" disabled>Select company…</option>
             @for (c of companies(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
           </select>
         </div>
         <div class="two-col">
-          <div class="field"><label>Name</label><input class="input" [(ngModel)]="form.name" placeholder="Downtown" /></div>
-          <div class="field"><label>Code</label><input class="input" [(ngModel)]="form.code" placeholder="DT01" maxlength="32" /></div>
+          <div class="field"><label for="br-name">Name <span class="req" aria-hidden="true">*</span></label><input id="br-name" class="input" [(ngModel)]="form.name" placeholder="Downtown" required /></div>
+          <div class="field"><label for="br-code">Code <span class="req" aria-hidden="true">*</span></label><input id="br-code" class="input" [(ngModel)]="form.code" placeholder="DT01" maxlength="32" required /></div>
         </div>
-        <div class="field"><label>Address</label><input class="input" [(ngModel)]="form.address" /></div>
+        <div class="field"><label for="br-address">Address</label><input id="br-address" class="input" [(ngModel)]="form.address" /></div>
         <div class="two-col">
-          <div class="field"><label>Phone</label><input class="input" [(ngModel)]="form.phone" /></div>
-          <div class="field"><label>Status</label>
-            <label class="checkbox" style="height:40px"><input type="checkbox" [(ngModel)]="form.active" /> Active</label>
+          <div class="field"><label for="br-phone">Phone</label><input id="br-phone" class="input" [(ngModel)]="form.phone" /></div>
+          <div class="field"><label for="br-active">Status</label>
+            <label class="checkbox status-check"><input id="br-active" type="checkbox" [(ngModel)]="form.active" /> Active</label>
           </div>
         </div>
         <div footer>
@@ -82,7 +84,10 @@ import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/model
       </app-modal>
     }
   `,
-  styles: [`.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }`],
+  styles: [`
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+    .status-check { height: 40px; }
+  `],
 })
 export class BranchesComponent {
   auth = inject(AuthService);

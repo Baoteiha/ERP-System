@@ -91,4 +91,12 @@ public class UserService {
                 })
                 .orElseGet(() -> accessRepository.save(new UserBranchAccess(userId, branchId, roleId)));
     }
+
+    /** Revokes a user's access at a branch. */
+    public void revokeAccess(UUID userId, UUID branchId) {
+        UserBranchAccess access = accessRepository.findByUserIdAndBranchId(userId, branchId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "User " + userId + " has no access at branch " + branchId));
+        accessRepository.delete(access);
+    }
 }

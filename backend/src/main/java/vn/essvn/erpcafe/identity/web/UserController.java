@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -70,5 +71,12 @@ public class UserController {
     public BranchAccessResponse grant(@PathVariable UUID id, @Valid @RequestBody GrantAccessRequest request) {
         UserBranchAccess granted = userService.grantAccess(id, request.branchId(), request.roleId());
         return new BranchAccessResponse(granted.getBranchId(), granted.getRoleId());
+    }
+
+    @DeleteMapping("/{id}/access/{branchId}")
+    @PreAuthorize("hasAuthority('user:write')")
+    public ResponseEntity<Void> revoke(@PathVariable UUID id, @PathVariable UUID branchId) {
+        userService.revokeAccess(id, branchId);
+        return ResponseEntity.noContent().build();
     }
 }

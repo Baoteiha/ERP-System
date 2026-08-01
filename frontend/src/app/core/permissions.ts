@@ -29,6 +29,36 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'sales:write', desc: 'Create orders, take payments, complete' },
     { key: 'sales:refund', desc: 'Void and refund orders' },
   ]},
+  { label: 'Staff', perms: [
+    { key: 'staff:read', desc: 'View employees and shifts' },
+    { key: 'staff:write', desc: 'Manage employees and schedule shifts' },
+    { key: 'staff:clock', desc: 'Clock shifts in and out' },
+  ]},
+  { label: 'Insights', perms: [
+    { key: 'report:read', desc: 'View reports and analytics' },
+  ]},
 ];
 
 export const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap((g) => g.perms.map((p) => p.key));
+
+/** Plain-language names for permission domains, for non-technical readers. */
+export const DOMAIN_LABELS: Record<string, string> = {
+  company: 'Companies',
+  branch: 'Branches',
+  user: 'Users',
+  role: 'Roles',
+  catalog: 'Menu & catalog',
+  inventory: 'Inventory',
+  purchasing: 'Purchasing',
+  sales: 'Sales',
+  staff: 'Staff',
+  report: 'Reports',
+};
+
+/** Plain-language names for permission actions. */
+export const ACTION_LABELS: Record<string, string> = {
+  read: 'view',
+  write: 'manage',
+  refund: 'refund',
+  clock: 'clock in/out',
+};

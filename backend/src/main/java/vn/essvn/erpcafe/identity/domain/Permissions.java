@@ -27,6 +27,10 @@ public final class Permissions {
     public static final String SALES_READ = "sales:read";
     public static final String SALES_WRITE = "sales:write";
     public static final String SALES_REFUND = "sales:refund";
+    public static final String STAFF_READ = "staff:read";
+    public static final String STAFF_WRITE = "staff:write";
+    public static final String STAFF_CLOCK = "staff:clock";
+    public static final String REPORT_READ = "report:read";
 
     /** name → human description; iterated when syncing the permission table. */
     public static final Map<String, String> CATALOG = Map.ofEntries(
@@ -46,7 +50,11 @@ public final class Permissions {
             Map.entry(PURCHASING_WRITE, "Create/manage purchase orders and receiving"),
             Map.entry(SALES_READ, "View orders"),
             Map.entry(SALES_WRITE, "Create orders, take payments, complete"),
-            Map.entry(SALES_REFUND, "Void and refund orders"));
+            Map.entry(SALES_REFUND, "Void and refund orders"),
+            Map.entry(STAFF_READ, "View employees and shifts"),
+            Map.entry(STAFF_WRITE, "Manage employees and schedule shifts"),
+            Map.entry(STAFF_CLOCK, "Clock shifts in and out"),
+            Map.entry(REPORT_READ, "View reports and analytics"));
 
     public static final List<String> ALL = List.copyOf(CATALOG.keySet());
 

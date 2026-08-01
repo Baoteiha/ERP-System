@@ -1,4 +1,4 @@
-import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { HttpContextToken, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { BehaviorSubject, catchError, filter, switchMap, take, throwError } from 'rxjs';
@@ -8,6 +8,8 @@ import { ProblemDetail } from './models';
 
 const AUTH_FREE = ['/auth/login', '/auth/refresh', '/auth/logout'];
 const isAuthFree = (url: string) => AUTH_FREE.some((p) => url.includes(p));
+
+export const SUPPRESS_ERROR_TOAST = new HttpContextToken<boolean>(() => false);
 
 /** Attach bearer token + X-Branch-Id to outgoing API calls. */
 export const authHeaderInterceptor: HttpInterceptorFn = (req, next) => {
@@ -58,6 +60,10 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             return throwError(() => refreshErr);
           }),
         );
+      }
+
+      if (req.context.get(SUPPRESS_ERROR_TOAST)) {
+        return throwError(() => err);
       }
 
       if (err.status === 0) {

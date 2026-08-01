@@ -87,6 +87,15 @@ public class BranchService implements OrganizationApi {
         return branchRepository.findById(branchId).map(Branch::isActive).orElse(false);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<BranchDto> listActiveBranches() {
+        return branchRepository.findAll().stream()
+                .filter(Branch::isActive)
+                .map(branchMapper::toDto)
+                .toList();
+    }
+
     private void apply(Branch branch, BranchRequest request) {
         branch.setName(request.name());
         branch.setAddress(request.address());

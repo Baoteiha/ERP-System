@@ -25,14 +25,20 @@ public enum DefaultRole {
             Permissions.PURCHASING_WRITE,
             Permissions.SALES_READ,
             Permissions.SALES_WRITE,
-            Permissions.SALES_REFUND)),
+            Permissions.SALES_REFUND,
+            Permissions.STAFF_READ,
+            Permissions.STAFF_WRITE,
+            Permissions.STAFF_CLOCK,
+            Permissions.REPORT_READ)),
 
     CASHIER("Point of sale", Set.of(
             Permissions.BRANCH_READ,
             Permissions.CATALOG_READ,
             Permissions.INVENTORY_READ,
             Permissions.SALES_READ,
-            Permissions.SALES_WRITE)); // cashier can sell but NOT refund/void
+            Permissions.SALES_WRITE, // cashier can sell but NOT refund/void
+            Permissions.STAFF_READ,  // sees the schedule…
+            Permissions.STAFF_CLOCK)); // …and can punch in/out, but cannot edit it
 
     private final String description;
     private final Set<String> permissions;

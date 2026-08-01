@@ -9,16 +9,17 @@ import { OrderResponse, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
+import { IconComponent } from '../../shared/icon';
 
 @Component({
   selector: 'app-orders',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, MoneyPipe, ShortIdPipe, ModalComponent],
+  imports: [FormsModule, RouterLink, DatePipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
         <div><h1>Orders</h1><div class="sub">Sales history and order lifecycle controls for the active branch.</div></div>
-        <button class="btn btn-primary" routerLink="/pos">Open POS</button>
+        <button class="btn btn-primary" routerLink="/pos"><app-icon name="basket" [size]="16" /> Open POS</button>
       </div>
 
       <div class="split">
@@ -27,18 +28,19 @@ import { ModalComponent } from '../../shared/modal';
           @else {
             <div class="table-wrap">
               <table class="data">
-                <thead><tr><th>Order</th><th>Created</th><th>Type</th><th>Status</th><th>Total</th><th>Paid</th></tr></thead>
+                <caption class="sr-only">Orders with creation time, type, status, total and amount paid</caption>
+                <thead><tr><th scope="col">Order</th><th scope="col">Created</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col">Paid</th></tr></thead>
                 <tbody>
                   @for (o of orders(); track o.id) {
                     <tr (click)="select(o)" [class.row-selected]="selected()?.id === o.id">
-                      <td><b>{{ o.id | shortId }}</b><div class="soft">{{ o.lines.length }} line(s)</div></td>
+                      <td><button type="button" class="row-open" (click)="select(o)"><b>{{ o.id | shortId }}</b></button><div class="soft">{{ o.lines.length }} line(s)</div></td>
                       <td>{{ o.createdAt | date:'short' }}</td>
                       <td>{{ o.orderType }}</td>
                       <td><span class="badge" [class]="statusClass(o.status)">{{ o.status }}</span></td>
                       <td>{{ o.grandTotal | money:o.currency }}</td>
                       <td>{{ o.amountPaid | money:o.currency }}</td>
                     </tr>
-                  } @empty { <tr><td colspan="6"><div class="empty"><div class="big">☕</div>No orders yet</div></td></tr> }
+                  } @empty { <tr><td colspan="6"><div class="empty"><div class="big"><app-icon name="receipt" [size]="30" /></div>No orders yet</div></td></tr> }
                 </tbody>
               </table>
             </div>
@@ -47,6 +49,8 @@ import { ModalComponent } from '../../shared/modal';
 
         <div class="card detail">
           @if (selected(); as o) {
+            <div class="thermal thermal-edge thermal-edge-top o-slip">
+            @if (stampColor(o.status); as c) { <span class="stamp stamp-in o-stamp" [style.color]="c" aria-hidden="true">{{ o.status }}</span> }
             <div class="detail-title">
               <div><h2>{{ o.id | shortId }}</h2><div class="sub">{{ o.createdAt | date:'medium' }}</div></div>
               <span class="badge" [class]="statusClass(o.status)">{{ o.status }}</span>
@@ -77,6 +81,7 @@ import { ModalComponent } from '../../shared/modal';
             @for (p of o.payments; track p.at + p.method + p.type) {
               <div class="payment-row"><span>{{ p.method }} · {{ p.type }}</span><b>{{ p.amount | money:o.currency }}</b></div>
             } @empty { <div class="soft">No payments yet</div> }
+            </div>
 
             @if (auth.can('sales:write')) {
               <div class="action-bar">
@@ -84,13 +89,13 @@ import { ModalComponent } from '../../shared/modal';
                   <button class="btn btn-outline" (click)="openPayment(o)">Add payment</button>
                   <button class="btn btn-outline" (click)="cancel(o)">Cancel</button>
                 }
-                @if (o.status === 'PAID') { <button class="btn btn-primary" (click)="complete(o)">Complete</button> }
-                @if (auth.can('sales:refund') && (o.status === 'PAID' || o.status === 'COMPLETED')) { <button class="btn btn-outline" (click)="refund(o)">Refund</button> }
-                @if (auth.can('sales:refund') && o.status === 'PAID') { <button class="btn btn-outline" (click)="voidOrder(o)">Void</button> }
+                @if (o.status === 'PAID') { <button class="btn btn-primary" (click)="complete(o)" [disabled]="saving()">Complete</button> }
+                @if (auth.can('sales:refund') && (o.status === 'PAID' || o.status === 'COMPLETED')) { <button class="btn btn-outline" (click)="refund(o)" [disabled]="saving()">Refund</button> }
+                @if (auth.can('sales:refund') && o.status === 'PAID') { <button class="btn btn-outline" (click)="voidOrder(o)" [disabled]="saving()">Void</button> }
               </div>
             }
           } @else {
-            <div class="empty"><div class="big">🧾</div>Select an order</div>
+            <div class="empty"><div class="big"><app-icon name="receipt" [size]="30" /></div>Select an order</div>
           }
         </div>
       </div>
@@ -99,14 +104,14 @@ import { ModalComponent } from '../../shared/modal';
     @if (paying(); as o) {
       <app-modal [title]="'Add payment to ' + (o.id | shortId)" (close)="paying.set(null)">
         <div class="field">
-          <label>Method</label>
-          <select class="input" [(ngModel)]="payment.method">
+          <label for="ord-method">Method</label>
+          <select id="ord-method" class="select" [(ngModel)]="payment.method">
             <option value="CASH">Cash</option>
             <option value="CARD">Card</option>
             <option value="EWALLET">E-wallet</option>
           </select>
         </div>
-        <div class="field"><label>Amount</label><input class="input" type="number" min="0" [(ngModel)]="payment.amount" /></div>
+        <div class="field"><label for="ord-amount">Amount</label><input id="ord-amount" class="input" type="number" min="0" [(ngModel)]="payment.amount" /></div>
         <div footer>
           <button class="btn btn-outline" (click)="paying.set(null)">Cancel</button>
           <button class="btn btn-primary" (click)="addPayment()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Add payment</button>
@@ -115,18 +120,35 @@ import { ModalComponent } from '../../shared/modal';
     }
   `,
   styles: [`
-    .split { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 1rem; align-items: start; }
-    .row-selected { background: #eef6ff; }
-    .detail-title { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
-    .detail h2 { margin: 0; font-size: 1.25rem; }
-    .totals { display: grid; gap: .45rem; margin-bottom: 1rem; }
-    .totals > div, .payment-row, .order-line { display: flex; justify-content: space-between; gap: 1rem; }
-    .grand { border-top: 1px solid var(--line); padding-top: .55rem; font-size: 1.05rem; }
-    .section-title { margin: 1rem 0 .5rem; font-weight: 800; color: var(--ink); }
+    .split { display: grid; grid-template-columns: minmax(560px, 1fr) minmax(420px, 520px); gap: 1.15rem; align-items: start; }
+    table.data tbody tr { cursor: pointer; }
+    .detail .empty { min-height: 320px; }
+    .row-selected, .row-selected:hover { background: var(--azure-soft); box-shadow: inset 3px 0 0 var(--azure); }
+    .detail { padding: 1.3rem; max-height: calc(100vh - 170px); overflow: auto; position: sticky; top: 0; }
+    .detail-title { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1.1rem; }
+    .detail h2 { margin: 0; font-size: 1.3rem; font-family: var(--font-mono); letter-spacing: -.03em; }
+    .totals { display: grid; gap: .5rem; margin-bottom: 1rem; font-size: 14px; }
+    .totals > div, .payment-row { display: flex; justify-content: space-between; gap: 1rem; }
+    .totals span, .payment-row span { color: var(--text-soft); }
+    .grand { border-top: 1px solid var(--hairline); padding-top: .6rem; font-size: 1.1rem; }
+    .grand span { color: var(--text); font-weight: 600; }
+    .grand b { color: var(--brand); }
+    .section-title { margin: 1.2rem 0 .5rem; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .line-list { display: grid; gap: .65rem; }
-    .order-line { align-items: start; padding: .65rem 0; border-bottom: 1px solid var(--line); }
+    .order-line { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(96px, auto); gap: .85rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid var(--hairline); }
+    .order-line > b, .payment-row > b, .totals b { text-align: right; white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
     .action-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
-    @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
+    /* thermal slip accents */
+    .o-slip { margin: 10px 6px 14px; padding: 1rem; box-shadow: 0 2px 6px rgba(40,24,10,.18); }
+    .o-slip .detail-title { flex-direction: column; align-items: center; text-align: center; gap: .4rem; margin-bottom: 1rem; }
+    .o-slip .sub { font-family: var(--font-mono); font-size: 12.5px; color: var(--paper-ink-soft); }
+    .o-stamp { position: absolute; top: 10px; right: 12px; }
+    .o-slip .totals span, .o-slip .payment-row span, .o-slip .section-title { color: var(--paper-ink-soft); }
+    .o-slip .order-line { border-bottom: 1px dashed var(--paper-line); }
+    .o-slip .grand { border-top: 3px double var(--paper-line); }
+    .o-slip .grand span { color: var(--paper-ink); }
+    .o-slip .grand b { color: var(--paper-accent); }
+    @media (max-width: 1120px) { .split { grid-template-columns: 1fr; } .detail { max-height: none; } }
   `],
 })
 export class OrdersComponent {
@@ -158,6 +180,13 @@ export class OrdersComponent {
     if (status === 'CANCELLED' || status === 'VOID' || status === 'REFUNDED') return 'badge-red';
     return 'badge-blue';
   }
+  /* rubber-stamp ink for terminal states only; null suppresses the stamp */
+  stampColor(status: string): string | null {
+    if (status === 'PAID' || status === 'COMPLETED') return '#2e6b34';
+    if (status === 'REFUNDED') return '#8a6116';
+    if (status === 'VOID' || status === 'CANCELLED') return '#963120';
+    return null;
+  }
   refresh(updated: OrderResponse, message: string) {
     this.toast.success(message);
     this.selected.set(updated);
@@ -168,6 +197,7 @@ export class OrdersComponent {
   addPayment() {
     const o = this.paying();
     if (!o) return;
+    if (!(Number(this.payment.amount) > 0)) { this.toast.error('Enter an amount greater than zero.'); return; }
     this.saving.set(true);
     this.api.addPayment(o.id, this.payment).subscribe({
       next: (updated) => { this.saving.set(false); this.paying.set(null); this.refresh(updated, 'Payment added'); },
@@ -175,11 +205,33 @@ export class OrdersComponent {
     });
   }
 
-  complete(o: OrderResponse) { this.api.complete(o.id).subscribe({ next: (updated) => this.refresh(updated, 'Order completed') }); }
+  complete(o: OrderResponse) {
+    this.saving.set(true);
+    this.api.complete(o.id).subscribe({
+      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order completed'); },
+      error: () => this.saving.set(false),
+    });
+  }
   async cancel(o: OrderResponse) {
     const ok = await this.confirm.ask({ title: `Cancel ${o.id.slice(0, 8)}?`, danger: true, confirmText: 'Cancel order' });
     if (ok) this.api.cancel(o.id).subscribe({ next: (updated) => this.refresh(updated, 'Order cancelled') });
   }
-  voidOrder(o: OrderResponse) { this.api.void(o.id, { method: 'CASH' }).subscribe({ next: (updated) => this.refresh(updated, 'Order voided') }); }
-  refund(o: OrderResponse) { this.api.refund(o.id, { method: 'CASH' }).subscribe({ next: (updated) => this.refresh(updated, 'Order refunded') }); }
+  async voidOrder(o: OrderResponse) {
+    const ok = await this.confirm.ask({ title: 'Void this order?', message: `Voids ${o.id.slice(0, 8)} and reverses its payment.`, danger: true, confirmText: 'Void order' });
+    if (!ok) return;
+    this.saving.set(true);
+    this.api.void(o.id, { method: 'CASH' }).subscribe({
+      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order voided'); },
+      error: () => this.saving.set(false),
+    });
+  }
+  async refund(o: OrderResponse) {
+    const ok = await this.confirm.ask({ title: 'Refund this order?', message: `Refunds ${o.id.slice(0, 8)} in full.`, danger: true, confirmText: 'Refund' });
+    if (!ok) return;
+    this.saving.set(true);
+    this.api.refund(o.id, { method: 'CASH' }).subscribe({
+      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order refunded'); },
+      error: () => this.saving.set(false),
+    });
+  }
 }

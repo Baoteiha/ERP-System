@@ -164,3 +164,29 @@ export interface OrderResponse {
   grandTotal: string; cogsTotal: string; amountPaid: string;
   lines: LineResponse[]; payments: PaymentResponse[]; createdAt: string;
 }
+
+/* ---- staff (phase 5) --------------------------------------------------- */
+export interface EmployeeResponse {
+  id: UUID; fullName: string; position?: string; hourlyRate: Money;
+  phone?: string; email?: string; active: boolean;
+}
+export interface EmployeeRequest {
+  fullName: string; position?: string; hourlyRate: string;
+  phone?: string; email?: string; active?: boolean;
+}
+export type ShiftStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export interface ShiftResponse {
+  id: UUID; branchId: UUID; employeeId: UUID; employeeName: string; status: ShiftStatus;
+  scheduledStart: string; scheduledEnd: string; clockInAt?: string; clockOutAt?: string;
+  hourlyRate?: Money; laborCost?: Money; note?: string;
+}
+export interface ShiftRequest { employeeId: UUID; scheduledStart: string; scheduledEnd: string; note?: string; }
+
+/* ---- reporting (phase 6) ------------------------------------------------ */
+export interface PeriodSummary {
+  orderCount: number; grossSales: string; discountTotal: string; taxTotal: string;
+  revenue: string; cogsOrders: string; cogsDepletion: string; laborCost: string;
+  grossMargin: string; netMargin: string;
+}
+export interface DailySales { day: string; orderCount: number; revenue: string; }
+export interface BranchPerformance { branchId: UUID; name: string; code: string; summary: PeriodSummary; }

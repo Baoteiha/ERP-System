@@ -16,6 +16,9 @@ import { StockComponent } from './features/inventory/stock';
 import { PurchaseOrdersComponent } from './features/inventory/purchase-orders';
 import { OrdersComponent } from './features/sales/orders';
 import { PosComponent } from './features/sales/pos';
+import { TeamComponent } from './features/staff/team';
+import { ShiftsComponent } from './features/staff/shifts';
+import { ReportsComponent } from './features/reports/reports';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
@@ -34,6 +37,9 @@ export const routes: Routes = [
       { path: 'inventory/ingredients', component: IngredientsComponent },
       { path: 'inventory/suppliers', component: SuppliersComponent },
       { path: 'inventory/purchase-orders', component: PurchaseOrdersComponent },
+      { path: 'staff/team', component: TeamComponent },
+      { path: 'staff/shifts', component: ShiftsComponent },
+      { path: 'reports', component: ReportsComponent },
       { path: 'org/companies', component: CompaniesComponent },
       { path: 'org/branches', component: BranchesComponent },
       { path: 'org/users', component: UsersComponent },

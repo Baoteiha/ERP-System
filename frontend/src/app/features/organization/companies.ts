@@ -6,18 +6,19 @@ import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
+import { IconComponent } from '../../shared/icon';
 import { CompanyRequest, CompanyResponse } from '../../core/models';
 
 @Component({
   selector: 'app-companies',
   standalone: true,
-  imports: [FormsModule, ModalComponent, DatePipe],
+  imports: [FormsModule, ModalComponent, DatePipe, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
         <div><h1>Companies</h1><div class="sub">Top-level tenants that own branches and master data.</div></div>
         @if (auth.can('company:write')) {
-          <button class="btn btn-primary" (click)="openNew()">＋ New company</button>
+          <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New company</button>
         }
       </div>
 
@@ -26,7 +27,8 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
         @else {
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>Name</th><th>Code</th><th>Created</th><th></th></tr></thead>
+              <caption class="sr-only">Companies with code and creation date</caption>
+              <thead><tr><th scope="col">Name</th><th scope="col">Code</th><th scope="col">Created</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 @for (c of items(); track c.id) {
                   <tr>
@@ -36,11 +38,11 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
                     <td class="row-actions">
                       @if (auth.can('company:write')) {
                         <button class="btn btn-sm btn-ghost" (click)="openEdit(c)">Edit</button>
-                        <button class="btn btn-sm btn-ghost" (click)="remove(c)">🗑</button>
+                        <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(c)" [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="16" /></button>
                       }
                     </td>
                   </tr>
-                } @empty { <tr><td colspan="4"><div class="empty"><div class="big">🏢</div>No companies yet</div></td></tr> }
+                } @empty { <tr><td colspan="4"><div class="empty"><div class="big"><app-icon name="building" [size]="30" /></div>No companies yet</div></td></tr> }
               </tbody>
             </table>
           </div>
@@ -51,12 +53,12 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
     @if (editing()) {
       <app-modal [title]="form.id ? 'Edit company' : 'New company'" (close)="editing.set(null)">
         <div class="field">
-          <label>Name</label>
-          <input class="input" [(ngModel)]="form.name" placeholder="Ess Coffee Co." />
+          <label for="co-name">Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="co-name" class="input" [(ngModel)]="form.name" placeholder="Ess Coffee Co." required />
         </div>
         <div class="field">
-          <label>Code</label>
-          <input class="input" [(ngModel)]="form.code" placeholder="ESS" maxlength="32" />
+          <label for="co-code">Code <span class="req" aria-hidden="true">*</span></label>
+          <input id="co-code" class="input" [(ngModel)]="form.code" placeholder="ESS" maxlength="32" required />
         </div>
         <div footer>
           <button class="btn btn-outline" (click)="editing.set(null)">Cancel</button>

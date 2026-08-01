@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.api;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,4 +15,7 @@ public interface OrganizationApi {
 
     /** Whether the given branch exists and is active. */
     boolean branchExists(UUID branchId);
+
+    /** All active branches — used by reporting for cross-branch comparison. */
+    List<BranchDto> listActiveBranches();
 }

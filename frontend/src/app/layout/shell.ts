@@ -1,8 +1,10 @@
-import { Component, computed, inject, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { OrganizationService } from '../core/api.services';
 import { BranchResponse } from '../core/models';
+import { IconComponent } from '../shared/icon';
 
 interface NavItem { label: string; icon: string; path: string; perms?: string[]; }
 interface NavSection { title: string; items: NavItem[]; }
@@ -10,13 +12,16 @@ interface NavSection { title: string; items: NavItem[]; }
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
   template: `
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="shell" [class.nav-open]="mobileNav()">
       <!-- Sidebar -->
-      <aside class="nav">
+      <aside class="nav" id="app-nav" aria-label="Primary">
         <div class="brand">
-          <span class="logo">☕</span>
+          <span class="logo" aria-hidden="true">
+            <app-icon name="coffee" [size]="22" [stroke]="1.8" />
+          </span>
           <div class="brand-txt"><b>ERP-Cafe</b><small>Coffee operations</small></div>
         </div>
 
@@ -26,9 +31,10 @@ interface NavSection { title: string; items: NavItem[]; }
               <div class="nav-title">{{ section.title }}</div>
               @for (item of section.items; track item.path) {
                 <a [routerLink]="item.path" routerLinkActive="active"
+                   ariaCurrentWhenActive="page"
                    [routerLinkActiveOptions]="{ exact: item.path === '/' }"
                    class="nav-link" (click)="mobileNav.set(false)">
-                  <span class="nav-ic">{{ item.icon }}</span>{{ item.label }}
+                  <span class="nav-ic" aria-hidden="true"><app-icon [name]="item.icon" [size]="19" /></span>{{ item.label }}
                 </a>
               }
             </div>
@@ -43,19 +49,25 @@ interface NavSection { title: string; items: NavItem[]; }
               <small>{{ (auth.me()?.roles || []).join(', ') || '—' }}</small>
             </div>
           </div>
-          <button class="btn btn-sm btn-ghost" (click)="logout()" title="Sign out">⏻</button>
+          <button class="btn btn-sm btn-ghost btn-icon" (click)="logout()" title="Sign out" aria-label="Sign out">
+            <app-icon name="logout" [size]="15" />
+          </button>
         </div>
       </aside>
 
       <!-- Main -->
       <div class="main">
         <header class="topbar">
-          <button class="btn btn-icon btn-ghost hamburger" (click)="mobileNav.set(!mobileNav())">☰</button>
+          <button class="btn btn-icon btn-ghost hamburger" (click)="mobileNav.set(!mobileNav())"
+                  aria-label="Toggle menu" aria-controls="app-nav" [attr.aria-expanded]="mobileNav()">
+            <app-icon name="menu" [size]="18" />
+          </button>
           <div class="spacer"></div>
 
           <div class="branch-switch">
+            <app-icon class="bs-ic" name="pin" [size]="15" aria-hidden="true" />
             <span class="bs-label">Branch</span>
-            <select class="select" [value]="auth.activeBranchId() || ''" (change)="onBranchChange($event)">
+            <select class="select" [value]="auth.activeBranchId() || ''" (change)="onBranchChange($event)" aria-label="Active branch">
               @if (!branches().length) { <option value="">No branches</option> }
               @for (b of branches(); track b.id) {
                 <option [value]="b.id">{{ b.name }}</option>
@@ -64,12 +76,12 @@ interface NavSection { title: string; items: NavItem[]; }
           </div>
         </header>
 
-        <main class="content">
+        <main class="content" id="main-content" tabindex="-1">
           <router-outlet />
         </main>
       </div>
 
-      @if (mobileNav()) { <div class="scrim" (click)="mobileNav.set(false)"></div> }
+      @if (mobileNav()) { <div class="scrim" (click)="mobileNav.set(false)" aria-hidden="true"></div> }
     </div>
   `,
   styleUrl: './shell.scss',
@@ -77,34 +89,42 @@ interface NavSection { title: string; items: NavItem[]; }
 export class ShellComponent {
   auth = inject(AuthService);
   private org = inject(OrganizationService);
+  private router = inject(Router);
 
   mobileNav = signal(false);
   branches = signal<BranchResponse[]>([]);
 
   private readonly sections: NavSection[] = [
     { title: 'Overview', items: [
-      { label: 'Dashboard', icon: '▦', path: '/' },
+      { label: 'Dashboard', path: '/', icon: 'grid' },
     ]},
     { title: 'Point of Sale', items: [
-      { label: 'New Order', icon: '🛒', path: '/pos', perms: ['sales:write'] },
-      { label: 'Orders', icon: '🧾', path: '/orders', perms: ['sales:read'] },
+      { label: 'New Order', path: '/pos', perms: ['sales:write'], icon: 'cart' },
+      { label: 'Orders', path: '/orders', perms: ['sales:read'], icon: 'receipt' },
     ]},
     { title: 'Catalog', items: [
-      { label: 'Products', icon: '🥤', path: '/catalog/products', perms: ['catalog:read'] },
-      { label: 'Categories', icon: '🏷', path: '/catalog/categories', perms: ['catalog:read'] },
-      { label: 'Modifiers', icon: '⚙', path: '/catalog/modifiers', perms: ['catalog:read'] },
+      { label: 'Products', path: '/catalog/products', perms: ['catalog:read'], icon: 'coffee' },
+      { label: 'Categories', path: '/catalog/categories', perms: ['catalog:read'], icon: 'tag' },
+      { label: 'Modifiers', path: '/catalog/modifiers', perms: ['catalog:read'], icon: 'sliders' },
     ]},
     { title: 'Inventory', items: [
-      { label: 'Stock', icon: '📦', path: '/inventory/stock', perms: ['inventory:read'] },
-      { label: 'Ingredients', icon: '🧂', path: '/inventory/ingredients', perms: ['inventory:read'] },
-      { label: 'Suppliers', icon: '🚚', path: '/inventory/suppliers', perms: ['inventory:read'] },
-      { label: 'Purchase Orders', icon: '📋', path: '/inventory/purchase-orders', perms: ['purchasing:read'] },
+      { label: 'Stock', path: '/inventory/stock', perms: ['inventory:read'], icon: 'box' },
+      { label: 'Ingredients', path: '/inventory/ingredients', perms: ['inventory:read'], icon: 'flask' },
+      { label: 'Suppliers', path: '/inventory/suppliers', perms: ['inventory:read'], icon: 'truck' },
+      { label: 'Purchase Orders', path: '/inventory/purchase-orders', perms: ['purchasing:read'], icon: 'clipboard' },
+    ]},
+    { title: 'Staff', items: [
+      { label: 'Team', path: '/staff/team', perms: ['staff:read'], icon: 'users' },
+      { label: 'Shifts', path: '/staff/shifts', perms: ['staff:read'], icon: 'clock' },
+    ]},
+    { title: 'Insights', items: [
+      { label: 'Reports', path: '/reports', perms: ['report:read'], icon: 'trending-up' },
     ]},
     { title: 'Organization', items: [
-      { label: 'Companies', icon: '🏢', path: '/org/companies', perms: ['company:read'] },
-      { label: 'Branches', icon: '📍', path: '/org/branches', perms: ['branch:read'] },
-      { label: 'Users', icon: '👤', path: '/org/users', perms: ['user:read'] },
-      { label: 'Roles', icon: '🔑', path: '/org/roles', perms: ['role:read'] },
+      { label: 'Companies', path: '/org/companies', perms: ['company:read'], icon: 'building' },
+      { label: 'Branches', path: '/org/branches', perms: ['branch:read'], icon: 'pin' },
+      { label: 'Users', path: '/org/users', perms: ['user:read'], icon: 'user' },
+      { label: 'Roles', path: '/org/roles', perms: ['role:read'], icon: 'key' },
     ]},
   ];
 
@@ -127,7 +147,18 @@ export class ShellComponent {
     } else {
       this.loadBranches();
     }
+
+    // Move focus to the content region after in-app navigation so screen
+    // reader and keyboard users land on the new page, not stale nav state.
+    let firstNav = true;
+    this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
+      if (firstNav) { firstNav = false; return; }
+      document.getElementById('main-content')?.focus({ preventScroll: false });
+    });
   }
+
+  @HostListener('document:keydown.escape')
+  onEscape() { if (this.mobileNav()) this.mobileNav.set(false); }
 
   private loadBranches() {
     this.org.listBranches().subscribe({

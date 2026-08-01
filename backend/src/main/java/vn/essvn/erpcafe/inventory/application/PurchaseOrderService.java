@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -95,11 +97,25 @@ public class PurchaseOrderService {
                 && order.getStatus() != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
             throw new BusinessRuleException("Order must be SENT to receive (was %s)".formatted(order.getStatus()));
         }
+        // Resolve every receipt to its PO line up front, then process in ingredientId
+        // order. Stock rows must be locked in the same global order on every path or a
+        // goods receipt and an order completion touching the same two ingredients can
+        // deadlock — see StockLedgerService.normalize.
+        record Resolved(ReceiptInput receipt, PurchaseOrderLine line) {
+        }
+        List<Resolved> resolved = new ArrayList<>();
         for (ReceiptInput receipt : receipts) {
             PurchaseOrderLine line = order.getLines().stream()
                     .filter(l -> l.getId().equals(receipt.lineId()))
                     .findFirst()
                     .orElseThrow(() -> ResourceNotFoundException.of("PurchaseOrderLine", receipt.lineId()));
+            resolved.add(new Resolved(receipt, line));
+        }
+        resolved.sort(Comparator.comparing(r -> r.line().getIngredientId()));
+
+        for (Resolved entry : resolved) {
+            ReceiptInput receipt = entry.receipt();
+            PurchaseOrderLine line = entry.line();
             BigDecimal qty = receipt.receivedQty();
             if (qty == null || qty.signum() <= 0) {
                 throw new BusinessRuleException("Received quantity must be positive");

@@ -7,16 +7,17 @@ import { CreatePurchaseOrderRequest, IngredientResponse, PoLineRequest, Purchase
 import { ToastService } from '../../core/toast.service';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
+import { IconComponent } from '../../shared/icon';
 
 @Component({
   selector: 'app-purchase-orders',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent],
+  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
         <div><h1>Purchase orders</h1><div class="sub">Branch procurement workflow: draft, send, receive, cancel.</div></div>
-        @if (auth.can('purchasing:write')) { <button class="btn btn-primary" (click)="openNew()">＋ New purchase order</button> }
+        @if (auth.can('purchasing:write')) { <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New purchase order</button> }
       </div>
 
       <div class="split">
@@ -25,24 +26,25 @@ import { ModalComponent } from '../../shared/modal';
           @else {
             <div class="table-wrap">
               <table class="data">
-                <thead><tr><th>PO</th><th>Supplier</th><th>Status</th><th>Lines</th><th>Total</th><th></th></tr></thead>
+                <caption class="sr-only">Purchase orders</caption>
+                <thead><tr><th scope="col">PO</th><th scope="col">Supplier</th><th scope="col">Status</th><th scope="col" class="right">Lines</th><th scope="col" class="right">Total</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   @for (po of items(); track po.id) {
                     <tr (click)="select(po)" [class.row-selected]="selected()?.id === po.id">
-                      <td><b>{{ po.id | shortId }}</b><div class="soft">{{ po.branchId | shortId }}</div></td>
+                      <td><button type="button" class="row-open" (click)="select(po)"><b>{{ po.id | shortId }}</b></button><div class="soft">{{ po.branchId | shortId }}</div></td>
                       <td>{{ supplierName(po.supplierId) }}</td>
-                      <td><span class="badge" [class]="statusClass(po.status)">{{ po.status }}</span></td>
-                      <td>{{ po.lines.length }}</td>
-                      <td>{{ total(po) | money }}</td>
+                      <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status }}</span></td>
+                      <td class="num">{{ po.lines.length }}</td>
+                      <td class="num">{{ total(po) | money }}</td>
                       <td class="row-actions">
                         @if (auth.can('purchasing:write')) {
-                          @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" (click)="send(po); $event.stopPropagation()">Send</button> }
+                          @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" (click)="send(po); $event.stopPropagation()" [disabled]="saving()">Send</button> }
                           @if (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="openReceive(po); $event.stopPropagation()">Receive</button> }
                           @if (po.status === 'DRAFT' || po.status === 'SENT') { <button class="btn btn-sm btn-ghost" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
                         }
                       </td>
                     </tr>
-                  } @empty { <tr><td colspan="6"><div class="empty"><div class="big">🧾</div>No purchase orders yet</div></td></tr> }
+                  } @empty { <tr><td colspan="6"><div class="empty"><div class="big"><app-icon name="clipboard" [size]="30" /></div>No purchase orders yet</div></td></tr> }
                 </tbody>
               </table>
             </div>
@@ -50,29 +52,37 @@ import { ModalComponent } from '../../shared/modal';
         </div>
 
         <div class="card detail">
+          <div class="clip" aria-hidden="true"></div>
           @if (selected(); as po) {
             <div class="detail-title">
-              <div><h2>{{ po.id | shortId }}</h2><div class="sub">{{ supplierName(po.supplierId) }}</div></div>
-              <span class="badge" [class]="statusClass(po.status)">{{ po.status }}</span>
+              <div>
+                <div class="id-row">
+                  <h2>{{ po.id | shortId }}</h2>
+                  @if (stampColor(po.status); as c) { <span class="stamp stamp-in" [style.color]="c" aria-hidden="true">{{ po.status }}</span> }
+                </div>
+                <div class="sub">{{ supplierName(po.supplierId) }}</div>
+              </div>
+              <span class="badge dot" [class]="statusClass(po.status)">{{ po.status }}</span>
             </div>
             @if (po.note) { <div class="note">{{ po.note }}</div> }
             <div class="table-wrap">
               <table class="data compact">
-                <thead><tr><th>Ingredient</th><th>Ordered</th><th>Received</th><th>Unit cost</th></tr></thead>
+                <caption class="sr-only">Purchase order lines</caption>
+                <thead><tr><th scope="col">Ingredient</th><th scope="col" class="right">Ordered</th><th scope="col" class="right">Received</th><th scope="col" class="right">Unit cost</th></tr></thead>
                 <tbody>
                   @for (l of po.lines; track l.id) {
                     <tr>
                       <td>{{ ingredientName(l.ingredientId) }}</td>
-                      <td>{{ l.orderedQty }}</td>
-                      <td>{{ l.receivedQty }}</td>
-                      <td>{{ l.unitCost | money }}</td>
+                      <td class="num">{{ l.orderedQty }}</td>
+                      <td class="num">{{ l.receivedQty }}</td>
+                      <td class="num">{{ l.unitCost | money }}</td>
                     </tr>
                   }
                 </tbody>
               </table>
             </div>
           } @else {
-            <div class="empty"><div class="big">📋</div>Select a purchase order</div>
+            <div class="empty"><div class="big"><app-icon name="clipboard" [size]="30" /></div>Select a purchase order</div>
           }
         </div>
       </div>
@@ -81,26 +91,26 @@ import { ModalComponent } from '../../shared/modal';
     @if (creating()) {
       <app-modal title="New purchase order" (close)="creating.set(false)">
         <div class="field">
-          <label>Supplier</label>
-          <select class="input" [(ngModel)]="form.supplierId">
+          <label for="po-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
+          <select id="po-supplier" class="select" [(ngModel)]="form.supplierId" required>
             <option value="">Select supplier</option>
             @for (s of suppliers(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
           </select>
         </div>
-        <div class="field"><label>Note</label><input class="input" [(ngModel)]="form.note" /></div>
+        <div class="field"><label for="po-note">Note</label><input id="po-note" class="input" [(ngModel)]="form.note" /></div>
         <div class="line-editor">
           @for (line of form.lines; track $index; let idx = $index) {
             <div class="po-line">
-              <select class="input" [(ngModel)]="line.ingredientId">
+              <select class="select" [(ngModel)]="line.ingredientId" aria-label="Ingredient">
                 <option value="">Ingredient</option>
                 @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }}</option> }
               </select>
-              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" />
-              <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" />
-              <button class="btn btn-ghost" (click)="removeLine(idx)">×</button>
+              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" aria-label="Quantity" />
+              <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" aria-label="Unit cost" />
+              <button class="btn btn-ghost btn-icon" (click)="removeLine(idx)" aria-label="Remove line"><app-icon name="close" [size]="16" /></button>
             </div>
           }
-          <button class="btn btn-outline" (click)="addLine()">＋ Add line</button>
+          <button class="btn btn-outline" (click)="addLine()"><app-icon name="plus" [size]="15" /> Add line</button>
         </div>
         <div footer>
           <button class="btn btn-outline" (click)="creating.set(false)">Cancel</button>
@@ -115,8 +125,8 @@ import { ModalComponent } from '../../shared/modal';
           @for (r of receiveLines; track r.lineId) {
             <div class="po-line receive">
               <div><b>{{ lineIngredientName(r.lineId) }}</b><div class="soft">Remaining {{ remaining(r.lineId) }}</div></div>
-              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="r.receivedQty" placeholder="Received qty" />
-              <input class="input" type="number" min="0" step="1" [(ngModel)]="r.unitCostOverride" placeholder="Override cost" />
+              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="r.receivedQty" placeholder="Received qty" aria-label="Received qty" />
+              <input class="input" type="number" min="0" step="1" [(ngModel)]="r.unitCostOverride" placeholder="Override cost" aria-label="Override cost" />
             </div>
           }
         </div>
@@ -128,11 +138,29 @@ import { ModalComponent } from '../../shared/modal';
     }
   `,
   styles: [`
-    .split { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1rem; align-items: start; }
-    .row-selected { background: #eef6ff; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1.15rem; align-items: start; }
+    table.data tbody tr { cursor: pointer; }
+    .detail .empty { min-height: 320px; }
+    .row-selected, .row-selected:hover { background: var(--azure-soft); box-shadow: inset 3px 0 0 var(--azure); }
+    /* clipboard: paper sheet under a metal clip (sticky is a positioned anchor for .clip) */
+    .detail { padding: 1.9rem 1.3rem 1.3rem; position: sticky; top: 0;
+      background: linear-gradient(180deg, var(--paper), var(--paper-2));
+      border-color: var(--paper-line); color: var(--paper-ink); }
+    .detail .sub, .detail .soft, .detail .empty { color: var(--paper-ink-soft); }
+    .detail .empty .big { background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 1px var(--paper-line); }
+    .detail table.data th { background: rgba(255,255,255,.4); color: var(--paper-ink-soft); border-bottom-color: var(--paper-line); }
+    .detail table.data td { border-bottom-color: var(--paper-line); }
+    .clip { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); width: 92px; height: 18px; border-radius: 9px;
+      background: linear-gradient(180deg, #d9d2c6, #a99f8e);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 1px 3px rgba(0,0,0,.3); }
+    .clip::after { content: ""; position: absolute; left: 50%; top: 5px; transform: translateX(-50%); width: 54px; height: 7px; border-radius: 4px;
+      background: linear-gradient(180deg, #c9c1b1, #978d7a); box-shadow: inset 0 1px 2px rgba(0,0,0,.28); }
     .detail-title { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1rem; }
-    .detail h2 { margin: 0; font-size: 1.25rem; }
-    .note { border-left: 3px solid var(--accent); padding: .6rem .75rem; background: #f7fbff; margin-bottom: .75rem; color: var(--ink-muted); }
+    .id-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .detail h2 { margin: 0; font-size: 1.3rem; font-family: var(--font-mono); letter-spacing: -.03em; color: var(--paper-ink); }
+    /* pencilled margin note */
+    .note { border-left: 3px solid var(--paper-line); padding: .5rem .8rem; margin-bottom: .85rem;
+      font-style: italic; color: var(--paper-ink-soft); font-size: 14px; }
     .compact th, .compact td { padding: .65rem .55rem; }
     .line-editor { display: grid; gap: .65rem; }
     .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 130px 40px; gap: .5rem; align-items: center; }
@@ -195,6 +223,12 @@ export class PurchaseOrdersComponent {
     if (status === 'SENT' || status === 'PARTIALLY_RECEIVED') return 'badge-blue';
     return 'badge-gray';
   }
+  /* rubber-stamp ink for terminal states only; null suppresses the stamp */
+  stampColor(status: string): string | null {
+    if (status === 'RECEIVED') return '#2e6b34';
+    if (status === 'CANCELLED') return '#963120';
+    return null;
+  }
 
   save() {
     if (!this.form.supplierId || this.form.lines.some((l: PoLineRequest) => !l.ingredientId || !l.orderedQty || !l.unitCost)) {
@@ -209,7 +243,12 @@ export class PurchaseOrdersComponent {
   }
 
   send(po: PurchaseOrderResponse) {
-    this.api.sendPurchaseOrder(po.id).subscribe({ next: (updated) => { this.toast.success('Purchase order sent'); this.selected.set(updated); this.load(); } });
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.api.sendPurchaseOrder(po.id).subscribe({
+      next: (updated) => { this.saving.set(false); this.toast.success('Purchase order sent'); this.selected.set(updated); this.load(); },
+      error: () => this.saving.set(false),
+    });
   }
 
   async cancel(po: PurchaseOrderResponse) {

@@ -3,6 +3,8 @@ package vn.essvn.erpcafe.inventory.application;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -84,7 +86,7 @@ public class StockLedgerService {
             return new CogsResult(cogsOfExisting(refType, refId));
         }
         Money total = Money.zero();
-        for (StockLine line : lines) {
+        for (StockLine line : normalize(lines)) {
             StockItem item = getOrCreate(branchId, line.ingredientId());
             // COGS values the depletion at the CURRENT moving-average cost.
             Money lineCost = item.getAvgUnitCost().multiply(line.quantity());
@@ -113,7 +115,7 @@ public class StockLedgerService {
         if (refId != null && movementRepository.existsByRefTypeAndRefId(refType, refId)) {
             return; // already returned → no-op
         }
-        for (StockLine line : lines) {
+        for (StockLine line : normalize(lines)) {
             StockItem item = getOrCreate(branchId, line.ingredientId());
             item.setQuantityOnHand(item.getQuantityOnHand().add(line.quantity()));
             record(line.ingredientId(), branchId, MovementType.SALE_REVERSAL,
@@ -127,6 +129,29 @@ public class StockLedgerService {
             total = total.add(m.getUnitCost().multiply(m.getQuantity().abs()));
         }
         return total;
+    }
+
+    /**
+     * Orders lines by {@code ingredientId} and merges duplicates into one line.
+     *
+     * <p>The sort is what prevents deadlock. Row locks are held until commit, so two
+     * transactions that lock the same ingredients in different orders can each end up
+     * holding what the other needs — a wait-for cycle Postgres can only break by killing
+     * one. Acquiring in a consistent global order makes that impossible: a transaction
+     * holding ingredient X only ever waits on some Y &gt; X, so no cycle can close. Every
+     * multi-row stock path must use this same order (see also
+     * {@code PurchaseOrderService.receive}).
+     *
+     * <p>Merging duplicates is a bonus: an order with two lattes hits milk twice, and
+     * collapsing them means one lock and one movement row instead of two.
+     */
+    private static List<StockLine> normalize(List<StockLine> lines) {
+        Map<UUID, StockLine> merged = new TreeMap<>();
+        for (StockLine line : lines) {
+            merged.merge(line.ingredientId(), line,
+                    (a, b) -> new StockLine(a.ingredientId(), a.quantity().add(b.quantity()), a.unit()));
+        }
+        return List.copyOf(merged.values());
     }
 
     // Loads the stock row under a pessimistic write lock (SELECT ... FOR UPDATE) so

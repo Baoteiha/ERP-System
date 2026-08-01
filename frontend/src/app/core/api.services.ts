@@ -1,7 +1,8 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import * as M from './models';
+import { SUPPRESS_ERROR_TOAST } from './http.interceptors';
 
 const V1 = '/api/v1';
 
@@ -42,6 +43,7 @@ export class IdentityService {
   createUser(body: M.CreateUserRequest) { return this.http.post<M.UserResponse>(`${V1}/users`, body); }
   userAccess(id: string) { return this.http.get<M.BranchAccessResponse[]>(`${V1}/users/${id}/access`); }
   grantAccess(id: string, body: M.GrantAccessRequest) { return this.http.post<M.BranchAccessResponse>(`${V1}/users/${id}/access`, body); }
+  revokeAccess(id: string, branchId: string) { return this.http.delete<void>(`${V1}/users/${id}/access/${branchId}`); }
 
   listRoles() { return this.http.get<M.RoleResponse[]>(`${V1}/roles`); }
   createRole(body: M.CreateRoleRequest) { return this.http.post<M.RoleResponse>(`${V1}/roles`, body); }
@@ -76,7 +78,11 @@ export class CatalogService {
     return this.http.get<M.PriceResponse>(`${V1}/products/${id}/price`, { params });
   }
 
-  getRecipe(productId: string) { return this.http.get<M.RecipeResponse>(`${V1}/products/${productId}/recipe`); }
+  getRecipe(productId: string) {
+    return this.http.get<M.RecipeResponse>(`${V1}/products/${productId}/recipe`, {
+      context: new HttpContext().set(SUPPRESS_ERROR_TOAST, true),
+    });
+  }
   setRecipe(productId: string, b: M.SetRecipeRequest) { return this.http.put<M.RecipeResponse>(`${V1}/products/${productId}/recipe`, b); }
 
   listModifierGroups() { return this.http.get<M.ModifierGroupResponse[]>(`${V1}/modifier-groups`); }
@@ -136,4 +142,41 @@ export class SalesService {
   cancel(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/cancel`, {}); }
   void(id: string, b?: M.RefundRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/void`, b ?? {}); }
   refund(id: string, b?: M.RefundRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/refund`, b ?? {}); }
+}
+
+/* ---- staff (employees + shifts) ---------------------------------------- */
+@Injectable({ providedIn: 'root' })
+export class StaffService {
+  private http = inject(HttpClient);
+
+  listEmployees() { return this.http.get<M.EmployeeResponse[]>(`${V1}/staff/employees`); }
+  createEmployee(b: M.EmployeeRequest) { return this.http.post<M.EmployeeResponse>(`${V1}/staff/employees`, b); }
+  updateEmployee(id: string, b: M.EmployeeRequest) { return this.http.put<M.EmployeeResponse>(`${V1}/staff/employees/${id}`, b); }
+
+  listShifts(from: string, to: string) {
+    return this.http.get<M.ShiftResponse[]>(`${V1}/staff/shifts`, { params: new HttpParams().set('from', from).set('to', to) });
+  }
+  scheduleShift(b: M.ShiftRequest) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts`, b); }
+  rescheduleShift(id: string, b: Omit<M.ShiftRequest, 'employeeId'>) { return this.http.put<M.ShiftResponse>(`${V1}/staff/shifts/${id}`, b); }
+  clockIn(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-in`, {}); }
+  clockOut(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-out`, {}); }
+  cancelShift(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/cancel`, {}); }
+}
+
+/* ---- reporting ---------------------------------------------------------- */
+@Injectable({ providedIn: 'root' })
+export class ReportingService {
+  private http = inject(HttpClient);
+
+  private range(from: string, to: string) { return new HttpParams().set('from', from).set('to', to); }
+
+  summary(from: string, to: string) {
+    return this.http.get<M.PeriodSummary>(`${V1}/reports/summary`, { params: this.range(from, to) });
+  }
+  salesByDay(from: string, to: string) {
+    return this.http.get<M.DailySales[]>(`${V1}/reports/sales-by-day`, { params: this.range(from, to) });
+  }
+  outlets(from: string, to: string) {
+    return this.http.get<M.BranchPerformance[]>(`${V1}/reports/outlets`, { params: this.range(from, to) });
+  }
 }

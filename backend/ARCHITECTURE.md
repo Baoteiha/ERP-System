@@ -175,9 +175,9 @@ Entities never cross the web boundary; the mapper always converts to a DTO first
 - **Phase 1 — Identity & Auth** ✅ — Spring Security + JWT (access + refresh), users/roles/permissions (+ role permission management), per-branch access enforcement, real `AuditorAware`, bootstrap seeding.
 - **Phase 2 — Catalog** ✅ — category, product (+ per-branch price), recipe/recipe-line, modifier groups + modifier recipe deltas, pricing, `CatalogApi`.
 - **Phase 3 — Inventory & Purchasing** ✅ — ingredient, supplier, per-branch StockItem, append-only StockMovement ledger, moving-average costing, full purchase-order lifecycle + receiving, low-stock alerts; publishes `InventoryApi` (deduct + COGS, warn-but-allow negative, idempotent).
-- **Phase 4 — Sales / POS** ✅ *(current)* — order state machine (OPEN→PAID→COMPLETED, cancel/void/refund), line + modifier snapshots, split payments, line+order discounts and tax; completion explodes recipes → deducts stock + captures COGS (price − COGS = margin); void/refund return stock.
-- **Phase 5 — Staff / HR & Shifts** — employee, shift scheduling, clock in/out, labor cost.
-- **Phase 6 — Reporting** — cross-branch sales, COGS-from-depletion, outlet comparison, labor vs sales.
+- **Phase 4 — Sales / POS** ✅ — order state machine (OPEN→PAID→COMPLETED, cancel/void/refund), line + modifier snapshots, split payments, line+order discounts and tax; completion explodes recipes → deducts stock + captures COGS (price − COGS = margin); void/refund return stock.
+- **Phase 5 — Staff / HR & Shifts** ✅ — employee master data (deactivate, never delete), shift state machine (SCHEDULED→IN_PROGRESS→COMPLETED / cancel), clock in/out with hourly-rate snapshot at clock-in and labor cost captured at clock-out; `staff:clock` is a separate permission so cashiers punch in/out without editing the schedule; publishes `StaffApi` (labor cost per branch/period).
+- **Phase 6 — Reporting** ✅ — `reporting` module owns no tables: it composes other modules' published APIs (`SalesApi` revenue aggregates, `InventoryApi.depletionCost` ledger-side COGS, `StaffApi.laborCost`, `OrganizationApi.listActiveBranches`). Endpoints: `/reports/summary`, `/reports/sales-by-day`, `/reports/outlets` (cross-branch comparison incl. labor vs sales), guarded by `report:read`. Two COGS views are reported side by side: order snapshots vs stock-ledger depletion.
 
 ---
 
