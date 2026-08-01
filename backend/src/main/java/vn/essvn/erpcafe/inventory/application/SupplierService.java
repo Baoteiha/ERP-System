@@ -32,7 +32,9 @@ public class SupplierService {
 
     @Transactional(readOnly = true)
     public Supplier get(UUID id) {
-        return supplierRepository.findById(id)
+        // Scope to the caller's company: a bare findById would let one company read,
+        // edit, or delete another's supplier by id (IDOR). 404 hides existence.
+        return supplierRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", id));
     }
 

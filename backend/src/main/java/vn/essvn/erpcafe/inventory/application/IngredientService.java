@@ -32,7 +32,9 @@ public class IngredientService {
 
     @Transactional(readOnly = true)
     public Ingredient get(UUID id) {
-        return ingredientRepository.findById(id)
+        // Scope to the caller's company: a bare findById would let one company read,
+        // edit, or delete another's ingredient by id (IDOR). 404 hides existence.
+        return ingredientRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", id));
     }
 

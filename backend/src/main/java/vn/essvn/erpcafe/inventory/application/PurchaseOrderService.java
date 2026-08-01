@@ -60,7 +60,10 @@ public class PurchaseOrderService {
 
     @Transactional(readOnly = true)
     public PurchaseOrder get(UUID id) {
-        return purchaseOrderRepository.findById(id)
+        // Scope to the active branch: a bare findById would let a user read, send,
+        // receive, or cancel a PO in another branch/company by id (IDOR). Every
+        // caller (get/send/receive/cancel) already runs with an accessible branch.
+        return purchaseOrderRepository.findByIdAndBranchId(id, activeBranch())
                 .orElseThrow(() -> ResourceNotFoundException.of("PurchaseOrder", id));
     }
 
