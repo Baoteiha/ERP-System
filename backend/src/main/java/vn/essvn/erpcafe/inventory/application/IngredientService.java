@@ -46,8 +46,10 @@ public class IngredientService {
         return ingredientRepository.save(new Ingredient(companyId, name, baseUnit, category));
     }
 
-    public Ingredient update(UUID id, String name, String baseUnit, String category, boolean active) {
+    public Ingredient update(UUID id, String name, String baseUnit, String category, boolean active,
+            Long expectedVersion) {
         Ingredient ingredient = get(id);
+        requireCurrentVersion(ingredient.getVersion(), expectedVersion);
         if (!ingredient.getName().equals(name)
                 && ingredientRepository.existsByCompanyIdAndName(ingredient.getCompanyId(), name)) {
             throw new ConflictException("Ingredient already exists: " + name);
@@ -57,6 +59,15 @@ public class IngredientService {
         ingredient.setCategory(category);
         ingredient.setActive(active);
         return ingredient;
+    }
+
+    // Stale-form guard: the client echoes the version it loaded. If the row has changed
+    // since (version moved on), reject with 409 instead of silently overwriting the newer
+    // edit. Enforced only when a version is supplied (older clients stay backward-compatible).
+    private static void requireCurrentVersion(Long current, Long expected) {
+        if (expected != null && !expected.equals(current)) {
+            throw new ConflictException("Ingredient was modified by someone else — reload and try again");
+        }
     }
 
     public void delete(UUID id) {

@@ -59,7 +59,7 @@ public class SupplierController {
     public SupplierResponse update(@PathVariable UUID id, @Valid @RequestBody SupplierRequest request) {
         boolean active = request.active() == null || request.active();
         return supplierMapper.toResponse(supplierService.update(id, request.name(),
-                request.contactPhone(), request.contactEmail(), request.address(), active));
+                request.contactPhone(), request.contactEmail(), request.address(), active, request.version()));
     }
 
     @DeleteMapping("/{id}")

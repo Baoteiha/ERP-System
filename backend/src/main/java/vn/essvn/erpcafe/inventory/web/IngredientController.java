@@ -59,7 +59,8 @@ public class IngredientController {
     public IngredientResponse update(@PathVariable UUID id, @Valid @RequestBody IngredientRequest request) {
         boolean active = request.active() == null || request.active();
         return ingredientMapper.toResponse(
-                ingredientService.update(id, request.name(), request.baseUnit(), request.category(), active));
+                ingredientService.update(id, request.name(), request.baseUnit(), request.category(), active,
+                        request.version()));
     }
 
     @DeleteMapping("/{id}")

@@ -13,7 +13,11 @@ public final class SupplierDtos {
             @Size(max = 32) String contactPhone,
             @Email String contactEmail,
             @Size(max = 500) String address,
-            Boolean active) {
+            Boolean active,
+            // Optimistic-lock guard for updates: the client echoes the version it loaded so a
+            // stale-form edit is rejected (409) rather than silently overwriting a newer change.
+            // Ignored on create.
+            Long version) {
     }
 
     public record SupplierResponse(
@@ -23,7 +27,8 @@ public final class SupplierDtos {
             String contactPhone,
             String contactEmail,
             String address,
-            boolean active) {
+            boolean active,
+            Long version) {
     }
 
     private SupplierDtos() {
