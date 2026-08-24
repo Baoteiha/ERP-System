@@ -50,12 +50,12 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public Page<User> list(Pageable pageable) {
-        return userRepository.findAll(pageable);
+        return userRepository.findByCompanyId(currentUser.require().companyId(), pageable);
     }
 
     @Transactional(readOnly = true)
     public User get(UUID id) {
-        return userRepository.findById(id)
+        return userRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("User", id));
     }
 
@@ -76,7 +76,10 @@ public class UserService {
     /** Grants (or updates) a user's role at a branch. */
     public UserBranchAccess grantAccess(UUID userId, UUID branchId, UUID roleId) {
         User user = get(userId);
-        if (!organizationApi.branchExists(branchId)) {
+        // The branch must belong to the user's own company. A bare existence check would
+        // let a caller attach another company's branch to the user's access set, which
+        // every branch-scoped query downstream then trusts (cross-tenant escalation).
+        if (!organizationApi.branchExistsInCompany(branchId, user.getCompanyId())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
         Role role = roleRepository.findById(roleId)

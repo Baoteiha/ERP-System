@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
@@ -32,13 +33,15 @@ public class ReportService {
     private final InventoryApi inventoryApi;
     private final StaffApi staffApi;
     private final OrganizationApi organizationApi;
+    private final CurrentUser currentUser;
 
     public ReportService(SalesApi salesApi, InventoryApi inventoryApi,
-            StaffApi staffApi, OrganizationApi organizationApi) {
+            StaffApi staffApi, OrganizationApi organizationApi, CurrentUser currentUser) {
         this.salesApi = salesApi;
         this.inventoryApi = inventoryApi;
         this.staffApi = staffApi;
         this.organizationApi = organizationApi;
+        this.currentUser = currentUser;
     }
 
     /** Performance of the active branch over [from, to). */
@@ -53,7 +56,7 @@ public class ReportService {
 
     /** Side-by-side performance of every active branch (outlet comparison). */
     public List<BranchPerformance> outletComparison(Instant from, Instant to) {
-        return organizationApi.listActiveBranches().stream()
+        return organizationApi.listActiveBranches(currentUser.require().companyId()).stream()
                 .map(b -> new BranchPerformance(b.id(), b.name(), b.code(), performance(b.id(), from, to)))
                 .toList();
     }

@@ -89,9 +89,14 @@ public class BranchService implements OrganizationApi {
 
     @Override
     @Transactional(readOnly = true)
-    public java.util.List<BranchDto> listActiveBranches() {
-        return branchRepository.findAll().stream()
-                .filter(Branch::isActive)
+    public boolean branchExistsInCompany(UUID branchId, UUID companyId) {
+        return branchRepository.existsByIdAndCompanyIdAndActiveTrue(branchId, companyId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<BranchDto> listActiveBranches(UUID companyId) {
+        return branchRepository.findByCompanyIdAndActiveTrue(companyId).stream()
                 .map(branchMapper::toDto)
                 .toList();
     }

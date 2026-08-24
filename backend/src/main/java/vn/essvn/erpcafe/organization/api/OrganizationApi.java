@@ -16,6 +16,9 @@ public interface OrganizationApi {
     /** Whether the given branch exists and is active. */
     boolean branchExists(UUID branchId);
 
-    /** All active branches — used by reporting for cross-branch comparison. */
-    List<BranchDto> listActiveBranches();
+    /** Whether the given branch exists, is active, and belongs to {@code companyId}. */
+    boolean branchExistsInCompany(UUID branchId, UUID companyId);
+
+    /** A company's active branches — used by reporting for cross-branch comparison. */
+    List<BranchDto> listActiveBranches(UUID companyId);
 }
