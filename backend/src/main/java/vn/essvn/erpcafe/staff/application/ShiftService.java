@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -28,10 +29,13 @@ public class ShiftService implements StaffApi {
 
     private final ShiftRepository shiftRepository;
     private final EmployeeRepository employeeRepository;
+    private final CurrentUser currentUser;
 
-    public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository) {
+    public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
+            CurrentUser currentUser) {
         this.shiftRepository = shiftRepository;
         this.employeeRepository = employeeRepository;
+        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -42,12 +46,17 @@ public class ShiftService implements StaffApi {
 
     @Transactional(readOnly = true)
     public Shift get(UUID id) {
-        return shiftRepository.findById(id)
+        // Scope to the active branch: a bare findById would let a user reschedule, clock,
+        // or cancel a shift in another branch/company by id (IDOR). Every caller runs with
+        // an accessible branch (the JWT filter validates X-Branch-Id against the grant set).
+        return shiftRepository.findByIdAndBranchId(id, BranchContext.require())
                 .orElseThrow(() -> ResourceNotFoundException.of("Shift", id));
     }
 
     public Shift schedule(UUID employeeId, Instant start, Instant end, String note) {
-        Employee employee = employeeRepository.findById(employeeId)
+        // The employee must belong to the caller's company — otherwise a shift (and its
+        // labor cost) could be booked against another tenant's employee.
+        Employee employee = employeeRepository.findByIdAndCompanyId(employeeId, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", employeeId));
         if (!employee.isActive()) {
             throw new BusinessRuleException("Cannot schedule an inactive employee");

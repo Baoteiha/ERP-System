@@ -3,6 +3,7 @@ package vn.essvn.erpcafe.staff.persistence;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,6 +14,8 @@ import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
 
 public interface ShiftRepository extends JpaRepository<Shift, UUID> {
+
+    Optional<Shift> findByIdAndBranchId(UUID id, UUID branchId);
 
     List<Shift> findByBranchIdAndScheduledStartBetweenOrderByScheduledStart(
             UUID branchId, Instant from, Instant to);

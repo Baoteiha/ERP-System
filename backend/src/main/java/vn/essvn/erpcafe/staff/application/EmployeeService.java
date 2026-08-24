@@ -37,7 +37,7 @@ public class EmployeeService {
 
     @Transactional(readOnly = true)
     public Employee get(UUID id) {
-        return employeeRepository.findById(id)
+        return employeeRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", id));
     }
 
