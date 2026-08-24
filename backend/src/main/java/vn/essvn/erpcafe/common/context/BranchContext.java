@@ -8,9 +8,10 @@ import java.util.UUID;
  * services can resolve "which branch am I acting in" without threading it
  * through every method signature.
  *
- * <p>Phase 0 scaffolding: the value is set from an {@code X-Branch-Id} header
- * (see {@code BranchContextFilter}). Phase 1 will additionally validate the
- * branch against the authenticated user's granted branch access.
+ * <p>The value is set from the {@code X-Branch-Id} header by
+ * {@code JwtAuthenticationFilter}, which first validates the branch against the
+ * authenticated user's granted branch access (rejecting one they cannot reach)
+ * and clears it once the request completes.
  */
 public final class BranchContext {
 
