@@ -22,9 +22,14 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 import vn.essvn.erpcafe.common.domain.Money;
 
 /**
- * A menu item, scoped to a company. Carries a company-wide base price;
- * per-branch price/availability overrides live in {@link ProductBranchAvailability}.
- * A product may be attached to modifier groups (Size, Milk, …). Soft-deletable.
+ * What a customer buys — a line on the menu, scoped to a company. Carries a
+ * company-wide base price; per-branch price/availability overrides live in
+ * {@link ProductBranchAvailability}. A product may be attached to modifier groups
+ * (Size, Milk, …). Soft-deletable.
+ *
+ * <p>Not to be confused with {@code inventory.Item}, which is what a <em>supplier</em>
+ * sells <em>us</em>. A product is sold, an item is bought, and the two meet only
+ * through a {@link Recipe}'s ingredients.
  */
 @Entity
 @Table(name = "product", uniqueConstraints = @UniqueConstraint(name = "uk_product_company_sku", columnNames = {"company_id", "sku"}))
