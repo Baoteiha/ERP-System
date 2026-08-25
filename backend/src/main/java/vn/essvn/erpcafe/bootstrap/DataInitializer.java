@@ -70,22 +70,38 @@ public class DataInitializer implements ApplicationRunner {
         if (userRepository.count() == 0) {
             seedTenant();
         }
-        syncOwnerPermissions();
+        syncDefaultRolePermissions();
     }
 
     /**
-     * Keeps every OWNER role a superuser: as later phases add permissions to the
-     * catalog, existing OWNER roles are granted the new ones on startup.
+     * Reconciles every default role against its {@link DefaultRole} definition, add-only:
+     * as later phases add permissions to the catalog, existing companies' default roles
+     * are granted the new ones on startup — not only OWNER, or an upgraded deployment's
+     * managers and cashiers would 403 on every new endpoint until edited by hand
+     * (AUTH-G06). Never revokes: grants an admin added beyond the definition survive,
+     * and roles with names outside the default set are not touched at all.
      */
-    private void syncOwnerPermissions() {
-        Set<Permission> all = new HashSet<>(permissionRepository.findAll());
-        roleRepository.findAll().stream()
-                .filter(r -> DefaultRole.OWNER.roleName().equals(r.getName()))
-                .filter(r -> r.getPermissions().size() != all.size())
-                .forEach(r -> {
-                    r.setPermissions(all);
-                    log.info("Synced OWNER role {} to {} permissions", r.getId(), all.size());
-                });
+    private void syncDefaultRolePermissions() {
+        for (Role role : roleRepository.findAll()) {
+            DefaultRole def = DefaultRole.all().stream()
+                    .filter(d -> d.roleName().equals(role.getName()))
+                    .findFirst().orElse(null);
+            if (def == null) {
+                continue; // custom role: its permission set is the admin's, not ours
+            }
+            Set<String> held = new HashSet<>();
+            role.getPermissions().forEach(p -> held.add(p.getName()));
+            int before = role.getPermissions().size();
+            for (String name : def.permissions()) {
+                if (!held.contains(name)) {
+                    permissionRepository.findByName(name).ifPresent(role.getPermissions()::add);
+                }
+            }
+            if (role.getPermissions().size() != before) {
+                log.info("Granted {} missing default permission(s) to {} role {}",
+                        role.getPermissions().size() - before, role.getName(), role.getId());
+            }
+        }
     }
 
     private void syncPermissions() {
