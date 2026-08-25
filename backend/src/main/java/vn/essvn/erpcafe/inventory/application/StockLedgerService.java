@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -13,11 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.StockLine;
+import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.MovementType;
 import vn.essvn.erpcafe.inventory.domain.StockItem;
 import vn.essvn.erpcafe.inventory.domain.StockMovement;
+import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
 
@@ -35,11 +39,13 @@ public class StockLedgerService {
 
     private final StockItemRepository stockItemRepository;
     private final StockMovementRepository movementRepository;
+    private final IngredientRepository ingredientRepository;
 
     public StockLedgerService(StockItemRepository stockItemRepository,
-            StockMovementRepository movementRepository) {
+            StockMovementRepository movementRepository, IngredientRepository ingredientRepository) {
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
+        this.ingredientRepository = ingredientRepository;
     }
 
     /** Receives stock (e.g. from a purchase order): raises quantity and blends the moving-average cost. */
@@ -132,7 +138,13 @@ public class StockLedgerService {
     }
 
     /**
-     * Orders lines by {@code ingredientId} and merges duplicates into one line.
+     * Converts every line to its ingredient's base unit, then orders lines by
+     * {@code ingredientId} and merges duplicates into one line.
+     *
+     * <p>Conversion comes first (ADR-0006): a recipe line in kg and a modifier delta in g
+     * are the same ingredient measured differently, and adding them raw is how stock ends
+     * up wrong by a factor of a thousand. A line whose unit cannot convert to the base
+     * unit (wrong dimension, unknown text) is a caller bug and is rejected, never guessed.
      *
      * <p>The sort is what prevents deadlock. Row locks are held until commit, so two
      * transactions that lock the same ingredients in different orders can each end up
@@ -145,13 +157,37 @@ public class StockLedgerService {
      * <p>Merging duplicates is a bonus: an order with two lattes hits milk twice, and
      * collapsing them means one lock and one movement row instead of two.
      */
-    private static List<StockLine> normalize(List<StockLine> lines) {
+    private List<StockLine> normalize(List<StockLine> lines) {
+        Map<UUID, Unit> baseUnits = baseUnitsOf(lines);
         Map<UUID, StockLine> merged = new TreeMap<>();
         for (StockLine line : lines) {
-            merged.merge(line.ingredientId(), line,
+            StockLine converted = toBaseUnit(line, baseUnits.get(line.ingredientId()));
+            merged.merge(converted.ingredientId(), converted,
                     (a, b) -> new StockLine(a.ingredientId(), a.quantity().add(b.quantity()), a.unit()));
         }
         return List.copyOf(merged.values());
+    }
+
+    private static StockLine toBaseUnit(StockLine line, Unit baseUnit) {
+        if (baseUnit == null || line.unit() == null || line.unit().isBlank()) {
+            // No base unit to convert to (ingredient row missing) or no unit supplied
+            // (caller already speaks base units): pass through unchanged.
+            return line;
+        }
+        Unit from = Unit.parse(line.unit());
+        if (from == baseUnit) {
+            return line;
+        }
+        return new StockLine(line.ingredientId(), Unit.convert(line.quantity(), from, baseUnit), baseUnit.symbol());
+    }
+
+    private Map<UUID, Unit> baseUnitsOf(List<StockLine> lines) {
+        List<UUID> ids = lines.stream().map(StockLine::ingredientId).distinct().toList();
+        Map<UUID, Unit> baseUnits = new HashMap<>();
+        for (Ingredient ingredient : ingredientRepository.findAllById(ids)) {
+            baseUnits.put(ingredient.getId(), Unit.parse(ingredient.getBaseUnit()));
+        }
+        return baseUnits;
     }
 
     // Loads the stock row under a pessimistic write lock (SELECT ... FOR UPDATE) so
