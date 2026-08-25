@@ -1,0 +1,1384 @@
+{
+  "info": {
+    "_postman_id": "7f3a91c2-5d84-4b6e-9f21-0a3c8d1e4b57",
+    "name": "ERP-Cafe — Inventory API (v1)",
+    "description": "Every endpoint of the ERP-Cafe inventory module: ingredients, items (supplier ↔ ingredient purchase mapping), suppliers, stock and purchase orders.\n\n## Getting started\n1. Select the **ERP-Cafe — Local** environment.\n2. Run **00 · Setup → Login** — it stores `accessToken`, `refreshToken`, `companyId` and the first accessible `branchId` into the environment.\n3. Every other request inherits Bearer auth from the collection; branch-scoped ones send `X-Branch-Id: {{branchId}}`.\n\n## Conventions\n- Base path `/api/v1`; `baseUrl` defaults to `http://localhost:8090` (dev profile).\n- Create requests capture the new id (and `version`) into environment variables, so the whole collection can be run top-to-bottom in the Collection Runner and pass green — the delete requests target scratch rows on purpose, and the purchase order is only partially received so it can still be cancelled.\n- Ingredients / items / suppliers use optimistic locking: PUT echoes the `version` you loaded. A stale value returns 409; omitting it skips the check.\n- Branch-scoped endpoints (stock, purchase orders) return 422 \"Active branch required\" without `X-Branch-Id`.\n- Errors are RFC 7807 ProblemDetail: 400 validation, 404 not found, 409 conflict/stale version, 422 business rule.\n- Units: `mg, g, kg, ml, cl, l, pc` — an item's `unit` must measure the same dimension as its ingredient's `baseUnit`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Surface the ProblemDetail message whenever a request fails — saves opening the body tab.",
+          "if (pm.response.code >= 400) {",
+          "    try {",
+          "        const pd = pm.response.json();",
+          "        console.log(`${pm.response.code} ${pm.info.requestName}: ${pd.detail || pd.title || ''}`);",
+          "    } catch (e) {",
+          "        console.log(`${pm.response.code} ${pm.info.requestName}`);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8090",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Setup",
+      "description": "Authenticate and pick up the ids the rest of the collection needs.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('accessToken', body.accessToken);",
+                  "pm.environment.set('refreshToken', body.refreshToken);",
+                  "pm.test('access token issued', () => pm.expect(body.accessToken).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Exchanges credentials for a 15-minute access token and a 30-day refresh token. Stores both in the environment."
+          }
+        },
+        {
+          "name": "Me (capture companyId + branchId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const me = pm.response.json();",
+                  "pm.environment.set('companyId', me.companyId);",
+                  "if (me.branchIds && me.branchIds.length) {",
+                  "    pm.environment.set('branchId', me.branchIds[0]);",
+                  "} else {",
+                  "    console.warn('This user has no branch access — stock and purchase-order calls will 403/422.');",
+                  "}",
+                  "console.log('permissions:', (me.permissions || []).join(', '));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "me"]
+            },
+            "description": "Identity of the bearer: userId, email, companyId, accessible branchIds, roles and permissions. Run this before the branch-scoped folders — it fills `branchId`."
+          }
+        },
+        {
+          "name": "List branches",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "if (page.content && page.content.length) {",
+                  "    pm.environment.set('branchId', page.content[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/branches?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "branches"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "Optional alternative to `/auth/me` for picking a branch. Requires the `branch:read` permission."
+          }
+        },
+        {
+          "name": "Refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('accessToken', body.accessToken);",
+                  "pm.environment.set('refreshToken', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            },
+            "description": "Rotates the token pair when the 15-minute access token expires."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · Ingredients",
+      "description": "Company-scoped master data — what the café counts stock in. Permissions: `inventory:read` / `inventory:write`.",
+      "item": [
+        {
+          "name": "List ingredients",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns an array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients"]
+            },
+            "description": "GET /api/v1/ingredients — every ingredient of the caller's company (unpaged).\n\n200 → `IngredientResponse[]`: `{ id, companyId, name, baseUnit, category, active, version }`"
+          }
+        },
+        {
+          "name": "Create ingredient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('ingredientId', body.id);",
+                  "pm.environment.set('ingredientVersion', body.version);",
+                  "pm.test('Location header points at the new row', () => pm.expect(pm.response.headers.get('Location')).to.include(body.id));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Arabica Beans\",\n  \"baseUnit\": \"g\",\n  \"category\": \"Coffee\",\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients"]
+            },
+            "description": "POST /api/v1/ingredients\n\nBody: `name`* (≤255), `baseUnit`* (≤16 — one of `mg, g, kg, ml, cl, l, pc`), `category` (≤64), `active` (defaults true). `version` is ignored on create.\n\n201 → `IngredientResponse` + `Location`. A duplicate name in the same company → **409**."
+          }
+        },
+        {
+          "name": "Get ingredient by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('ingredientVersion', body.version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients/{{ingredientId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients", "{{ingredientId}}"]
+            },
+            "description": "GET /api/v1/ingredients/{id} — tenant-scoped: an id belonging to another company returns **404**, not the row.\n\nRefreshes `ingredientVersion` for the next update."
+          }
+        },
+        {
+          "name": "Update ingredient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('ingredientVersion', pm.response.json().version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Arabica Beans (Premium)\",\n  \"baseUnit\": \"g\",\n  \"category\": \"Coffee\",\n  \"active\": true,\n  \"version\": {{ingredientVersion}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients/{{ingredientId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients", "{{ingredientId}}"]
+            },
+            "description": "PUT /api/v1/ingredients/{id} — full replace.\n\n`version` is the stale-form guard: echo the value you loaded and a concurrent edit is rejected with **409** instead of being overwritten. Drop the field to skip the check."
+          }
+        },
+        {
+          "name": "Update ingredient — stale version (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict on a stale form', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Arabica Beans (stale edit)\",\n  \"baseUnit\": \"g\",\n  \"category\": \"Coffee\",\n  \"active\": true,\n  \"version\": 9999\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients/{{ingredientId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients", "{{ingredientId}}"]
+            },
+            "description": "Demonstrates the optimistic lock: a version that no longer matches the row returns **409** \"Ingredient was modified by someone else — reload and try again\"."
+          }
+        },
+        {
+          "name": "Delete ingredient",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Creates a throwaway ingredient and deletes that one, so a top-to-bottom",
+                  "// collection run keeps {{ingredientId}} alive for the Items / Stock / PO folders.",
+                  "// To delete the ingredient you actually created, point the URL at {{ingredientId}}.",
+                  "pm.sendRequest({",
+                  "    url: pm.environment.get('baseUrl') + '/api/v1/ingredients',",
+                  "    method: 'POST',",
+                  "    header: {",
+                  "        'Content-Type': 'application/json',",
+                  "        'Authorization': 'Bearer ' + pm.environment.get('accessToken')",
+                  "    },",
+                  "    body: {",
+                  "        mode: 'raw',",
+                  "        raw: JSON.stringify({ name: 'Scratch ingredient ' + Date.now(), baseUnit: 'g', category: 'Scratch' })",
+                  "    }",
+                  "}, (err, res) => {",
+                  "    if (err || res.code !== 201) {",
+                  "        console.warn('Scratch ingredient not created — falling back to {{ingredientId}}');",
+                  "        pm.variables.set('deleteIngredientId', pm.environment.get('ingredientId'));",
+                  "    } else {",
+                  "        pm.variables.set('deleteIngredientId', res.json().id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients/{{deleteIngredientId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients", "{{deleteIngredientId}}"]
+            },
+            "description": "DELETE /api/v1/ingredients/{id} → **204**. Hard delete — prefer `active: false` for anything with stock history.\n\nThe pre-request script spins up a scratch ingredient and deletes that, so running the whole collection doesn't pull the rug out from under the Items / Stock / Purchase Order folders. Swap the URL to `{{ingredientId}}` to delete the one you created above."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Suppliers",
+      "description": "Who the café buys from. Permissions: `inventory:read` / `inventory:write`.",
+      "item": [
+        {
+          "name": "List suppliers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers"]
+            },
+            "description": "GET /api/v1/suppliers → `SupplierResponse[]`: `{ id, companyId, name, contactPhone, contactEmail, address, active, version }`"
+          }
+        },
+        {
+          "name": "Create supplier",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('supplierId', body.id);",
+                  "pm.environment.set('supplierVersion', body.version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Highland Coffee Roasters\",\n  \"contactPhone\": \"0901234567\",\n  \"contactEmail\": \"sales@highland.example\",\n  \"address\": \"12 Nguyen Hue, District 1, HCMC\",\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers"]
+            },
+            "description": "POST /api/v1/suppliers\n\nBody: `name`* (≤255), `contactPhone` (≤32), `contactEmail` (valid email), `address` (≤500), `active`.\n\nDuplicate name in the company → **409**."
+          }
+        },
+        {
+          "name": "Get supplier by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('supplierVersion', pm.response.json().version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers/{{supplierId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers", "{{supplierId}}"]
+            },
+            "description": "GET /api/v1/suppliers/{id} — tenant-scoped, cross-company id → **404**."
+          }
+        },
+        {
+          "name": "Update supplier",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('supplierVersion', pm.response.json().version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Highland Coffee Roasters\",\n  \"contactPhone\": \"0907654321\",\n  \"contactEmail\": \"orders@highland.example\",\n  \"address\": \"12 Nguyen Hue, District 1, HCMC\",\n  \"active\": true,\n  \"version\": {{supplierVersion}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers/{{supplierId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers", "{{supplierId}}"]
+            },
+            "description": "PUT /api/v1/suppliers/{id} — full replace, with the same `version` stale-edit guard as ingredients (**409** on mismatch)."
+          }
+        },
+        {
+          "name": "Delete supplier",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Same trick as Delete ingredient: delete a scratch row so {{supplierId}} survives",
+                  "// for the Items and Purchase Order folders. Point the URL at {{supplierId}} to",
+                  "// delete the supplier created above instead.",
+                  "pm.sendRequest({",
+                  "    url: pm.environment.get('baseUrl') + '/api/v1/suppliers',",
+                  "    method: 'POST',",
+                  "    header: {",
+                  "        'Content-Type': 'application/json',",
+                  "        'Authorization': 'Bearer ' + pm.environment.get('accessToken')",
+                  "    },",
+                  "    body: {",
+                  "        mode: 'raw',",
+                  "        raw: JSON.stringify({ name: 'Scratch supplier ' + Date.now() })",
+                  "    }",
+                  "}, (err, res) => {",
+                  "    if (err || res.code !== 201) {",
+                  "        console.warn('Scratch supplier not created — falling back to {{supplierId}}');",
+                  "        pm.variables.set('deleteSupplierId', pm.environment.get('supplierId'));",
+                  "    } else {",
+                  "        pm.variables.set('deleteSupplierId', res.json().id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/suppliers/{{deleteSupplierId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "suppliers", "{{deleteSupplierId}}"]
+            },
+            "description": "DELETE /api/v1/suppliers/{id} → **204**.\n\nDeletes a scratch supplier created by the pre-request script so a full collection run keeps `{{supplierId}}` usable; switch the URL to `{{supplierId}}` to delete the real one."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · Items",
+      "description": "The buy-side catalogue: one supplier's product for one ingredient, in the unit it is sold by. Permissions: `inventory:read` / `inventory:write`.\n\nRun **01 · Create ingredient** and **02 · Create supplier** first — these requests reuse `{{ingredientId}}` and `{{supplierId}}`.",
+      "item": [
+        {
+          "name": "List items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items"],
+              "query": [
+                {
+                  "key": "supplierId",
+                  "value": "{{supplierId}}",
+                  "description": "Optional — narrow to one supplier's catalogue (what a PO may draw from).",
+                  "disabled": true
+                },
+                {
+                  "key": "ingredientId",
+                  "value": "{{ingredientId}}",
+                  "description": "Optional — every way this ingredient can be bought.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /api/v1/items — both query params are optional and combinable.\n\n200 → `ItemResponse[]`: `{ id, companyId, sku, name, supplierId, ingredientId, unit, active, version }`"
+          }
+        },
+        {
+          "name": "Create item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('itemId', body.id);",
+                  "pm.environment.set('itemVersion', body.version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"HL-ARA-1KG\",\n  \"name\": \"Arabica Beans 1kg bag\",\n  \"supplierId\": \"{{supplierId}}\",\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"unit\": \"kg\",\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items"]
+            },
+            "description": "POST /api/v1/items\n\nBody: `sku` (≤64, optional — suppliers without codes aren't forced to invent one), `name`* (≤255), `supplierId`*, `ingredientId`*, `unit`* (≤16), `active`.\n\nRules:\n- `unit` must share a dimension with the ingredient's `baseUnit` — kg against g is fine, kg against ml → **422**.\n- Same SKU twice for one supplier → **409**.\n- Same supplier + ingredient + unit twice → **409**.\n- Unknown `supplierId` / `ingredientId` (or one from another company) → **404**."
+          }
+        },
+        {
+          "name": "Create item — incompatible unit (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Content', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"HL-ARA-BAD\",\n  \"name\": \"Arabica sold by the litre\",\n  \"supplierId\": \"{{supplierId}}\",\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"unit\": \"l\",\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items"]
+            },
+            "description": "Buying a gram-counted ingredient by the litre is a mapping error, not a rounding one — rejected at create time with **422** \"Cannot buy X in l: X is counted in g\"."
+          }
+        },
+        {
+          "name": "Get item by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('itemVersion', pm.response.json().version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items/{{itemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items", "{{itemId}}"]
+            },
+            "description": "GET /api/v1/items/{id} — tenant-scoped, cross-company id → **404**."
+          }
+        },
+        {
+          "name": "Update item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('itemVersion', pm.response.json().version);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"HL-ARA-1KG\",\n  \"name\": \"Arabica Beans 1kg bag (2026 pack)\",\n  \"supplierId\": \"{{supplierId}}\",\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"unit\": \"kg\",\n  \"active\": true,\n  \"version\": {{itemVersion}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items/{{itemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items", "{{itemId}}"]
+            },
+            "description": "PUT /api/v1/items/{id} — updates `sku`, `name`, `unit`, `active`.\n\n`supplierId` and `ingredientId` are **fixed at create and ignored here**: an item is one supplier's product for one ingredient, and repointing it would rewrite what past purchases meant. Send them anyway (they're `@NotNull` on the DTO) or validation fails with 400.\n\nStale `version` → **409**."
+          }
+        },
+        {
+          "name": "Delete item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/items/{{itemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "items", "{{itemId}}"]
+            },
+            "description": "DELETE /api/v1/items/{id} → **204**."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Stock",
+      "description": "On-hand levels and the movement ledger for the **active branch**. Every request sends `X-Branch-Id: {{branchId}}` — without it the API answers **422** \"Active branch required\". Permissions: `inventory:read` / `inventory:write`.",
+      "item": [
+        {
+          "name": "List stock on hand",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock"]
+            },
+            "description": "GET /api/v1/stock → `StockItemResponse[]`:\n`{ ingredientId, branchId, quantityOnHand, reorderLevel, avgUnitCost: { amount, currency }, belowReorderLevel }`\n\nQuantities are in the ingredient's `baseUnit`; `avgUnitCost` is the moving-average cost."
+          }
+        },
+        {
+          "name": "Low stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/low",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "low"]
+            },
+            "description": "GET /api/v1/stock/low — only the rows at or under their reorder level; the reorder alert feed."
+          }
+        },
+        {
+          "name": "Stock movements (ledger)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged envelope', () => pm.expect(pm.response.json()).to.have.property('content'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/movements?page=0&size=20&sort=createdAt,desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "movements"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" },
+                { "key": "sort", "value": "createdAt,desc" },
+                {
+                  "key": "ingredientId",
+                  "value": "{{ingredientId}}",
+                  "description": "Optional — one ingredient's history.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /api/v1/stock/movements — paged append-only ledger.\n\n200 → `PageResponse<MovementResponse>`: `{ content[], page, size, totalElements, totalPages }` where each entry is `{ id, ingredientId, branchId, type, quantity, unitCost, refType, refId, note, occurredAt, actor }`.\n\n`type` covers purchase receipts, sales deduction, adjustments and waste."
+          }
+        },
+        {
+          "name": "Adjust stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"quantityDelta\": 500,\n  \"note\": \"Stocktake correction\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/adjust",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "adjust"]
+            },
+            "description": "POST /api/v1/stock/adjust — signed correction against a stocktake.\n\nBody: `ingredientId`*, `quantityDelta`* (in the ingredient's base unit; **negative to write stock down**), `note`.\n\n200 → the updated `StockItemResponse`. Ingredient from another company → **422**."
+          }
+        },
+        {
+          "name": "Record waste",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"quantity\": 50,\n  \"note\": \"Spilled during service\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/waste",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "waste"]
+            },
+            "description": "POST /api/v1/stock/waste — writes stock off as loss, kept separate from adjustments so waste stays reportable.\n\nBody: `ingredientId`*, `quantity`* (**positive** — the amount lost), `note`. Zero or negative → **422**."
+          }
+        },
+        {
+          "name": "Set reorder level",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"reorderLevel\": 1000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/reorder-level",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "reorder-level"]
+            },
+            "description": "PUT /api/v1/stock/reorder-level — the threshold that puts an ingredient on the low-stock list for this branch.\n\nBody: `ingredientId`*, `reorderLevel`* (≥ 0, base unit)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 · Purchase Orders",
+      "description": "Buying for the **active branch** (`X-Branch-Id` required). Lifecycle: create (DRAFT) → send (SENT) → receive (partial or full) / cancel. Receiving is what moves stock and updates moving-average cost.\n\nPermissions: **`purchasing:read` / `purchasing:write`** — these differ from the rest of the module.",
+      "item": [
+        {
+          "name": "List purchase orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" },
+                {
+                  "key": "sort",
+                  "value": "createdAt,desc",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /api/v1/purchase-orders → `PageResponse<PurchaseOrderResponse>` for the active branch."
+          }
+        },
+        {
+          "name": "Create purchase order (DRAFT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const po = pm.response.json();",
+                  "pm.environment.set('purchaseOrderId', po.id);",
+                  "if (po.lines && po.lines.length) {",
+                  "    pm.environment.set('poLineId', po.lines[0].id);",
+                  "}",
+                  "pm.test('starts as DRAFT', () => pm.expect(po.status).to.eql('DRAFT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"{{supplierId}}\",\n  \"note\": \"Weekly bean order\",\n  \"lines\": [\n    {\n      \"ingredientId\": \"{{ingredientId}}\",\n      \"orderedQty\": 5000,\n      \"unitCost\": 0.45\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders"]
+            },
+            "description": "POST /api/v1/purchase-orders\n\nBody: `supplierId`*, `note`, `lines`* (non-empty) of `{ ingredientId*, orderedQty* > 0, unitCost* ≥ 0 }`.\n\n`orderedQty` and `unitCost` are in the ingredient's base unit. Empty `lines` → **422**; supplier or ingredient from another company → **422**.\n\n201 → `PurchaseOrderResponse` `{ id, branchId, supplierId, status, note, lines[{ id, ingredientId, orderedQty, receivedQty, unitCost{amount,currency} }] }`. Captures `purchaseOrderId` and `poLineId`."
+          }
+        },
+        {
+          "name": "Get purchase order by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const po = pm.response.json();",
+                  "if (po.lines && po.lines.length) {",
+                  "    pm.environment.set('poLineId', po.lines[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders/{{purchaseOrderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchaseOrderId}}"]
+            },
+            "description": "GET /api/v1/purchase-orders/{id} — order with its lines, including `receivedQty` so far."
+          }
+        },
+        {
+          "name": "Send purchase order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('now SENT', () => pm.expect(pm.response.json().status).to.eql('SENT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders/{{purchaseOrderId}}/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchaseOrderId}}", "send"]
+            },
+            "description": "POST /api/v1/purchase-orders/{id}/send — no body. DRAFT → SENT; the order is now receivable and its lines are frozen."
+          }
+        },
+        {
+          "name": "Receive purchase order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const po = pm.response.json();",
+                  "console.log('status after receipt:', po.status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receipts\": [\n    {\n      \"lineId\": \"{{poLineId}}\",\n      \"receivedQty\": 3000,\n      \"unitCostOverride\": null\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders/{{purchaseOrderId}}/receive",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchaseOrderId}}", "receive"]
+            },
+            "description": "POST /api/v1/purchase-orders/{id}/receive — books the delivery: raises stock, writes ledger movements and rolls the moving-average cost.\n\nBody: `receipts`* (non-empty) of `{ lineId*, receivedQty* > 0, unitCostOverride? }`. Use `unitCostOverride` when the invoice price differs from the ordered price; omit or `null` to keep the line's cost.\n\nAccepted in status `SENT` **or** `PARTIALLY_RECEIVED` — partial deliveries are normal: send a smaller `receivedQty` and call again for the rest. Status becomes `PARTIALLY_RECEIVED` until every line is complete, then `RECEIVED`.\n\nThis example deliberately receives 3000 of the 5000 ordered so the order stays `PARTIALLY_RECEIVED` and the **Cancel** request below still works in a straight top-to-bottom run. Raise it to 5000 to close the order.\n\n**422** when: the order is `DRAFT`/`RECEIVED`/`CANCELLED`, `receivedQty` ≤ 0, or the quantity exceeds what's still outstanding. Unknown `lineId` → **404**."
+          }
+        },
+        {
+          "name": "Receive — over-receipt (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Content', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receipts\": [\n    {\n      \"lineId\": \"{{poLineId}}\",\n      \"receivedQty\": 999999\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders/{{purchaseOrderId}}/receive",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchaseOrderId}}", "receive"]
+            },
+            "description": "Receiving more than the outstanding quantity is refused with **422** \"Received quantity exceeds outstanding for line …\"."
+          }
+        },
+        {
+          "name": "Cancel purchase order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('now CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Branch-Id",
+                "value": "{{branchId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/purchase-orders/{{purchaseOrderId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchaseOrderId}}", "cancel"]
+            },
+            "description": "POST /api/v1/purchase-orders/{id}/cancel — no body. Closes an order that will not be delivered; already-received stock stays booked.\n\nAllowed from `DRAFT`, `SENT` and `PARTIALLY_RECEIVED`. A fully `RECEIVED` or already `CANCELLED` order → **422** \"Cannot cancel a RECEIVED order\"."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 · Negative checks",
+      "description": "Quick probes for the cross-cutting behaviour: auth, tenant scoping and the branch header.",
+      "item": [
+        {
+          "name": "No token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients"]
+            },
+            "description": "Every inventory endpoint needs a bearer token."
+          }
+        },
+        {
+          "name": "Stock without X-Branch-Id → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 Unprocessable Content', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ingredientId\": \"{{ingredientId}}\",\n  \"quantityDelta\": 1,\n  \"note\": \"no branch header\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stock/adjust",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stock", "adjust"]
+            },
+            "description": "Branch-scoped writes without the header → **422** \"Active branch required (set X-Branch-Id header)\".\n\nThe JWT filter handles the other two cases before the controller is reached: a non-UUID header → **400** \"Malformed X-Branch-Id\", a branch outside the user's accessible set → **403** \"No access to branch …\"."
+          }
+        },
+        {
+          "name": "Unknown ingredient id → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients/00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Also the response for an id that exists but belongs to another company — the by-id endpoints are tenant-scoped, so they never confirm a foreign row exists."
+          }
+        },
+        {
+          "name": "Validation failure → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('ProblemDetail names the fields', () => {",
+                  "    const pd = pm.response.json();",
+                  "    pm.expect(pd.detail || pd.title).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"baseUnit\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingredients",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingredients"]
+            },
+            "description": "Bean-validation failures come back as **400** \"Validation failed\" with the offending fields listed."
+          }
+        }
+      ]
+    }
+  ]
+}
