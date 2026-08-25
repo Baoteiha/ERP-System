@@ -75,7 +75,7 @@ public class PurchaseOrderController {
     @PreAuthorize("hasAuthority('purchasing:write')")
     public PurchaseOrderResponse receive(@PathVariable UUID id, @Valid @RequestBody ReceiveRequest request) {
         List<ReceiptInput> receipts = request.receipts().stream()
-                .map(r -> new ReceiptInput(r.lineId(), r.receivedQty(), r.unitCostOverride()))
+                .map(r -> new ReceiptInput(r.lineId(), r.receivedQty(), r.unit(), r.unitCostOverride()))
                 .toList();
         return toResponse(purchaseOrderService.receive(id, receipts));
     }

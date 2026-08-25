@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -123,12 +124,27 @@ public class PurchaseOrderService {
             if (qty == null || qty.signum() <= 0) {
                 throw new BusinessRuleException("Received quantity must be positive");
             }
+            BigDecimal costOverride = receipt.unitCostOverride();
+            // A delivery may be counted in any unit of the ingredient's dimension (ADR-0006):
+            // convert the quantity — and the per-received-unit cost override — to the base
+            // unit BEFORE the outstanding comparison and the ledger, which both speak base
+            // units. A wrong-dimension unit is rejected by Unit.convert, never guessed.
+            if (receipt.unit() != null && !receipt.unit().isBlank()) {
+                Unit from = Unit.parse(receipt.unit());
+                Unit base = ingredientRepository.findById(line.getIngredientId())
+                        .map(i -> Unit.parse(i.getBaseUnit()))
+                        .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", line.getIngredientId()));
+                if (from != base) {
+                    qty = Unit.convert(qty, from, base);
+                    if (costOverride != null) {
+                        costOverride = Unit.convertRate(costOverride, from, base);
+                    }
+                }
+            }
             if (qty.compareTo(line.outstandingQty()) > 0) {
                 throw new BusinessRuleException("Received quantity exceeds outstanding for line " + line.getId());
             }
-            Money unitCost = receipt.unitCostOverride() != null
-                    ? Money.of(receipt.unitCostOverride())
-                    : line.getUnitCost();
+            Money unitCost = costOverride != null ? Money.of(costOverride) : line.getUnitCost();
             line.receive(qty);
             ledger.receive(order.getBranchId(), line.getIngredientId(), qty, unitCost, REF_TYPE, order.getId());
         }

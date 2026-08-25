@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import vn.essvn.erpcafe.common.web.MoneyDto;
 
 public final class PurchaseOrderDtos {
@@ -28,6 +29,7 @@ public final class PurchaseOrderDtos {
     public record ReceiptRequest(
             @NotNull UUID lineId,
             @NotNull @Positive BigDecimal receivedQty,
+            @Size(max = 16) String unit,
             BigDecimal unitCostOverride) {
     }
 
