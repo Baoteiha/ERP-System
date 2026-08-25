@@ -8,6 +8,15 @@
 -- Step 1 rewrites the spellings the application now accepts (mirrors Unit.ALIASES).
 -- Step 2 makes anything outside the vocabulary impossible from here on.
 
+-- Flyway runs this migration in one transaction. V7 put ingredient under FORCE ROW
+-- LEVEL SECURITY, which subjects even the table owner to the tenant policy — and no
+-- app.company_id is set during a migration, so under a non-superuser migration role the
+-- UPDATE below would silently match ZERO rows, after which the CHECK constraint (which
+-- ignores RLS) fails on the very rows the UPDATE was meant to fix. Superusers bypass
+-- RLS entirely, which is why dev never sees this. row_security = off restores the
+-- owner's right to see its own table for the rest of this transaction only.
+SET LOCAL row_security = off;
+
 WITH alias (spelling, canonical) AS (VALUES
     ('mg', 'mg'), ('milligram', 'mg'), ('milligrams', 'mg'),
     ('g', 'g'), ('gr', 'g'), ('gram', 'g'), ('grams', 'g'), ('gam', 'g'),
