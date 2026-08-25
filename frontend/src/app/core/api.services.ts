@@ -106,6 +106,16 @@ export class InventoryService {
   updateSupplier(id: string, b: M.SupplierRequest) { return this.http.put<M.SupplierResponse>(`${V1}/suppliers/${id}`, b); }
   deleteSupplier(id: string) { return this.http.delete<void>(`${V1}/suppliers/${id}`); }
 
+  listItems(filter?: { supplierId?: string; ingredientId?: string }) {
+    let params = new HttpParams();
+    if (filter?.supplierId) params = params.set('supplierId', filter.supplierId);
+    if (filter?.ingredientId) params = params.set('ingredientId', filter.ingredientId);
+    return this.http.get<M.ItemResponse[]>(`${V1}/items`, { params });
+  }
+  createItem(b: M.ItemRequest) { return this.http.post<M.ItemResponse>(`${V1}/items`, b); }
+  updateItem(id: string, b: M.ItemRequest) { return this.http.put<M.ItemResponse>(`${V1}/items/${id}`, b); }
+  deleteItem(id: string) { return this.http.delete<void>(`${V1}/items/${id}`); }
+
   listStock() { return this.http.get<M.StockItemResponse[]>(`${V1}/stock`); }
   lowStock() { return this.http.get<M.StockItemResponse[]>(`${V1}/stock/low`); }
   movements(ingredientId?: string, page = 0, size = 30): Observable<M.PageResponse<M.MovementResponse>> {

@@ -111,6 +111,7 @@ export class ShellComponent {
       { label: 'Stock', path: '/inventory/stock', perms: ['inventory:read'], icon: 'box' },
       { label: 'Ingredients', path: '/inventory/ingredients', perms: ['inventory:read'], icon: 'flask' },
       { label: 'Suppliers', path: '/inventory/suppliers', perms: ['inventory:read'], icon: 'truck' },
+      { label: 'Items', path: '/inventory/items', perms: ['inventory:read'], icon: 'tag' },
       { label: 'Purchase Orders', path: '/inventory/purchase-orders', perms: ['purchasing:read'], icon: 'clipboard' },
     ]},
     { title: 'Staff', items: [

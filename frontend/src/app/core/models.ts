@@ -113,6 +113,18 @@ export interface SupplierResponse {
   id: UUID; companyId: UUID; name: string; contactPhone?: string; contactEmail?: string;
   address?: string; active: boolean; version: number;
 }
+
+// What a supplier sells, mapped to the ingredient it becomes in stock. `unit` is the
+// unit it is bought in and must measure the same thing as the ingredient's base unit.
+export interface ItemResponse {
+  id: UUID; companyId: UUID; sku?: string; name: string; supplierId: UUID; ingredientId: UUID;
+  unit: string; active: boolean; version: number;
+}
+// supplierId/ingredientId are fixed after create — the server ignores them on update.
+export interface ItemRequest {
+  sku?: string; name: string; supplierId: UUID; ingredientId: UUID; unit: string;
+  active?: boolean; version?: number;
+}
 export interface SupplierRequest {
   name: string; contactPhone?: string; contactEmail?: string; address?: string; active?: boolean; version?: number;
 }

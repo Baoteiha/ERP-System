@@ -7,6 +7,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 import { IngredientRequest, IngredientResponse } from '../../core/models';
+import { UNIT_GROUPS } from '../../core/units';
 
 @Component({
   selector: 'app-ingredients',
@@ -66,7 +67,18 @@ import { IngredientRequest, IngredientResponse } from '../../core/models';
       <app-modal [title]="form.id ? 'Edit ingredient' : 'New ingredient'" (close)="editing.set(null)">
         <div class="field"><label for="ing-name">Name <span class="req" aria-hidden="true">*</span></label><input id="ing-name" class="input" [(ngModel)]="form.name" placeholder="Whole milk" required /></div>
         <div class="two-col">
-          <div class="field"><label for="ing-base-unit">Base unit <span class="req" aria-hidden="true">*</span></label><input id="ing-base-unit" class="input" [(ngModel)]="form.baseUnit" placeholder="ml / g / pc" maxlength="16" required /></div>
+          <div class="field">
+            <label for="ing-base-unit">Base unit <span class="req" aria-hidden="true">*</span></label>
+            <select id="ing-base-unit" class="select" [(ngModel)]="form.baseUnit" required>
+              <option value="" disabled>Choose a unit</option>
+              @for (g of unitGroups; track g.label) {
+                <optgroup [label]="g.label">
+                  @for (u of g.units; track u.value) { <option [value]="u.value">{{ u.label }}</option> }
+                </optgroup>
+              }
+            </select>
+            <div class="hint">Count stock at the finest level you sell — one can, not one case.</div>
+          </div>
           <div class="field"><label for="ing-category">Category</label><input id="ing-category" class="input" [(ngModel)]="form.category" placeholder="Dairy" /></div>
         </div>
         <label class="checkbox"><input type="checkbox" [(ngModel)]="form.active" /> Active</label>
@@ -178,6 +190,7 @@ export class IngredientsComponent {
   editing = signal<IngredientResponse | null>(null);
   saving = signal(false);
   form: { id?: string } & IngredientRequest = { name: '', baseUnit: '', category: '', active: true };
+  readonly unitGroups = UNIT_GROUPS;
 
   constructor() { this.load(); }
 

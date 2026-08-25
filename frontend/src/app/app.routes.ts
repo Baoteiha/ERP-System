@@ -12,6 +12,7 @@ import { ProductsComponent } from './features/catalog/products';
 import { ModifiersComponent } from './features/catalog/modifiers';
 import { IngredientsComponent } from './features/inventory/ingredients';
 import { SuppliersComponent } from './features/inventory/suppliers';
+import { ItemsComponent } from './features/inventory/items';
 import { StockComponent } from './features/inventory/stock';
 import { PurchaseOrdersComponent } from './features/inventory/purchase-orders';
 import { OrdersComponent } from './features/sales/orders';
@@ -36,6 +37,7 @@ export const routes: Routes = [
       { path: 'inventory/stock', component: StockComponent },
       { path: 'inventory/ingredients', component: IngredientsComponent },
       { path: 'inventory/suppliers', component: SuppliersComponent },
+      { path: 'inventory/items', component: ItemsComponent },
       { path: 'inventory/purchase-orders', component: PurchaseOrdersComponent },
       { path: 'staff/team', component: TeamComponent },
       { path: 'staff/shifts', component: ShiftsComponent },
