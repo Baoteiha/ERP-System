@@ -12,8 +12,8 @@ public final class ItemDtos {
             @Size(max = 64) String sku,
             @NotBlank @Size(max = 255) String name,
             // Set on create and fixed thereafter: an item is one supplier's product for one
-            // ingredient, so repointing it would rewrite what past purchases meant. Ignored
-            // on update.
+            // ingredient, so repointing it would rewrite what past purchases meant. On
+            // update they must match the stored values — a mismatch is rejected with 409.
             @NotNull UUID supplierId,
             @NotNull UUID ingredientId,
             // The unit this is bought in. Must measure the same thing as the ingredient's

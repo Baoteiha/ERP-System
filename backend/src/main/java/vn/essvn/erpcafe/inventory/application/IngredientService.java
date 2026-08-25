@@ -12,6 +12,7 @@ import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
+import vn.essvn.erpcafe.inventory.persistence.ItemRepository;
 
 /** Ingredient master-data management within the acting user's company. */
 @Service
@@ -19,10 +20,13 @@ import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 public class IngredientService {
 
     private final IngredientRepository ingredientRepository;
+    private final ItemRepository itemRepository;
     private final CurrentUser currentUser;
 
-    public IngredientService(IngredientRepository ingredientRepository, CurrentUser currentUser) {
+    public IngredientService(IngredientRepository ingredientRepository, ItemRepository itemRepository,
+            CurrentUser currentUser) {
         this.ingredientRepository = ingredientRepository;
+        this.itemRepository = itemRepository;
         this.currentUser = currentUser;
     }
 
@@ -80,6 +84,14 @@ public class IngredientService {
     }
 
     public void delete(UUID id) {
-        ingredientRepository.delete(get(id));
+        Ingredient ingredient = get(id);
+        // Items resolve their ingredient on every edit, so soft-deleting it out from under
+        // them would strand each one behind a misleading 404. Refuse while any live item
+        // (active or not) still references this ingredient.
+        if (itemRepository.existsByCompanyIdAndIngredientId(ingredient.getCompanyId(), id)) {
+            throw new ConflictException(
+                    "Ingredient is still referenced by supplier items; delete or repoint those first");
+        }
+        ingredientRepository.delete(ingredient);
     }
 }

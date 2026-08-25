@@ -69,23 +69,32 @@ public class ItemService {
         Ingredient ingredient = requireIngredient(companyId, ingredientId);
 
         String canonicalUnit = compatibleUnit(unit, ingredient).symbol();
-        requireUniqueSku(companyId, supplierId, sku);
+        String normalizedSku = normalizeSku(sku);
+        requireUniqueSku(companyId, supplierId, normalizedSku);
         requireUniqueMapping(companyId, supplierId, ingredientId, canonicalUnit);
 
         Item item = new Item(companyId, supplierId, ingredientId, name, canonicalUnit);
-        item.setSku(sku);
+        item.setSku(normalizedSku);
         return itemRepository.save(item);
     }
 
     /**
      * Updates the editable face of an item. Supplier and ingredient are deliberately not
      * updatable: an item <em>is</em> a supplier's product for one ingredient, so changing
-     * either would silently rewrite what every past purchase against it meant. Point
-     * elsewhere by creating a second item and deactivating this one.
+     * either would silently rewrite what every past purchase against it meant. A request
+     * that tries is rejected with 409 — never accepted-and-ignored. Point elsewhere by
+     * creating a second item and deactivating this one.
      */
-    public Item update(UUID id, String sku, String name, String unit, boolean active, Long expectedVersion) {
+    public Item update(UUID id, String sku, String name, UUID supplierId, UUID ingredientId,
+            String unit, boolean active, Long expectedVersion) {
         Item item = get(id);
         requireCurrentVersion(item.getVersion(), expectedVersion);
+        if (supplierId != null && !supplierId.equals(item.getSupplierId())) {
+            throw new ConflictException("An item's supplier cannot change; create a new item instead");
+        }
+        if (ingredientId != null && !ingredientId.equals(item.getIngredientId())) {
+            throw new ConflictException("An item's ingredient cannot change; create a new item instead");
+        }
         Ingredient ingredient = requireIngredient(item.getCompanyId(), item.getIngredientId());
 
         // Changing the purchase unit is allowed — it only affects how future receipts are
@@ -95,11 +104,12 @@ public class ItemService {
         if (!canonicalUnit.equals(item.getUnit())) {
             requireUniqueMapping(item.getCompanyId(), item.getSupplierId(), item.getIngredientId(), canonicalUnit);
         }
-        if (sku != null && !sku.equals(item.getSku())) {
-            requireUniqueSku(item.getCompanyId(), item.getSupplierId(), sku);
+        String normalizedSku = normalizeSku(sku);
+        if (normalizedSku != null && !normalizedSku.equals(item.getSku())) {
+            requireUniqueSku(item.getCompanyId(), item.getSupplierId(), normalizedSku);
         }
 
-        item.setSku(sku);
+        item.setSku(normalizedSku);
         item.setName(name);
         item.setUnit(canonicalUnit);
         item.setActive(active);
@@ -133,6 +143,13 @@ public class ItemService {
     private Ingredient requireIngredient(UUID companyId, UUID ingredientId) {
         return ingredientRepository.findByIdAndCompanyId(ingredientId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
+    }
+
+    // The persistence contract is null-or-real: a blank SKU stored as '' would collide in
+    // the partial unique index (WHERE sku IS NOT NULL), turning the second SKU-less item
+    // for a supplier into a 500. Suppliers who issue no codes get null, uniformly.
+    private static String normalizeSku(String sku) {
+        return sku == null || sku.isBlank() ? null : sku.trim();
     }
 
     // Only ever called for a SKU the item does not already hold, so any existing row

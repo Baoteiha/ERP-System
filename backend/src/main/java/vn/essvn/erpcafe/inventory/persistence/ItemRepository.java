@@ -18,6 +18,9 @@ public interface ItemRepository extends JpaRepository<Item, UUID> {
     /** Every way this ingredient can be bought, across suppliers. */
     List<Item> findByCompanyIdAndIngredientId(UUID companyId, UUID ingredientId);
 
+    /** Whether any live item (active or not) still references the ingredient. */
+    boolean existsByCompanyIdAndIngredientId(UUID companyId, UUID ingredientId);
+
     /** Tenant-scoped lookup: returns empty (→ 404) for another company's id. */
     Optional<Item> findByIdAndCompanyId(UUID id, UUID companyId);
 

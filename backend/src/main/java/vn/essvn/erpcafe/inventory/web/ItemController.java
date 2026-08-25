@@ -65,7 +65,8 @@ public class ItemController {
     public ItemResponse update(@PathVariable UUID id, @Valid @RequestBody ItemRequest request) {
         boolean active = request.active() == null || request.active();
         return itemMapper.toResponse(itemService.update(
-                id, request.sku(), request.name(), request.unit(), active, request.version()));
+                id, request.sku(), request.name(), request.supplierId(), request.ingredientId(),
+                request.unit(), active, request.version()));
     }
 
     @DeleteMapping("/{id}")
