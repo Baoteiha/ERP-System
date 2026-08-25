@@ -63,26 +63,28 @@ prep/sub-recipe production, and the supplier communication loop.
 | INV-101 | Ingredient CRUD, scoped to company, soft-delete | ✅ |
 | INV-102 | Ingredient categories | ✅ |
 | INV-103 | Base unit per ingredient | ✅ |
-| INV-104 | **Closed unit vocabulary with dimension-scoped conversion** — no per-ingredient factors; see [ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md) | 🟡 |
-| INV-105 | **Enforce conversion at every boundary** — receipt, recipe explosion, count, transfer. Reject or convert; never assume units match | ⬜ |
+| INV-104 | **Closed unit vocabulary with dimension-scoped conversion** — no per-ingredient factors; see [ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md) | ✅ |
+| INV-105 | **Enforce conversion at every boundary** — receipt ✅, ledger entry ✅ ([ADR-0006](../docs/adr/0006-conversion-at-the-ledger-seam.md)); recipe save-time validation, count, transfer ⬜ | 🟡 |
 | INV-106 | Ingredient provenance — optionally restrict creation to received stock | ⬜ |
 
-**INV-105 is the highest-priority item in this document.** INV-104 is now settled:
-`Unit` is a closed vocabulary, each unit belongs to a `Dimension`, and conversion
-within a dimension is a pure function — so the per-ingredient conversion table this
-line originally specified is not being built ([ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md)).
-`Ingredient.baseUnit` is canonicalised and constrained to that vocabulary (V8), and
-`Item` carries a purchase unit that must share a dimension with it (V9).
+**INV-104 is settled and the two hot INV-105 boundaries now convert.** `Unit` is a
+closed vocabulary, each unit belongs to a `Dimension`, and conversion within a
+dimension is a pure function — no per-ingredient conversion table
+([ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md)).
+`Ingredient.baseUnit` is canonicalised and constrained to that vocabulary (V8),
+`Item` carries a purchase unit that must share a dimension with it (V9), and
+conversion happens once, at the ledger seam
+([ADR-0006](../docs/adr/0006-conversion-at-the-ledger-seam.md)): the ledger converts
+every stock line to the ingredient's base unit before merging (rejecting
+cross-dimension lines), and receiving converts a receipt counted in any
+same-dimension unit — including a per-received-unit cost override — before booking.
 
-The boundaries themselves are still open. `RecipeLine.unit` is free text and is never
-reconciled against `Ingredient.baseUnit`: a recipe expressed in grams deducting from
-stock held in kilograms is wrong by a factor of 1000, and the code acknowledges this
-in `CatalogApiImpl` and `StockLine`. Receiving is no better — `PurchaseOrderLine`
-carries no unit at all and `PurchaseOrderService.receive` books the raw ordered
-quantity straight to the ledger, so `Item`'s purchase unit is not yet consulted on
-the one path it exists to serve. Because depletion, COGS, low-stock detection, and
-every forecast build on this number, no downstream feature can be trusted until
-both boundaries convert.
+Still open on INV-105: `RecipeLine.unit` is free text and is not validated against
+the ingredient's base unit at save time, so a bad unit is caught only when a sale's
+deduction reaches the ledger (422) instead of when the recipe is written; counts and
+transfers don't exist yet and must convert when they do. Receipts default to base
+units unless a unit is sent — defaulting from the item's purchase unit awaits PO
+lines referencing items.
 
 ### 4.2 Ledger and movements — `INV-2xx`
 
