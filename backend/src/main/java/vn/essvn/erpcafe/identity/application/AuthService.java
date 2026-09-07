@@ -46,12 +46,14 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final LoginAttemptService loginAttemptService;
+    private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
 
     public AuthService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, JwtService jwtService,
-            LoginAttemptService loginAttemptService, SecurityProperties securityProperties) {
+            LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
+            SecurityProperties securityProperties) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -59,6 +61,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.loginAttemptService = loginAttemptService;
+        this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
     }
 
@@ -91,18 +94,27 @@ public class AuthService {
         String hash = sha256(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new BusinessRuleException("Invalid refresh token"));
+
+        // Reuse detection: this token was already rotated away, so either it was stolen and
+        // replayed, or the legitimate holder's copy was. Either way the family is compromised.
+        // Revoke every live token descended from that login and force a fresh sign-in.
+        if (stored.isRevoked()) {
+            familyRevoker.revokeFamily(stored.getFamilyId());
+            throw new BusinessRuleException(
+                    "Refresh token has already been used; all sessions have been revoked");
+        }
         if (!stored.isActive(Instant.now())) {
             throw new BusinessRuleException("Refresh token expired or revoked");
         }
-        // Rotation: each refresh token is single-use. Revoke it and mint a fresh pair, so a
-        // stolen-and-replayed token is caught (the legitimate client already rotated it away).
+
+        // Rotation: each refresh token is single-use. The replacement stays in the same family.
         stored.revoke();
         User user = userRepository.findById(stored.getUserId())
                 .orElseThrow(() -> new BusinessRuleException("User no longer exists"));
         if (!user.isActive()) {
             throw new BusinessRuleException("Account is disabled");
         }
-        return issueTokens(user);
+        return issueTokens(user, stored.getFamilyId());
     }
 
     public void logout(String rawRefreshToken) {
@@ -128,16 +140,22 @@ public class AuthService {
                 branchIds, permissions, roleNames);
     }
 
+    /** A login starts a brand-new token family. */
     private TokenPair issueTokens(User user) {
+        return issueTokens(user, UUID.randomUUID());
+    }
+
+    private TokenPair issueTokens(User user, UUID familyId) {
         AuthPrincipal principal = buildPrincipal(user);
         // Access token: stateless JWT, short-lived, carries permissions/branches (no DB lookup per request).
         String accessToken = jwtService.generateAccessToken(principal);
         // Refresh token: opaque random string returned to the client; only its hash is persisted.
         String rawRefresh = randomToken();
         Instant expiry = Instant.now().plus(securityProperties.jwt().refreshTokenTtl());
-        refreshTokenRepository.save(new RefreshToken(user.getId(), sha256(rawRefresh), expiry));
+        refreshTokenRepository.save(new RefreshToken(user.getId(), sha256(rawRefresh), expiry, familyId));
         return new TokenPair(accessToken, rawRefresh);
     }
+
 
     private static String randomToken() {
         byte[] bytes = new byte[48];

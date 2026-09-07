@@ -14,4 +14,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     /** Outstanding tokens for a user — revoked in bulk when their credentials or status change. */
     List<RefreshToken> findByUserIdAndRevokedFalse(UUID userId);
+
+    /** Live tokens descended from one login — revoked together when a replay is detected. */
+    List<RefreshToken> findByFamilyIdAndRevokedFalse(UUID familyId);
 }

@@ -30,14 +30,26 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "revoked", nullable = false)
     private boolean revoked = false;
 
+    /**
+     * Groups every token descended from one login. Rotation carries the family
+     * forward, so detecting a replayed token can revoke all of its siblings.
+     */
+    @Column(name = "family_id", nullable = false)
+    private UUID familyId;
+
     protected RefreshToken() {
         // for JPA
     }
 
-    public RefreshToken(UUID userId, String tokenHash, Instant expiresAt) {
+    public RefreshToken(UUID userId, String tokenHash, Instant expiresAt, UUID familyId) {
         this.userId = userId;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
+        this.familyId = familyId;
+    }
+
+    public UUID getFamilyId() {
+        return familyId;
     }
 
     public UUID getUserId() {
