@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.application;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -7,9 +8,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.organization.web.CompanyRequest;
 
@@ -18,18 +22,31 @@ import vn.essvn.erpcafe.organization.web.CompanyRequest;
 public class CompanyService {
 
     private final CompanyRepository companyRepository;
+    private final BranchRepository branchRepository;
+    private final CurrentUser currentUser;
 
-    public CompanyService(CompanyRepository companyRepository) {
+    public CompanyService(CompanyRepository companyRepository, BranchRepository branchRepository,
+            CurrentUser currentUser) {
         this.companyRepository = companyRepository;
+        this.branchRepository = branchRepository;
+        this.currentUser = currentUser;
     }
 
+    /** A tenant sees exactly one company: their own. */
     @Transactional(readOnly = true)
     public Page<Company> list(Pageable pageable) {
-        return companyRepository.findAll(pageable);
+        return companyRepository.findByIdIn(List.of(currentUser.require().companyId()), pageable);
     }
 
+    /**
+     * Resolves a company by id, scoped to the caller's own. Another tenant's id is
+     * reported as 404 rather than 403, so the endpoint never confirms it exists.
+     */
     @Transactional(readOnly = true)
     public Company get(UUID id) {
+        if (!id.equals(currentUser.require().companyId())) {
+            throw ResourceNotFoundException.of("Company", id);
+        }
         return companyRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Company", id));
     }
@@ -51,8 +68,17 @@ public class CompanyService {
         return company;
     }
 
+    /**
+     * Deletes the caller's own company. Guarded against orphaning: a company with
+     * branches still attached cannot be removed, mirroring the referential-delete
+     * guards used in inventory.
+     */
     public void delete(UUID id) {
         Company company = get(id);
+        if (branchRepository.existsByCompanyId(company.getId())) {
+            throw new BusinessRuleException(
+                    "Cannot delete a company that still has branches; delete its branches first");
+        }
         companyRepository.delete(company);
     }
 }
