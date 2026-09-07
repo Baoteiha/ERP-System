@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.application;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -10,12 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.mapper.BranchMapper;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
-import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.organization.web.BranchRequest;
 
 @Service
@@ -23,47 +24,49 @@ import vn.essvn.erpcafe.organization.web.BranchRequest;
 public class BranchService implements OrganizationApi {
 
     private final BranchRepository branchRepository;
-    private final CompanyRepository companyRepository;
     private final BranchMapper branchMapper;
+    private final CurrentUser currentUser;
 
-    public BranchService(BranchRepository branchRepository, CompanyRepository companyRepository,
-            BranchMapper branchMapper) {
+    public BranchService(BranchRepository branchRepository, BranchMapper branchMapper,
+            CurrentUser currentUser) {
         this.branchRepository = branchRepository;
-        this.companyRepository = companyRepository;
         this.branchMapper = branchMapper;
+        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public Page<Branch> list(Pageable pageable) {
-        return branchRepository.findAll(pageable);
+        return branchRepository.findByCompanyId(currentUser.require().companyId(), pageable);
     }
 
+    /** Resolves a branch within the caller's company; another tenant's id is a 404. */
     @Transactional(readOnly = true)
     public Branch get(UUID id) {
-        return branchRepository.findById(id)
+        return branchRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Branch", id));
     }
 
     public Branch create(BranchRequest request) {
-        requireCompany(request.companyId());
-        if (branchRepository.existsByCompanyIdAndCode(request.companyId(), request.code())) {
+        UUID companyId = currentUser.require().companyId();
+        if (branchRepository.existsByCompanyIdAndCode(companyId, request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
         }
-        Branch branch = new Branch(request.companyId(), request.name(), request.code());
+        Branch branch = new Branch(companyId, request.name(), request.code());
         apply(branch, request);
         return branchRepository.save(branch);
     }
 
+    /**
+     * Updates a branch in the caller's company. The owning company is deliberately
+     * not touched: moving a branch between tenants would hand every branch-scoped
+     * query downstream to the wrong company.
+     */
     public Branch update(UUID id, BranchRequest request) {
         Branch branch = get(id);
-        requireCompany(request.companyId());
-        boolean codeOrCompanyChanged = !branch.getCode().equals(request.code())
-                || !branch.getCompanyId().equals(request.companyId());
-        if (codeOrCompanyChanged
-                && branchRepository.existsByCompanyIdAndCode(request.companyId(), request.code())) {
+        if (!branch.getCode().equals(request.code())
+                && branchRepository.existsByCompanyIdAndCode(branch.getCompanyId(), request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
         }
-        branch.setCompanyId(request.companyId());
         branch.setCode(request.code());
         apply(branch, request);
         return branch;
@@ -74,6 +77,10 @@ public class BranchService implements OrganizationApi {
     }
 
     // --- OrganizationApi (published to other modules) ---
+    //
+    // These take an explicit companyId and are deliberately not scoped through
+    // CurrentUser: callers are other modules that already pass the caller's own
+    // company, plus DataInitializer, which runs with no security context.
 
     @Override
     @Transactional(readOnly = true)
@@ -95,7 +102,7 @@ public class BranchService implements OrganizationApi {
 
     @Override
     @Transactional(readOnly = true)
-    public java.util.List<BranchDto> listActiveBranches(UUID companyId) {
+    public List<BranchDto> listActiveBranches(UUID companyId) {
         return branchRepository.findByCompanyIdAndActiveTrue(companyId).stream()
                 .map(branchMapper::toDto)
                 .toList();
@@ -107,12 +114,6 @@ public class BranchService implements OrganizationApi {
         branch.setPhone(request.phone());
         if (request.active() != null) {
             branch.setActive(request.active());
-        }
-    }
-
-    private void requireCompany(UUID companyId) {
-        if (!companyRepository.existsById(companyId)) {
-            throw ResourceNotFoundException.of("Company", companyId);
         }
     }
 }

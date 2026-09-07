@@ -6,11 +6,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.organization.domain.Branch;
+import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.BranchRepository;
+import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -24,6 +29,12 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 class UserAccessGrantIntegrationTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
+
+    @Autowired
+    private CompanyRepository companyRepository;
+
+    @Autowired
+    private BranchRepository branchRepository;
 
     private String create(String token, String url, String body) throws Exception {
         return mockMvc.perform(post(url)
@@ -46,13 +57,13 @@ class UserAccessGrantIntegrationTest extends AbstractIntegrationTest {
                 "{\"email\":\"grantee%d@a.test\",\"password\":\"password123\",\"fullName\":\"A User\"}".formatted(n)),
                 "$.id");
 
-        // A second company (B) with a branch of its own.
-        String companyBId = JsonPath.read(create(token, "/api/v1/companies",
-                "{\"name\":\"Company B %d\",\"code\":\"CB%d\"}".formatted(n, n)),
-                "$.id");
-        String branchBId = JsonPath.read(create(token, "/api/v1/branches",
-                "{\"companyId\":\"%s\",\"name\":\"B Branch\",\"code\":\"BB%d\"}".formatted(companyBId, n)),
-                "$.id");
+        // A second company (B) with a branch of its own, seeded directly: the branch
+        // API deliberately no longer accepts a client-supplied company, so a foreign
+        // branch cannot be created over HTTP at all.
+        Company companyB = companyRepository.save(new Company("Company B %d".formatted(n), "CB%d".formatted(n)));
+        String branchBId = branchRepository
+                .save(new Branch(companyB.getId(), "B Branch", "BB%d".formatted(n)))
+                .getId().toString();
 
         // Granting company A's user access to company B's branch must be refused.
         mockMvc.perform(post("/api/v1/users/" + userAId + "/access")
