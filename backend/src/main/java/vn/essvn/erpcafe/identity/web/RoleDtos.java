@@ -20,6 +20,12 @@ public final class RoleDtos {
             @NotEmpty Set<String> permissions) {
     }
 
+    /** Payload for renaming a role and editing its description. */
+    public record UpdateRoleRequest(
+            @NotBlank String name,
+            String description) {
+    }
+
     public record RoleResponse(
             UUID id,
             UUID companyId,

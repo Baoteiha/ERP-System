@@ -13,4 +13,7 @@ public interface UserBranchAccessRepository extends JpaRepository<UserBranchAcce
     List<UserBranchAccess> findByUserId(UUID userId);
 
     Optional<UserBranchAccess> findByUserIdAndBranchId(UUID userId, UUID branchId);
+
+    /** Guards role deletion: a role somebody still holds cannot be removed. */
+    boolean existsByRoleId(UUID roleId);
 }

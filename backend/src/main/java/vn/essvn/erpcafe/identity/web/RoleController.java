@@ -22,6 +22,7 @@ import vn.essvn.erpcafe.identity.mapper.RoleMapper;
 import vn.essvn.erpcafe.identity.web.RoleDtos.CreateRoleRequest;
 import vn.essvn.erpcafe.identity.web.RoleDtos.PermissionsRequest;
 import vn.essvn.erpcafe.identity.web.RoleDtos.RoleResponse;
+import vn.essvn.erpcafe.identity.web.RoleDtos.UpdateRoleRequest;
 
 @RestController
 @RequestMapping(ApiVersions.V1 + "/roles")
@@ -53,6 +54,21 @@ public class RoleController {
         RoleResponse body = roleMapper.toResponse(
                 roleService.create(request.name(), request.description(), request.permissions()));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/roles/" + body.id())).body(body);
+    }
+
+    /** Renames a custom role and edits its description. */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('role:write')")
+    public RoleResponse rename(@PathVariable UUID id, @Valid @RequestBody UpdateRoleRequest request) {
+        return roleMapper.toResponse(roleService.rename(id, request.name(), request.description()));
+    }
+
+    /** Deletes a custom role that nobody currently holds. */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('role:write')")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        roleService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
     /** Replaces the role's entire permission set. */

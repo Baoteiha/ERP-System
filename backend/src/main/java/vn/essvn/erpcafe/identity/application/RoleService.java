@@ -16,6 +16,7 @@ import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.persistence.PermissionRepository;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
+import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /**
@@ -28,12 +29,14 @@ public class RoleService {
 
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
+    private final UserBranchAccessRepository accessRepository;
     private final CurrentUser currentUser;
 
     public RoleService(RoleRepository roleRepository, PermissionRepository permissionRepository,
-            CurrentUser currentUser) {
+            UserBranchAccessRepository accessRepository, CurrentUser currentUser) {
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
+        this.accessRepository = accessRepository;
         this.currentUser = currentUser;
     }
 
@@ -79,6 +82,49 @@ public class RoleService {
         if (!removed) {
             throw new ResourceNotFoundException(
                     "Role does not have permission: " + permissionName);
+        }
+        return role;
+    }
+
+    /** Renames a custom role. Default roles keep their names: the startup sync matches on them. */
+    public Role rename(UUID roleId, String name, String description) {
+        Role role = requireCustomRole(roleId);
+        if (!role.getName().equals(name)
+                && roleRepository.existsByCompanyIdAndName(role.getCompanyId(), name)) {
+            throw new ConflictException("Role already exists: " + name);
+        }
+        role.setName(name);
+        role.setDescription(description);
+        return role;
+    }
+
+    /** Deletes a custom role that nobody currently holds. */
+    public void delete(UUID roleId) {
+        Role role = requireCustomRole(roleId);
+        if (accessRepository.existsByRoleId(roleId)) {
+            throw new BusinessRuleException(
+                    "Cannot delete a role that is still granted to a user; revoke those grants first");
+        }
+        roleRepository.delete(role);
+    }
+
+    /**
+     * Loads a role the caller owns that is not one of the seeded defaults.
+     *
+     * <p>The defaults are reconciled against {@link DefaultRole} on every startup and
+     * are matched <em>by name</em>, so renaming or deleting one would silently break
+     * that sync and leave the company without a role it is expected to have.
+     */
+    private Role requireCustomRole(UUID roleId) {
+        Role role = get(roleId);
+        if (!role.getCompanyId().equals(currentUser.require().companyId())) {
+            throw new BusinessRuleException("Role belongs to a different company");
+        }
+        boolean isDefault = DefaultRole.all().stream()
+                .anyMatch(d -> d.roleName().equals(role.getName()));
+        if (isDefault) {
+            throw new BusinessRuleException(
+                    "The %s role is system-managed and cannot be renamed or deleted".formatted(role.getName()));
         }
         return role;
     }
