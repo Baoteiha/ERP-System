@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.identity.application.AuthService;
@@ -31,8 +32,8 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-        TokenPair tokens = authService.login(request.email(), request.password());
+    public TokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        TokenPair tokens = authService.login(request.email(), request.password(), http.getRemoteAddr());
         return TokenResponse.bearer(tokens.accessToken(), tokens.refreshToken());
     }
 

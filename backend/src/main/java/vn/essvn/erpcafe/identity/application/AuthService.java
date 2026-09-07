@@ -26,6 +26,7 @@ import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.JwtService;
+import vn.essvn.erpcafe.identity.security.LoginAttemptService;
 
 /**
  * Authentication use cases: login, token refresh (with rotation), and logout.
@@ -44,27 +45,44 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final LoginAttemptService loginAttemptService;
     private final SecurityProperties securityProperties;
 
     public AuthService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder, JwtService jwtService, SecurityProperties securityProperties) {
+            PasswordEncoder passwordEncoder, JwtService jwtService,
+            LoginAttemptService loginAttemptService, SecurityProperties securityProperties) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.loginAttemptService = loginAttemptService;
         this.securityProperties = securityProperties;
     }
 
-    public TokenPair login(String email, String rawPassword) {
+    /**
+     * Verifies credentials and issues a token pair. {@code clientKey} is the caller's
+     * address; it only ever feeds the failed-attempt throttle.
+     */
+    public TokenPair login(String email, String rawPassword, String clientKey) {
+        String throttleKey = email + "|" + clientKey;
+        loginAttemptService.checkNotBlocked(throttleKey);
+
         User user = userRepository.findByEmail(email)
                 .filter(u -> passwordEncoder.matches(rawPassword, u.getPasswordHash()))
-                .orElseThrow(() -> new BusinessRuleException("Invalid email or password"));
+                .orElse(null);
+        if (user == null) {
+            loginAttemptService.recordFailure(throttleKey);
+            throw new BusinessRuleException("Invalid email or password");
+        }
         if (!user.isActive()) {
+            loginAttemptService.recordFailure(throttleKey);
             throw new BusinessRuleException("Account is disabled");
         }
+
+        loginAttemptService.reset(throttleKey);
         return issueTokens(user);
     }
 
