@@ -61,8 +61,9 @@ export interface BranchResponse {
   address?: string; phone?: string; active: boolean;
   createdAt: string; createdBy: string; updatedAt: string; updatedBy: string;
 }
+/** The owning company is never client-supplied: the API takes it from the access token. */
 export interface BranchRequest {
-  companyId: UUID; name: string; code: string;
+  name: string; code: string;
   address?: string; phone?: string; active?: boolean;
 }
 

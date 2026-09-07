@@ -6,7 +6,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
-import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/models';
+import { BranchRequest, BranchResponse } from '../../core/models';
 
 @Component({
   selector: 'app-branches',
@@ -57,13 +57,6 @@ import { BranchRequest, BranchResponse, CompanyResponse } from '../../core/model
 
     @if (editing()) {
       <app-modal [title]="form.id ? 'Edit branch' : 'New branch'" (close)="editing.set(null)">
-        <div class="field">
-          <label for="br-company">Company <span class="req" aria-hidden="true">*</span></label>
-          <select id="br-company" class="select" [(ngModel)]="form.companyId" required>
-            <option value="" disabled>Select company…</option>
-            @for (c of companies(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-          </select>
-        </div>
         <div class="two-col">
           <div class="field"><label for="br-name">Name <span class="req" aria-hidden="true">*</span></label><input id="br-name" class="input" [(ngModel)]="form.name" placeholder="Downtown" required /></div>
           <div class="field"><label for="br-code">Code <span class="req" aria-hidden="true">*</span></label><input id="br-code" class="input" [(ngModel)]="form.code" placeholder="DT01" maxlength="32" required /></div>
@@ -96,7 +89,6 @@ export class BranchesComponent {
   private confirm = inject(ConfirmService);
 
   items = signal<BranchResponse[]>([]);
-  companies = signal<CompanyResponse[]>([]);
   loading = signal(true);
   editing = signal<BranchResponse | null>(null);
   saving = signal(false);
@@ -104,11 +96,10 @@ export class BranchesComponent {
 
   constructor() {
     this.load();
-    this.api.listCompanies().subscribe({ next: (p) => this.companies.set(p.content) });
   }
 
   private blank(): { id?: string } & BranchRequest {
-    return { companyId: '', name: '', code: '', address: '', phone: '', active: true };
+    return { name: '', code: '', address: '', phone: '', active: true };
   }
 
   load() {
@@ -121,16 +112,15 @@ export class BranchesComponent {
 
   openNew() {
     this.form = this.blank();
-    if (this.companies().length === 1) this.form.companyId = this.companies()[0].id;
     this.editing.set({} as BranchResponse);
   }
   openEdit(b: BranchResponse) {
-    this.form = { id: b.id, companyId: b.companyId, name: b.name, code: b.code, address: b.address, phone: b.phone, active: b.active };
+    this.form = { id: b.id, name: b.name, code: b.code, address: b.address, phone: b.phone, active: b.active };
     this.editing.set(b);
   }
 
   save() {
-    if (!this.form.companyId || !this.form.name || !this.form.code) { this.toast.error('Company, name and code are required'); return; }
+    if (!this.form.name || !this.form.code) { this.toast.error('Name and code are required'); return; }
     this.saving.set(true);
     const { id, ...body } = this.form;
     const req = id ? this.api.updateBranch(id, body) : this.api.createBranch(body);
