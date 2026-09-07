@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,8 +23,12 @@ import vn.essvn.erpcafe.identity.application.UserService;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.mapper.UserMapper;
 import vn.essvn.erpcafe.identity.web.UserDtos.BranchAccessResponse;
+import vn.essvn.erpcafe.identity.web.UserDtos.ChangePasswordRequest;
 import vn.essvn.erpcafe.identity.web.UserDtos.CreateUserRequest;
 import vn.essvn.erpcafe.identity.web.UserDtos.GrantAccessRequest;
+import vn.essvn.erpcafe.identity.web.UserDtos.ResetPasswordRequest;
+import vn.essvn.erpcafe.identity.web.UserDtos.UpdateStatusRequest;
+import vn.essvn.erpcafe.identity.web.UserDtos.UpdateUserRequest;
 import vn.essvn.erpcafe.identity.web.UserDtos.UserResponse;
 
 @RestController
@@ -56,6 +61,35 @@ public class UserController {
         UserResponse body = userMapper.toResponse(
                 userService.create(request.email(), request.password(), request.fullName()));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/users/" + body.id())).body(body);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('user:write')")
+    public UserResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateUserRequest request) {
+        return userMapper.toResponse(userService.updateProfile(id, request.email(), request.fullName()));
+    }
+
+    /** Enables or disables an account. Disabling also revokes the user's refresh tokens. */
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('user:write')")
+    public UserResponse changeStatus(@PathVariable UUID id, @Valid @RequestBody UpdateStatusRequest request) {
+        return userMapper.toResponse(userService.changeStatus(id, request.status()));
+    }
+
+    /** Self-service: any authenticated user may change their own password. */
+    @PostMapping("/me/password")
+    public ResponseEntity<Void> changeOwnPassword(@Valid @RequestBody ChangePasswordRequest request) {
+        userService.changeOwnPassword(request.currentPassword(), request.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Administrative password reset. */
+    @PutMapping("/{id}/password")
+    @PreAuthorize("hasAuthority('user:write')")
+    public ResponseEntity<Void> resetPassword(@PathVariable UUID id,
+            @Valid @RequestBody ResetPasswordRequest request) {
+        userService.resetPassword(id, request.newPassword());
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/access")

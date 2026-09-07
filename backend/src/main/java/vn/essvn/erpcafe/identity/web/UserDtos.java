@@ -23,6 +23,24 @@ public final class UserDtos {
             @NotNull UUID roleId) {
     }
 
+    public record UpdateUserRequest(
+            @NotBlank @Email String email,
+            @Size(max = 255) String fullName) {
+    }
+
+    public record UpdateStatusRequest(
+            @NotNull UserStatus status) {
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank @Size(min = 8, max = 100) String newPassword) {
+    }
+
+    public record ResetPasswordRequest(
+            @NotBlank @Size(min = 8, max = 100) String newPassword) {
+    }
+
     public record UserResponse(
             UUID id,
             UUID companyId,

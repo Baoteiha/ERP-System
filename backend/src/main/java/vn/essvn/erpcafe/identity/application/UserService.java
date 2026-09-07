@@ -12,9 +12,12 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
+import vn.essvn.erpcafe.identity.domain.UserStatus;
+import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
@@ -33,16 +36,18 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserBranchAccessRepository accessRepository;
     private final RoleRepository roleRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
 
     public UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
-            RoleRepository roleRepository, PasswordEncoder passwordEncoder,
-            OrganizationApi organizationApi, CurrentUser currentUser) {
+            RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.organizationApi = organizationApi;
         this.currentUser = currentUser;
@@ -101,5 +106,62 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User " + userId + " has no access at branch " + branchId));
         accessRepository.delete(access);
+    }
+
+    // --- account lifecycle ---
+
+    /** Updates a user's display name and login email. */
+    public User updateProfile(UUID id, String email, String fullName) {
+        User user = get(id);
+        if (!user.getEmail().equals(email) && userRepository.existsByEmail(email)) {
+            throw new ConflictException("Email already exists: " + email);
+        }
+        user.setEmail(email);
+        user.setFullName(fullName);
+        return user;
+    }
+
+    /**
+     * Enables or disables an account. Disabling revokes every outstanding refresh
+     * token, so the account cannot be extended beyond the life of an access token
+     * already in flight.
+     *
+     * <p>Changing your own status is refused: disabling yourself is the one change
+     * you could not then undo.
+     */
+    public User changeStatus(UUID id, UserStatus status) {
+        if (id.equals(currentUser.require().userId())) {
+            throw new BusinessRuleException("You cannot change your own account status");
+        }
+        User user = get(id);
+        user.setStatus(status);
+        if (status == UserStatus.DISABLED) {
+            revokeAllTokens(id);
+        }
+        return user;
+    }
+
+    /** Self-service password change; the current password must be presented. */
+    public void changeOwnPassword(String currentPassword, String newPassword) {
+        UUID userId = currentUser.require().userId();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new BusinessRuleException("Current password is incorrect");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        revokeAllTokens(userId);
+    }
+
+    /** Administrative reset; does not need the old password, but does need user:write. */
+    public void resetPassword(UUID id, String newPassword) {
+        User user = get(id);
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        revokeAllTokens(user.getId());
+    }
+
+    /** Revokes every outstanding refresh token for a user. */
+    private void revokeAllTokens(UUID userId) {
+        refreshTokenRepository.findByUserIdAndRevokedFalse(userId).forEach(RefreshToken::revoke);
     }
 }
