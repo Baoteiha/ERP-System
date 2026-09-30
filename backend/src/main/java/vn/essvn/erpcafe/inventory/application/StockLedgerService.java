@@ -24,6 +24,7 @@ import vn.essvn.erpcafe.inventory.domain.StockMovement;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * The core stock engine. Every change to stock goes through here: it appends an
@@ -40,9 +41,12 @@ public class StockLedgerService {
     private final StockItemRepository stockItemRepository;
     private final StockMovementRepository movementRepository;
     private final IngredientRepository ingredientRepository;
+    private final OrganizationApi organizationApi;
 
     public StockLedgerService(StockItemRepository stockItemRepository,
-            StockMovementRepository movementRepository, IngredientRepository ingredientRepository) {
+            StockMovementRepository movementRepository, IngredientRepository ingredientRepository,
+            OrganizationApi organizationApi) {
+        this.organizationApi = organizationApi;
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
         this.ingredientRepository = ingredientRepository;
@@ -92,7 +96,7 @@ public class StockLedgerService {
             return new CogsResult(cogsOfExisting(refType, refId));
         }
         Money total = Money.zero();
-        for (StockLine line : normalize(lines)) {
+        for (StockLine line : normalize(branchId, lines)) {
             StockItem item = getOrCreate(branchId, line.ingredientId());
             // COGS values the depletion at the CURRENT moving-average cost.
             Money lineCost = item.getAvgUnitCost().multiply(line.quantity());
@@ -121,7 +125,7 @@ public class StockLedgerService {
         if (refId != null && movementRepository.existsByRefTypeAndRefId(refType, refId)) {
             return; // already returned → no-op
         }
-        for (StockLine line : normalize(lines)) {
+        for (StockLine line : normalize(branchId, lines)) {
             StockItem item = getOrCreate(branchId, line.ingredientId());
             item.setQuantityOnHand(item.getQuantityOnHand().add(line.quantity()));
             record(line.ingredientId(), branchId, MovementType.SALE_REVERSAL,
@@ -157,8 +161,8 @@ public class StockLedgerService {
      * <p>Merging duplicates is a bonus: an order with two lattes hits milk twice, and
      * collapsing them means one lock and one movement row instead of two.
      */
-    private List<StockLine> normalize(List<StockLine> lines) {
-        Map<UUID, Unit> baseUnits = baseUnitsOf(lines);
+    private List<StockLine> normalize(UUID branchId, List<StockLine> lines) {
+        Map<UUID, Unit> baseUnits = baseUnitsOf(branchId, lines);
         Map<UUID, StockLine> merged = new TreeMap<>();
         for (StockLine line : lines) {
             StockLine converted = toBaseUnit(line, baseUnits.get(line.ingredientId()));
@@ -181,10 +185,16 @@ public class StockLedgerService {
         return new StockLine(line.ingredientId(), Unit.convert(line.quantity(), from, baseUnit), baseUnit.symbol());
     }
 
-    private Map<UUID, Unit> baseUnitsOf(List<StockLine> lines) {
+    // Only ingredients of the company that owns the branch: a foreign ingredient id is treated
+    // exactly like a missing one (no base unit to convert to).
+    private Map<UUID, Unit> baseUnitsOf(UUID branchId, List<StockLine> lines) {
         List<UUID> ids = lines.stream().map(StockLine::ingredientId).distinct().toList();
         Map<UUID, Unit> baseUnits = new HashMap<>();
-        for (Ingredient ingredient : ingredientRepository.findAllById(ids)) {
+        UUID companyId = organizationApi.companyIdOf(branchId).orElse(null);
+        if (companyId == null) {
+            return baseUnits;
+        }
+        for (Ingredient ingredient : ingredientRepository.findAllByIdInAndCompanyId(ids, companyId)) {
             baseUnits.put(ingredient.getId(), Unit.parse(ingredient.getBaseUnit()));
         }
         return baseUnits;

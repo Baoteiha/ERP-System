@@ -85,11 +85,8 @@ public class StockService {
     }
 
     private void requireIngredient(UUID ingredientId) {
-        Ingredient ingredient = ingredientRepository.findById(ingredientId)
+        ingredientRepository.findByIdAndCompanyId(ingredientId, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
-        if (!ingredient.getCompanyId().equals(currentUser.require().companyId())) {
-            throw new BusinessRuleException("Ingredient belongs to a different company");
-        }
     }
 
     private UUID activeBranch() {

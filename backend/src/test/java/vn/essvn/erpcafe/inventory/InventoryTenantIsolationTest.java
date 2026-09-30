@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.HashSet;
@@ -139,6 +140,42 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(admin))
                         .header("X-Branch-Id", branchA))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void stockAndPurchaseOrders_answer404ForAnotherCompanysIds() throws Exception {
+        int n = SEQ.incrementAndGet();
+        String admin = adminToken();
+        String branchA = firstBranch(admin);
+        TenantB b = seedOtherCompany(n);
+
+        String supplierId = JsonPath.read(createJson(admin, branchA, "/api/v1/suppliers",
+                "{\"name\":\"SupX%d\"}".formatted(n)), "$.id");
+        String ingredientId = JsonPath.read(createJson(admin, branchA, "/api/v1/ingredients",
+                "{\"name\":\"BeansX%d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
+
+        mockMvc.perform(put("/api/v1/stock/reorder-level")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
+                        .header("X-Branch-Id", b.branchId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ingredientId\":\"%s\",\"reorderLevel\":5}".formatted(ingredientId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mockMvc.perform(post("/api/v1/stock/adjust")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
+                        .header("X-Branch-Id", b.branchId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ingredientId\":\"%s\",\"quantityDelta\":5,\"note\":\"x\"}"
+                                .formatted(ingredientId)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/v1/purchase-orders")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
+                        .header("X-Branch-Id", b.branchId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
+                                .formatted(supplierId, ingredientId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
     // --- helpers ---

@@ -131,7 +131,7 @@ public class PurchaseOrderService {
             // units. A wrong-dimension unit is rejected by Unit.convert, never guessed.
             if (receipt.unit() != null && !receipt.unit().isBlank()) {
                 Unit from = Unit.parse(receipt.unit());
-                Unit base = ingredientRepository.findById(line.getIngredientId())
+                Unit base = ingredientRepository.findByIdAndCompanyId(line.getIngredientId(), currentUser.require().companyId())
                         .map(i -> Unit.parse(i.getBaseUnit()))
                         .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", line.getIngredientId()));
                 if (from != base) {
@@ -153,19 +153,13 @@ public class PurchaseOrderService {
     }
 
     private void requireSupplier(UUID supplierId, UUID companyId) {
-        var supplier = supplierRepository.findById(supplierId)
+        supplierRepository.findByIdAndCompanyId(supplierId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", supplierId));
-        if (!supplier.getCompanyId().equals(companyId)) {
-            throw new BusinessRuleException("Supplier belongs to a different company");
-        }
     }
 
     private void requireIngredient(UUID ingredientId, UUID companyId) {
-        Ingredient ingredient = ingredientRepository.findById(ingredientId)
+        ingredientRepository.findByIdAndCompanyId(ingredientId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
-        if (!ingredient.getCompanyId().equals(companyId)) {
-            throw new BusinessRuleException("Ingredient belongs to a different company");
-        }
     }
 
     private UUID activeBranch() {

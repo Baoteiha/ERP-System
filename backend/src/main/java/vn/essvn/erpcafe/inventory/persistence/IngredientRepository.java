@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.inventory.persistence;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,6 +15,8 @@ public interface IngredientRepository extends JpaRepository<Ingredient, UUID> {
 
     /** Tenant-scoped lookup: returns empty (→ 404) for another company's id. */
     Optional<Ingredient> findByIdAndCompanyId(UUID id, UUID companyId);
+
+    List<Ingredient> findAllByIdInAndCompanyId(Collection<UUID> ids, UUID companyId);
 
     boolean existsByCompanyIdAndName(UUID companyId, String name);
 }
