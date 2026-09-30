@@ -165,8 +165,7 @@ export class ShellComponent {
     this.org.listBranches().subscribe({
       next: (page) => {
         const mine = this.auth.me()?.branchIds ?? [];
-        const list = mine.length ? page.content.filter((b) => mine.includes(b.id)) : page.content;
-        this.branches.set(list.length ? list : page.content);
+        this.branches.set(page.content.filter((b) => mine.includes(b.id)));
         if (!this.auth.activeBranchId() && this.branches().length) {
           this.auth.setActiveBranch(this.branches()[0].id);
         }
@@ -180,5 +179,5 @@ export class ShellComponent {
     if (id) this.auth.setActiveBranch(id);
   }
 
-  logout() { this.auth.logout(); location.href = '/login'; }
+  async logout() { await this.auth.logout(); location.href = '/login'; }
 }

@@ -1,11 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, firstValueFrom, of, tap, timeout } from 'rxjs';
 import { LoginRequest, MeResponse, TokenResponse } from './models';
 
 const ACCESS_KEY = 'erpcafe.access';
 const REFRESH_KEY = 'erpcafe.refresh';
 const BRANCH_KEY = 'erpcafe.branch';
+const LOGOUT_TIMEOUT_MS = 3000;
 
 /** Holds tokens + the current identity. Backbone of auth + branch scoping. */
 @Injectable({ providedIn: 'root' })
@@ -41,8 +42,9 @@ export class AuthService {
     return this.http.get<MeResponse>(`${this.base}/me`).pipe(
       tap((me) => {
         this.me.set(me);
-        // default the active branch to the first one the user can access
-        if (!this.activeBranchId() && me.branchIds?.length) {
+        // a stored branch the user no longer (or never) had access to falls back to their first
+        const active = this.activeBranchId();
+        if (me.branchIds?.length && (!active || !me.branchIds.includes(active))) {
           this.setActiveBranch(me.branchIds[0]);
         }
       }),
@@ -60,16 +62,24 @@ export class AuthService {
     localStorage.setItem(BRANCH_KEY, branchId);
   }
 
-  logout(callServer = true) {
+  /** Clears local state at once; resolves after the server logout (bounded) so callers can navigate safely. */
+  async logout(callServer = true): Promise<void> {
     const token = this.refreshToken();
-    if (callServer && token) {
-      this.http.post(`${this.base}/logout`, { refreshToken: token }).subscribe({ error: () => {} });
-    }
     this.accessToken.set(null);
     this.refreshToken.set(null);
     this.me.set(null);
+    this.activeBranchId.set(null);
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(BRANCH_KEY);
+    if (callServer && token) {
+      await firstValueFrom(
+        this.http.post(`${this.base}/logout`, { refreshToken: token }).pipe(
+          timeout(LOGOUT_TIMEOUT_MS),
+          catchError(() => of(null)),
+        ),
+      );
+    }
   }
 
   private storeTokens(res: TokenResponse) {
