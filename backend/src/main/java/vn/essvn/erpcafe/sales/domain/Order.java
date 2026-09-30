@@ -109,15 +109,16 @@ public class Order extends BranchScopedEntity {
     }
 
     public void addPayment(Payment payment) {
-        if (status != OrderStatus.OPEN && status != OrderStatus.PAID) {
-            throw new BusinessRuleException("Cannot take payment on a %s order".formatted(status));
+        requireOpen("take payment on");
+        if (payment.getAmount().getAmount().compareTo(balanceDue().getAmount()) > 0) {
+            throw new BusinessRuleException("Payment exceeds the balance due of %s"
+                    .formatted(balanceDue().getAmount().toPlainString()));
         }
         payments.add(payment);
     }
 
-    /** Records a refund tender (money out). Used during void/refund; not status-guarded. */
-    public void recordRefund(PaymentMethod method, Money amount) {
-        payments.add(new Payment(method, PaymentType.REFUND, amount));
+    public Money balanceDue() {
+        return grandTotalMoney().subtract(amountPaid());
     }
 
     public void markPaidIfSettled() {
@@ -126,38 +127,60 @@ public class Order extends BranchScopedEntity {
         }
     }
 
-    public void complete(BigDecimal cogs) {
+    /** Guards the completion side effects: call before touching stock. */
+    public void requireCompletable() {
         requireStatus(OrderStatus.PAID, "completed");
+    }
+
+    public void complete(BigDecimal cogs) {
+        requireCompletable();
         this.cogsTotal = cogs;
         this.status = OrderStatus.COMPLETED;
     }
 
+    /** Cancels an open order, paying every tender back in the method it came in. */
     public void cancel() {
         requireOpen("cancel");
-        if (!payments.isEmpty()) {
-            throw new BusinessRuleException("Order has payments; refund instead of cancel");
+        for (Payment p : List.copyOf(payments)) {
+            if (p.getType() == PaymentType.PAYMENT) {
+                recordRefund(p.getMethod(), p.getAmount());
+            }
         }
         this.status = OrderStatus.CANCELLED;
     }
 
     /** Reverses a paid/completed order as a mistake. Returns true if stock was already deducted. */
-    public boolean voidOrder() {
+    public boolean voidOrder(PaymentMethod refundMethod) {
         if (status != OrderStatus.PAID && status != OrderStatus.COMPLETED) {
             throw new BusinessRuleException("Only PAID or COMPLETED orders can be voided (was %s)".formatted(status));
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.VOID;
+        refundAll(refundMethod);
         return wasCompleted;
     }
 
     /** Refunds a paid/completed order. Returns true if stock was already deducted. */
-    public boolean refund() {
+    public boolean refund(PaymentMethod refundMethod) {
         if (status != OrderStatus.PAID && status != OrderStatus.COMPLETED) {
             throw new BusinessRuleException("Only PAID or COMPLETED orders can be refunded (was %s)".formatted(status));
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.REFUNDED;
+        refundAll(refundMethod);
         return wasCompleted;
+    }
+
+    /** Pays back what is held, never more than the grand total. */
+    private void refundAll(PaymentMethod method) {
+        BigDecimal held = amountPaid().getAmount().min(grandTotal);
+        if (held.signum() > 0) {
+            recordRefund(method, Money.of(held, currency));
+        }
+    }
+
+    private void recordRefund(PaymentMethod method, Money amount) {
+        payments.add(new Payment(method, PaymentType.REFUND, amount));
     }
 
     private void requireOpen(String action) {

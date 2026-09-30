@@ -26,6 +26,7 @@ import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
 import vn.essvn.erpcafe.sales.domain.Order;
+import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.OrderLineModifier;
 import vn.essvn.erpcafe.sales.domain.Payment;
@@ -98,21 +99,32 @@ public class OrderService {
         }
 
         applyTotals(order, input.orderDiscount());
-        return orderRepository.save(order);
+        Order saved = orderRepository.save(order);
+        saved.markPaidIfSettled(); // a zero-total ticket has nothing to collect
+        return finishIfPaid(saved);
     }
 
     public Order addPayment(UUID orderId, PaymentInput input) {
         Order order = get(orderId);
         order.addPayment(new Payment(input.method(), PaymentType.PAYMENT, Money.of(input.amount())));
         order.markPaidIfSettled();
-        return order;
+        return finishIfPaid(order);
     }
 
-    /** Finalises a paid order: deducts ingredient stock and captures COGS. */
+    /** Finalises a paid order (legacy rows only; full payment completes on its own). */
     public Order complete(UUID orderId) {
-        Order order = get(orderId);
-        CogsResult cogs = inventoryApi.deductForOrder(order.getBranchId(), stockLinesFor(order), REF_ORDER, orderId);
-        order.complete(cogs.totalCost().getAmount()); // requires PAID
+        return finish(get(orderId));
+    }
+
+    /** Full payment completes the sale in the same transaction: stock, COGS, status. */
+    private Order finishIfPaid(Order order) {
+        return order.getStatus() == OrderStatus.PAID ? finish(order) : order;
+    }
+
+    private Order finish(Order order) {
+        order.requireCompletable(); // before any stock movement
+        CogsResult cogs = inventoryApi.deductForOrder(order.getBranchId(), stockLinesFor(order), REF_ORDER, order.getId());
+        order.complete(cogs.totalCost().getAmount());
         return order;
     }
 
@@ -124,23 +136,19 @@ public class OrderService {
 
     public Order voidOrder(UUID orderId, PaymentMethod refundMethod) {
         Order order = get(orderId);
-        Money paid = order.amountPaid();
-        boolean stockWasDeducted = order.voidOrder();
+        boolean stockWasDeducted = order.voidOrder(refundMethod);
         if (stockWasDeducted) {
             inventoryApi.returnForOrder(order.getBranchId(), stockLinesFor(order), REF_VOID, orderId);
         }
-        order.recordRefund(refundMethod, paid);
         return order;
     }
 
     public Order refund(UUID orderId, PaymentMethod refundMethod) {
         Order order = get(orderId);
-        Money paid = order.amountPaid();
-        boolean stockWasDeducted = order.refund();
+        boolean stockWasDeducted = order.refund(refundMethod);
         if (stockWasDeducted) {
             inventoryApi.returnForOrder(order.getBranchId(), stockLinesFor(order), REF_REFUND, orderId);
         }
-        order.recordRefund(refundMethod, paid);
         return order;
     }
 

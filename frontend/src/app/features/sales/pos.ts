@@ -159,7 +159,7 @@ interface CartLine {
     @if (createdOrder(); as order) {
       <app-modal [title]="'Order ' + order.status" (close)="createdOrder.set(null)">
         <div class="receipt thermal thermal-edge thermal-edge-top print-in">
-          @if (order.status === 'PAID') { <span class="stamp stamp-in r-stamp" aria-hidden="true">Paid</span> }
+          @if (order.status === 'PAID' || order.status === 'COMPLETED') { <span class="stamp stamp-in r-stamp" aria-hidden="true">Paid</span> }
           <div class="r-head"><b>{{ order.id | shortId }}</b><span>{{ order.orderType }}</span></div>
           <div><span>Paid</span><b>{{ order.amountPaid | money:order.currency }}</b></div>
           <div><span>Total</span><b>{{ order.grandTotal | money:order.currency }}</b></div>
@@ -168,7 +168,6 @@ interface CartLine {
           </div>
         </div>
         <div footer>
-          @if (order.status === 'PAID') { <button class="btn btn-outline" (click)="complete(order)">Complete</button> }
           <button class="btn btn-primary" (click)="newOrder()">New ticket</button>
         </div>
       </app-modal>
@@ -395,10 +394,6 @@ export class PosComponent {
       },
       error: () => this.saving.set(false),
     });
-  }
-
-  complete(order: OrderResponse) {
-    this.sales.complete(order.id).subscribe({ next: (updated) => { this.createdOrder.set(updated); this.toast.success('Order completed'); } });
   }
 
   newOrder() {

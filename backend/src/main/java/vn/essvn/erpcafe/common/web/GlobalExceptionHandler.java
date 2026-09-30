@@ -71,9 +71,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "CONFLICT", ex.getMessage());
     }
 
-    /** The exception message would name the entity class, so the detail is fixed. */
-    @ExceptionHandler(OptimisticLockingFailureException.class)
-    ProblemDetail handleOptimisticLock(OptimisticLockingFailureException ex) {
+    /**
+     * The exception message would name the entity class, so the detail is fixed. The raw JPA
+     * exception is included because an explicit flush inside an aspect surfaces it untranslated.
+     */
+    @ExceptionHandler({OptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+    ProblemDetail handleOptimisticLock(Exception ex) {
         return problem(HttpStatus.CONFLICT, "CONFLICT", ConflictException.STALE_EDIT_MESSAGE);
     }
 

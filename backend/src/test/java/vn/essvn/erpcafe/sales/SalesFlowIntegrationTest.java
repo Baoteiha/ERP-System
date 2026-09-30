@@ -21,7 +21,7 @@ import com.jayway.jsonpath.JsonPath;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
- * End-to-end POS flow: order → split payment → complete (stock deduction + COGS),
+ * End-to-end POS flow: order → split payment → completes on full payment (stock deduction + COGS),
  * void restocks, and cashier RBAC (can sell, cannot refund).
  */
 class SalesFlowIntegrationTest extends AbstractIntegrationTest {
@@ -114,11 +114,7 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/payments"), token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"CARD\",\"amount\":25000}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"));
-
-        // Complete → deduct 2×18=36g, capture COGS = 36 × 0.20 = 7.20
-        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/complete"), token))
-                .andExpect(status().isOk())
+                // full payment completes: deduct 2×18=36g, capture COGS = 36 × 0.20 = 7.20
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.cogsTotal").value(7.20));
 
@@ -136,7 +132,6 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/payments"), token)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"CASH\",\"amount\":25000}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/complete"), token)).andExpect(status().isOk());
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("982"); // 1000 - 18
 
         // Void → stock returned
@@ -163,7 +158,7 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
 
         String cashierToken = accessToken("pos-cashier-%s@esscafe.vn".formatted(s), "cashier123");
 
-        // cashier creates + pays + completes (sales:write) → allowed
+        // cashier creates + pays (sales:write) → allowed
         String orderId = JsonPath.read(mockMvc.perform(post("/api/v1/orders")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -173,9 +168,6 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/api/v1/orders/" + orderId + "/payments")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"CASH\",\"amount\":25000}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/orders/" + orderId + "/complete")
-                        .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId))
                 .andExpect(status().isOk());
 
         // cashier tries to refund (needs sales:refund) → 403
