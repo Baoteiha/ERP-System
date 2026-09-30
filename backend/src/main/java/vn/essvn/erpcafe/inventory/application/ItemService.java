@@ -176,7 +176,7 @@ public class ItemService {
     // edit. Enforced only when a version is supplied (older clients stay backward-compatible).
     private static void requireCurrentVersion(Long current, Long expected) {
         if (expected != null && !expected.equals(current)) {
-            throw new ConflictException("This record was changed by someone else. Reload and try again.");
+            throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
         }
     }
 }

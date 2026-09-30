@@ -98,7 +98,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write(
-                "{\"status\":%d,\"title\":\"%s\",\"detail\":\"%s\"}"
-                        .formatted(status.value(), status.getReasonPhrase(), detail));
+                "{\"status\":%d,\"code\":\"%s\",\"title\":\"%s\",\"detail\":\"%s\"}"
+                        .formatted(status.value(), codeFor(status), status.getReasonPhrase(), detail));
+    }
+
+    private static String codeFor(HttpStatus status) {
+        return switch (status) {
+            case UNAUTHORIZED -> "UNAUTHORIZED";
+            case FORBIDDEN -> "FORBIDDEN";
+            default -> "BAD_REQUEST";
+        };
     }
 }

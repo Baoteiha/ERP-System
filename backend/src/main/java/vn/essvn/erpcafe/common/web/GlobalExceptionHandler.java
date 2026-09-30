@@ -35,9 +35,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    static final String OPTIMISTIC_LOCK_MESSAGE =
-            "This record was changed by someone else. Reload and try again.";
-
     @ExceptionHandler(ResourceNotFoundException.class)
     ProblemDetail handleNotFound(ResourceNotFoundException ex) {
         return problem(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
@@ -77,7 +74,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /** The exception message would name the entity class, so the detail is fixed. */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     ProblemDetail handleOptimisticLock(OptimisticLockingFailureException ex) {
-        return problem(HttpStatus.CONFLICT, "CONFLICT", OPTIMISTIC_LOCK_MESSAGE);
+        return problem(HttpStatus.CONFLICT, "CONFLICT", ConflictException.STALE_EDIT_MESSAGE);
     }
 
     /**

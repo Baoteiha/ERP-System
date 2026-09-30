@@ -137,4 +137,29 @@ class ErrorContractIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
+
+    @Test
+    void garbageBearerToken_is401Unauthorized() throws Exception {
+        mockMvc.perform(get("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, "Bearer not.a.token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void malformedBranchHeader_is400BadRequest() throws Exception {
+        mockMvc.perform(get("/api/v1/branches")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .header("X-Branch-Id", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+    }
+
+    @Test
+    void inaccessibleBranch_is403Forbidden() throws Exception {
+        mockMvc.perform(get("/api/v1/branches")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .header("X-Branch-Id", "00000000-0000-0000-0000-000000000000"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
 }
