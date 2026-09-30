@@ -1,7 +1,7 @@
 import { HttpContextToken, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { inject } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { BehaviorSubject, catchError, filter, switchMap, take, throwError } from 'rxjs';
+import { Observable, catchError, finalize, map, shareReplay, switchMap, tap, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';
 import { ProblemDetail } from './models';
@@ -24,60 +24,66 @@ export const authHeaderInterceptor: HttpInterceptorFn = (req, next) => {
   return next(Object.keys(headers).length ? req.clone({ setHeaders: headers }) : req);
 };
 
-// shared refresh state so concurrent 401s only trigger one refresh
-let refreshing = false;
-const refreshed$ = new BehaviorSubject<string | null>(null);
+/** Single in-flight token refresh shared by every request that hit a 401. */
+@Injectable({ providedIn: 'root' })
+export class RefreshCoordinator {
+  private auth = inject(AuthService);
+  private router = inject(Router);
+  private inFlight: Observable<string> | null = null;
+
+  /** Emits the new access token; on failure logs the user out and errors every waiter. */
+  refreshed(): Observable<string> {
+    if (!this.inFlight) {
+      this.inFlight = this.auth.refresh().pipe(
+        map((res) => res.accessToken),
+        tap({
+          error: () => {
+            void this.auth.logout(false);
+            this.router.navigate(['/login']);
+          },
+        }),
+        finalize(() => (this.inFlight = null)),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    }
+    return this.inFlight;
+  }
+}
 
 /** Transparently refresh on 401, surface API errors as toasts. */
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
   const toast = inject(ToastService);
+  const coordinator = inject(RefreshCoordinator);
+
+  const surface = (err: HttpErrorResponse) => {
+    if (!req.context.get(SUPPRESS_ERROR_TOAST)) {
+      if (err.status === 0) {
+        toast.error('Cannot reach the server. Check your connection and try again.');
+      } else if (err.status !== 401) {
+        const pd = err.error as ProblemDetail | undefined;
+        toast.error(pd?.detail || pd?.title || err.message || 'Something went wrong');
+      }
+    }
+    return throwError(() => err);
+  };
 
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
-      // try a one-time refresh on 401 for scoped calls
-      if (err.status === 401 && !isAuthFree(req.url) && auth.refreshToken()) {
-        if (refreshing) {
-          return refreshed$.pipe(
-            filter((t) => t !== null),
-            take(1),
-            switchMap((t) => next(req.clone({ setHeaders: { Authorization: `Bearer ${t}` } }))),
+      if (err.status === 401 && !isAuthFree(req.url)) {
+        if (auth.refreshToken()) {
+          // only the refresh itself may log out; the retried request's errors propagate normally
+          return coordinator.refreshed().pipe(
+            switchMap((token) => next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))),
+            catchError((e: HttpErrorResponse) => surface(e)),
           );
         }
-        refreshing = true;
-        refreshed$.next(null);
-        return auth.refresh().pipe(
-          switchMap((res) => {
-            refreshing = false;
-            refreshed$.next(res.accessToken);
-            return next(req.clone({ setHeaders: { Authorization: `Bearer ${res.accessToken}` } }));
-          }),
-          catchError((refreshErr) => {
-            refreshing = false;
-            auth.logout(false);
-            router.navigate(['/login']);
-            return throwError(() => refreshErr);
-          }),
-        );
-      }
-
-      if (req.context.get(SUPPRESS_ERROR_TOAST)) {
+        void auth.logout(false);
+        router.navigate(['/login']);
         return throwError(() => err);
       }
-
-      if (err.status === 0) {
-        toast.error('Cannot reach the server. Is the backend running on :8090?');
-      } else if (err.status === 401) {
-        auth.logout(false);
-        router.navigate(['/login']);
-      } else if (err.status !== 422 || !req.url.includes('/orders')) {
-        // 422 on POS flows are handled locally; everything else surfaces here
-        const pd = err.error as ProblemDetail | undefined;
-        const msg = pd?.detail || pd?.title || err.message || 'Something went wrong';
-        toast.error(msg);
-      }
-      return throwError(() => err);
+      return surface(err);
     }),
   );
 };

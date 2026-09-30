@@ -1,0 +1,81 @@
+import { stubLocalStorage } from './test-storage';
+import { TestBed } from '@angular/core/testing';
+import { provideZonelessChangeDetection } from '@angular/core';
+import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router, provideRouter } from '@angular/router';
+import { authHeaderInterceptor, errorInterceptor } from './http.interceptors';
+import { AuthService } from './auth.service';
+
+describe('errorInterceptor', () => {
+  let http: HttpClient;
+  let ctrl: HttpTestingController;
+  let auth: AuthService;
+  let navigate: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stubLocalStorage();
+    localStorage.setItem('erpcafe.access', 'old');
+    localStorage.setItem('erpcafe.refresh', 'r1');
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        provideHttpClient(withInterceptors([authHeaderInterceptor, errorInterceptor])),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpClient);
+    ctrl = TestBed.inject(HttpTestingController);
+    auth = TestBed.inject(AuthService);
+    navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+  });
+
+  afterEach(() => ctrl.verify());
+
+  const tokens = { accessToken: 'new', refreshToken: 'r2' };
+
+  it('propagates an error from the retried request without logging out', () => {
+    const logout = vi.spyOn(auth, 'logout');
+    let status = 0;
+    http.get('/api/v1/x').subscribe({ error: (e) => (status = e.status) });
+
+    ctrl.expectOne('/api/v1/x').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne('/api/v1/auth/refresh').flush(tokens);
+    ctrl.expectOne('/api/v1/x').flush({ code: 'CONFLICT' }, { status: 409, statusText: 'Conflict' });
+
+    expect(status).toBe(409);
+    expect(logout).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('logs out on a failed refresh and errors the requests queued behind it', () => {
+    let first = 0;
+    let second = 0;
+    http.get('/api/v1/a').subscribe({ error: (e) => (first = e.status) });
+    http.get('/api/v1/b').subscribe({ error: (e) => (second = e.status) });
+
+    ctrl.expectOne('/api/v1/a').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne('/api/v1/b').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne('/api/v1/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+
+    expect(first).toBe(401);
+    expect(second).toBe(401);
+    expect(auth.accessToken()).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(['/login']);
+  });
+
+  it('triggers exactly one refresh for concurrent 401s', () => {
+    const done: string[] = [];
+    http.get('/api/v1/a').subscribe(() => done.push('a'));
+    http.get('/api/v1/b').subscribe(() => done.push('b'));
+
+    ctrl.expectOne('/api/v1/a').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne('/api/v1/b').flush({}, { status: 401, statusText: 'Unauthorized' });
+    ctrl.expectOne('/api/v1/auth/refresh').flush(tokens);
+    ctrl.expectOne('/api/v1/a').flush({});
+    ctrl.expectOne('/api/v1/b').flush({});
+
+    expect(done.sort()).toEqual(['a', 'b']);
+  });
+});
