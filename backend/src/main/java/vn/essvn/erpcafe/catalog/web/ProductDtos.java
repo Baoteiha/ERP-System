@@ -48,7 +48,7 @@ public final class ProductDtos {
     public record BranchAvailabilityRequest(
             @NotNull UUID branchId,
             boolean available,
-            BigDecimal priceOverride) {
+            @PositiveOrZero BigDecimal priceOverride) {
     }
 
     public record BranchAvailabilityResponse(

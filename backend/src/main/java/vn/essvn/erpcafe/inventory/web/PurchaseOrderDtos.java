@@ -30,7 +30,7 @@ public final class PurchaseOrderDtos {
             @NotNull UUID lineId,
             @NotNull @Positive BigDecimal receivedQty,
             @Size(max = 16) String unit,
-            BigDecimal unitCostOverride) {
+            @PositiveOrZero BigDecimal unitCostOverride) {
     }
 
     public record ReceiveRequest(

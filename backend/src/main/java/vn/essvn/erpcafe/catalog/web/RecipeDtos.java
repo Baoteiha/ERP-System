@@ -9,7 +9,7 @@ import jakarta.validation.constraints.NotNull;
 public final class RecipeDtos {
 
     public record SetRecipeRequest(
-            @NotNull @Valid List<ConsumptionLineDto> lines) {
+            @NotNull @Valid List<RecipeLineDto> lines) {
     }
 
     public record RecipeResponse(
