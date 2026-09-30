@@ -131,8 +131,13 @@ public class DataInitializer implements ApplicationRunner {
                 .orElseThrow();
 
         String email = securityProperties.bootstrap().adminEmail();
+        String password = securityProperties.bootstrap().adminPassword();
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.security.bootstrap.admin-password is required to seed an empty database");
+        }
         User admin = new User(company.getId(), email,
-                passwordEncoder.encode(securityProperties.bootstrap().adminPassword()),
+                passwordEncoder.encode(password),
                 "Bootstrap Admin");
         admin = userRepository.save(admin);
         accessRepository.save(new UserBranchAccess(admin.getId(), branch.getId(), ownerRole.getId()));

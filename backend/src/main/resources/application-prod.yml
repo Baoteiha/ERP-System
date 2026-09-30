@@ -16,7 +16,7 @@ app:
       secret: ${JWT_SECRET}
     bootstrap:
       admin-email: ${ADMIN_EMAIL}
-      admin-password: ${ADMIN_PASSWORD}
+      admin-password: ${ADMIN_PASSWORD:}
 
 logging:
   level:

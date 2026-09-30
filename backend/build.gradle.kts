@@ -53,3 +53,8 @@ dependencies {
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
+
+// Fail-fast default: the app has no default profile, so local runs opt into dev here.
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+	systemProperty("spring.profiles.active", System.getProperty("spring.profiles.active") ?: "dev")
+}
