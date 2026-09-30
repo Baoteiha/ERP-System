@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
+import vn.essvn.erpcafe.common.exception.UnauthorizedException;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.Role;
@@ -78,7 +79,7 @@ public class AuthService {
                 .orElse(null);
         if (user == null) {
             loginAttemptService.recordFailure(throttleKey);
-            throw new BusinessRuleException("Invalid email or password");
+            throw new UnauthorizedException("Invalid email or password");
         }
         if (!user.isActive()) {
             loginAttemptService.recordFailure(throttleKey);

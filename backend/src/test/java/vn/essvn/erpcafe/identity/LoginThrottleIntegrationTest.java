@@ -42,6 +42,6 @@ class LoginThrottleIntegrationTest extends AbstractIntegrationTest {
         assertThat(attemptLogin("admin@esscafe.vn", "admin1234")).isEqualTo(200);
 
         // the counter reset, so the next failure is an ordinary rejection
-        assertThat(attemptLogin("admin@esscafe.vn", "wrong-password")).isEqualTo(422);
+        assertThat(attemptLogin("admin@esscafe.vn", "wrong-password")).isEqualTo(401);
     }
 }

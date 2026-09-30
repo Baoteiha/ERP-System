@@ -128,4 +128,13 @@ class ErrorContractIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.detail")
                         .value("This record was changed by someone else. Reload and try again."));
     }
+
+    @Test
+    void wrongPassword_is401Unauthorized() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@esscafe.vn\",\"password\":\"nope\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
 }

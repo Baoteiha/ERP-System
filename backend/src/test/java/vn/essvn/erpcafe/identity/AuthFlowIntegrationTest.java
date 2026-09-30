@@ -61,11 +61,11 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void login_withWrongPassword_returns422() throws Exception {
+    void login_withWrongPassword_returns401() throws Exception {
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"%s\",\"password\":\"nope\"}".formatted(ADMIN_EMAIL)))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
