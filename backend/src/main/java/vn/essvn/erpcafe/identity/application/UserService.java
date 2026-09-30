@@ -13,7 +13,6 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
-import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.domain.UserStatus;
@@ -75,6 +74,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public List<UserBranchAccess> accessOf(UUID userId) {
+        get(userId);
         return accessRepository.findByUserId(userId);
     }
 
@@ -87,11 +87,8 @@ public class UserService {
         if (!organizationApi.branchExistsInCompany(branchId, user.getCompanyId())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
-        Role role = roleRepository.findById(roleId)
+        roleRepository.findByIdAndCompanyId(roleId, user.getCompanyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
-        if (!role.getCompanyId().equals(user.getCompanyId())) {
-            throw new BusinessRuleException("Role belongs to a different company");
-        }
         return accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .map(existing -> {
                     existing.setRoleId(roleId);
@@ -102,6 +99,7 @@ public class UserService {
 
     /** Revokes a user's access at a branch. */
     public void revokeAccess(UUID userId, UUID branchId) {
+        get(userId);
         UserBranchAccess access = accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User " + userId + " has no access at branch " + branchId));
