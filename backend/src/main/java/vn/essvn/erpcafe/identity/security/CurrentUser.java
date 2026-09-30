@@ -6,7 +6,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import vn.essvn.erpcafe.common.exception.BusinessRuleException;
+import vn.essvn.erpcafe.common.exception.UnauthorizedException;
 
 /** Convenience accessor for the authenticated {@link AuthPrincipal}. */
 @Component
@@ -21,6 +21,6 @@ public class CurrentUser {
     }
 
     public AuthPrincipal require() {
-        return get().orElseThrow(() -> new BusinessRuleException("No authenticated user"));
+        return get().orElseThrow(() -> new UnauthorizedException("Authentication required"));
     }
 }

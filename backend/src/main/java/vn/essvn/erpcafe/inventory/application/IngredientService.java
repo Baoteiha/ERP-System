@@ -79,7 +79,7 @@ public class IngredientService {
     // edit. Enforced only when a version is supplied (older clients stay backward-compatible).
     private static void requireCurrentVersion(Long current, Long expected) {
         if (expected != null && !expected.equals(current)) {
-            throw new ConflictException("Ingredient was modified by someone else — reload and try again");
+            throw new ConflictException("This record was changed by someone else. Reload and try again.");
         }
     }
 

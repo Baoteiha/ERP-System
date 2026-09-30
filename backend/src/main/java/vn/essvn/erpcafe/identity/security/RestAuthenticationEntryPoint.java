@@ -21,6 +21,6 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write(
-                "{\"status\":401,\"title\":\"Unauthorized\",\"detail\":\"Authentication required\"}");
+                "{\"status\":401,\"code\":\"UNAUTHORIZED\",\"title\":\"Unauthorized\",\"detail\":\"Authentication required\"}");
     }
 }

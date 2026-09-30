@@ -21,6 +21,6 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write(
-                "{\"status\":403,\"title\":\"Forbidden\",\"detail\":\"Insufficient permissions\"}");
+                "{\"status\":403,\"code\":\"FORBIDDEN\",\"title\":\"Forbidden\",\"detail\":\"Insufficient permissions\"}");
     }
 }

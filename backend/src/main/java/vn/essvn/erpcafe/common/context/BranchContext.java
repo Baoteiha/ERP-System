@@ -3,6 +3,8 @@ package vn.essvn.erpcafe.common.context;
 import java.util.Optional;
 import java.util.UUID;
 
+import vn.essvn.erpcafe.common.exception.BadRequestException;
+
 /**
  * Holds the active branch for the current request. Backed by a thread-local so
  * services can resolve "which branch am I acting in" without threading it
@@ -31,7 +33,7 @@ public final class BranchContext {
     public static UUID require() {
         UUID branchId = CURRENT.get();
         if (branchId == null) {
-            throw new IllegalStateException("No active branch in context");
+            throw new BadRequestException("X-Branch-Id header is required");
         }
         return branchId;
     }
