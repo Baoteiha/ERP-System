@@ -4,6 +4,15 @@ import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { IconComponent } from '../../shared/icon';
 
+function loginErrorMessage(status: number | undefined): string {
+  switch (status) {
+    case 401: return 'Invalid email or password.';
+    case 429: return 'Too many attempts. Wait a minute and try again.';
+    case 0: return 'Cannot reach the server. Check your connection and try again.';
+    default: return 'Unable to sign in. Try again.';
+  }
+}
+
 @Component({
   selector: 'app-login',
   standalone: true,
@@ -54,7 +63,6 @@ import { IconComponent } from '../../shared/icon';
             @if (loading()) { <span class="spinner"></span> Signing in… } @else { Sign in }
           </button>
 
-          <p class="hint-line">Dev bootstrap: <code>admin&#64;esscafe.vn</code> / <code>admin1234</code></p>
         </form>
       </div>
     </div>
@@ -65,8 +73,8 @@ export class LoginComponent {
   private auth = inject(AuthService);
   private router = inject(Router);
 
-  email = 'admin@esscafe.vn';
-  password = 'admin1234';
+  email = '';
+  password = '';
   loading = signal(false);
   error = signal('');
   showPw = signal(false);
@@ -84,9 +92,7 @@ export class LoginComponent {
       },
       error: (err) => {
         this.loading.set(false);
-        this.error.set(err?.status === 401 || err?.status === 400
-          ? 'Invalid email or password.'
-          : 'Unable to sign in. Is the backend running on :8090?');
+        this.error.set(loginErrorMessage(err?.status));
       },
     });
   }

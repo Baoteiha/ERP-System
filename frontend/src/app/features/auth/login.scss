@@ -40,8 +40,6 @@
 .auth-card > .soft { margin: .3rem 0 1.8rem; }
 .auth-error { background: var(--red-soft); color: var(--red); padding: .7rem .9rem;
   border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 1rem; font-weight: 500; }
-.hint-line { text-align: center; margin-top: 1.4rem; color: var(--text-muted); font-size: 12px; }
-.hint-line code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
 
 @media (max-width: 780px) {
   .auth-wrap { grid-template-columns: 1fr; }
