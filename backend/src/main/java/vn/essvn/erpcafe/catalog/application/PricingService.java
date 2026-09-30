@@ -13,6 +13,7 @@ import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /**
  * Computes a product's unit price: the branch price override (if set) or the
@@ -25,23 +26,26 @@ public class PricingService {
     private final ProductRepository productRepository;
     private final ProductBranchAvailabilityRepository availabilityRepository;
     private final ModifierRepository modifierRepository;
+    private final CurrentUser currentUser;
 
     public PricingService(ProductRepository productRepository,
             ProductBranchAvailabilityRepository availabilityRepository,
-            ModifierRepository modifierRepository) {
+            ModifierRepository modifierRepository, CurrentUser currentUser) {
+        this.currentUser = currentUser;
         this.productRepository = productRepository;
         this.availabilityRepository = availabilityRepository;
         this.modifierRepository = modifierRepository;
     }
 
     public Money priceOf(UUID productId, UUID branchId, Set<UUID> modifierIds) {
-        Product product = productRepository.findById(productId)
+        UUID companyId = currentUser.require().companyId();
+        Product product = productRepository.findByIdAndCompanyId(productId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
 
         Money price = basePriceFor(product, branchId);
         if (modifierIds != null) {
             for (UUID modifierId : modifierIds) {
-                Modifier modifier = modifierRepository.findById(modifierId)
+                Modifier modifier = modifierRepository.findByIdAndCompanyId(modifierId, companyId)
                         .orElseThrow(() -> ResourceNotFoundException.of("Modifier", modifierId));
                 price = price.add(modifier.getPriceDelta());
             }

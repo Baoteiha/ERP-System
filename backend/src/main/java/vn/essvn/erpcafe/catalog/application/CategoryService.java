@@ -32,7 +32,7 @@ public class CategoryService {
 
     @Transactional(readOnly = true)
     public Category get(UUID id) {
-        return categoryRepository.findById(id)
+        return categoryRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Category", id));
     }
 

@@ -19,7 +19,6 @@ import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.domain.Money;
-import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -56,7 +55,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Product get(UUID id) {
-        return productRepository.findById(id)
+        return productRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", id));
     }
 
@@ -97,11 +96,8 @@ public class ProductService {
         Product product = get(productId);
         Set<ModifierGroup> groups = new HashSet<>();
         for (UUID groupId : groupIds) {
-            ModifierGroup group = modifierGroupRepository.findById(groupId)
+            ModifierGroup group = modifierGroupRepository.findByIdAndCompanyId(groupId, product.getCompanyId())
                     .orElseThrow(() -> ResourceNotFoundException.of("ModifierGroup", groupId));
-            if (!group.getCompanyId().equals(product.getCompanyId())) {
-                throw new BusinessRuleException("Modifier group belongs to a different company");
-            }
             groups.add(group);
         }
         product.setModifierGroups(groups);
@@ -117,8 +113,8 @@ public class ProductService {
     /** Sets (or updates) availability and optional price override for a product at a branch. */
     public ProductBranchAvailability setBranchAvailability(UUID productId, UUID branchId,
             boolean available, BigDecimal priceOverride) {
-        get(productId);
-        if (!organizationApi.branchExists(branchId)) {
+        Product product = get(productId);
+        if (!organizationApi.branchExistsInCompany(branchId, product.getCompanyId())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
         Money override = priceOverride == null ? null : Money.of(priceOverride);
@@ -133,10 +129,7 @@ public class ProductService {
     }
 
     private void requireCategory(UUID companyId, UUID categoryId) {
-        var category = categoryRepository.findById(categoryId)
+        categoryRepository.findByIdAndCompanyId(categoryId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Category", categoryId));
-        if (!category.getCompanyId().equals(companyId)) {
-            throw new BusinessRuleException("Category belongs to a different company");
-        }
     }
 }

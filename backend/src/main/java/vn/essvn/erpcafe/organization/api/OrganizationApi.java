@@ -13,8 +13,8 @@ public interface OrganizationApi {
     /** Resolves a branch by id, if it exists (and is not deleted). */
     Optional<BranchDto> findBranch(UUID branchId);
 
-    /** Whether the given branch exists and is active. */
-    boolean branchExists(UUID branchId);
+    /** The company that owns the given branch, or empty when the branch does not exist. */
+    Optional<UUID> companyIdOf(UUID branchId);
 
     /** Whether the given branch exists, is active, and belongs to {@code companyId}. */
     boolean branchExistsInCompany(UUID branchId, UUID companyId);

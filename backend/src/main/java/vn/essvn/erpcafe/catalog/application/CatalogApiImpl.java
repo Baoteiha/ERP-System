@@ -27,6 +27,7 @@ import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /**
  * Implements the published {@link CatalogApi}. Runs inside a read-only
@@ -40,9 +41,11 @@ public class CatalogApiImpl implements CatalogApi {
     private final RecipeRepository recipeRepository;
     private final ModifierRepository modifierRepository;
     private final PricingService pricingService;
+    private final CurrentUser currentUser;
 
     public CatalogApiImpl(ProductRepository productRepository, RecipeRepository recipeRepository,
-            ModifierRepository modifierRepository, PricingService pricingService) {
+            ModifierRepository modifierRepository, PricingService pricingService, CurrentUser currentUser) {
+        this.currentUser = currentUser;
         this.productRepository = productRepository;
         this.recipeRepository = recipeRepository;
         this.modifierRepository = modifierRepository;
@@ -51,7 +54,7 @@ public class CatalogApiImpl implements CatalogApi {
 
     @Override
     public boolean productExists(UUID productId) {
-        return productRepository.existsById(productId);
+        return productRepository.existsByIdAndCompanyId(productId, companyId());
     }
 
     @Override
@@ -77,7 +80,7 @@ public class CatalogApiImpl implements CatalogApi {
         // Selected modifiers layer signed deltas on top (extra shot = +coffee; oat = -dairy, +oat).
         if (modifierIds != null) {
             for (UUID modifierId : modifierIds) {
-                Modifier modifier = modifierRepository.findById(modifierId).orElse(null);
+                Modifier modifier = modifierRepository.findByIdAndCompanyId(modifierId, companyId()).orElse(null);
                 if (modifier == null) {
                     continue; // ignore unknown modifier ids rather than fail the whole explosion
                 }
@@ -90,7 +93,7 @@ public class CatalogApiImpl implements CatalogApi {
 
     @Override
     public PricedLine priceLine(UUID productId, UUID branchId, Set<UUID> modifierIds) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findByIdAndCompanyId(productId, companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
         // Base = branch override or company base price, WITHOUT modifiers (empty set).
         Money base = pricingService.priceOf(productId, branchId, Set.of());
@@ -99,7 +102,7 @@ public class CatalogApiImpl implements CatalogApi {
         Money unitTotal = base;
         if (modifierIds != null) {
             for (UUID modifierId : modifierIds) {
-                Modifier m = modifierRepository.findById(modifierId)
+                Modifier m = modifierRepository.findByIdAndCompanyId(modifierId, companyId())
                         .orElseThrow(() -> ResourceNotFoundException.of("Modifier", modifierId));
                 modifiers.add(new PricedModifier(m.getId(), m.getName(), m.getPriceDelta()));
                 unitTotal = unitTotal.add(m.getPriceDelta());
@@ -110,7 +113,7 @@ public class CatalogApiImpl implements CatalogApi {
 
     @Override
     public void validateModifierSelection(UUID productId, Set<UUID> modifierIds) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findByIdAndCompanyId(productId, companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
         Set<UUID> selected = modifierIds == null ? Set.of() : new HashSet<>(modifierIds);
         Set<UUID> unaccounted = new HashSet<>(selected);
@@ -129,6 +132,10 @@ public class CatalogApiImpl implements CatalogApi {
         if (!unaccounted.isEmpty()) {
             throw new BusinessRuleException("Modifiers not offered by this product: " + unaccounted);
         }
+    }
+
+    private UUID companyId() {
+        return currentUser.require().companyId();
     }
 
     private void add(Map<String, IngredientConsumption> acc, UUID ingredientId, BigDecimal quantity, String unit) {

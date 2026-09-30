@@ -90,8 +90,8 @@ public class BranchService implements OrganizationApi {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean branchExists(UUID branchId) {
-        return branchRepository.findById(branchId).map(Branch::isActive).orElse(false);
+    public Optional<UUID> companyIdOf(UUID branchId) {
+        return branchRepository.findById(branchId).map(Branch::getCompanyId);
     }
 
     @Override

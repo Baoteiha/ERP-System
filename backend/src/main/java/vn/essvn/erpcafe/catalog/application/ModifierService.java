@@ -36,7 +36,7 @@ public class ModifierService {
 
     @Transactional(readOnly = true)
     public ModifierGroup getGroup(UUID id) {
-        return groupRepository.findById(id)
+        return groupRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("ModifierGroup", id));
     }
 
