@@ -67,7 +67,8 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Order get(UUID id) {
-        return orderRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Order", id));
+        return orderRepository.findByIdAndBranchId(id, activeBranch())
+                .orElseThrow(() -> ResourceNotFoundException.of("Order", id));
     }
 
     public Order create(CreateOrderInput input) {
