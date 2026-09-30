@@ -26,7 +26,7 @@ public final class ProductDtos {
             @NotBlank @Size(max = 64) String sku,
             @NotNull @PositiveOrZero BigDecimal basePrice,
             String description,
-            boolean active) {
+            Boolean active) {
     }
 
     public record ProductResponse(

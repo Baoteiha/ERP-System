@@ -62,7 +62,7 @@ public class EmployeeController {
     public EmployeeResponse update(@PathVariable UUID id, @Valid @RequestBody EmployeeRequest request) {
         return toResponse(employeeService.update(id, request.fullName(), request.position(),
                 request.hourlyRate(), request.phone(), request.email(),
-                request.active() == null || request.active()));
+                request.active()));
     }
 
     static EmployeeResponse toResponse(Employee e) {

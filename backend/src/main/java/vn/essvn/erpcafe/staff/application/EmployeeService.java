@@ -54,7 +54,7 @@ public class EmployeeService {
     }
 
     public Employee update(UUID id, String fullName, String position, BigDecimal hourlyRate,
-            String phone, String email, boolean active) {
+            String phone, String email, Boolean active) {
         Employee employee = get(id);
         if (!employee.getFullName().equals(fullName)
                 && employeeRepository.existsByCompanyIdAndFullName(employee.getCompanyId(), fullName)) {
@@ -65,7 +65,9 @@ public class EmployeeService {
         employee.setHourlyRate(rate(hourlyRate));
         employee.setPhone(phone);
         employee.setEmail(email);
-        employee.setActive(active);
+        if (active != null) {
+            employee.setActive(active);
+        }
         return employee;
     }
 

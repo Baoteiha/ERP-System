@@ -71,7 +71,7 @@ public class ProductService {
     }
 
     public Product update(UUID id, UUID categoryId, String name, String sku, BigDecimal basePrice,
-            String description, boolean active) {
+            String description, Boolean active) {
         Product product = get(id);
         requireCategory(product.getCompanyId(), categoryId);
         if (!product.getSku().equals(sku)
@@ -83,7 +83,9 @@ public class ProductService {
         product.setSku(sku);
         product.setBasePrice(Money.of(basePrice));
         product.setDescription(description);
-        product.setActive(active);
+        if (active != null) {
+            product.setActive(active);
+        }
         return product;
     }
 
