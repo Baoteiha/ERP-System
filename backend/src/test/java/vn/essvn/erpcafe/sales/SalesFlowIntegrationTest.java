@@ -11,13 +11,17 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.organization.domain.Branch;
+import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -26,12 +30,29 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  */
 class SalesFlowIntegrationTest extends AbstractIntegrationTest {
 
+    @Autowired
+    private BranchRepository branches;
+
     private String token;
     private String branchId;
 
     /** Globally-unique suffix — all integration tests share one Testcontainers DB, so names must not collide. */
     private static String uniq() {
         return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    /** The seeded admin branch is shared by every test class, so a rate set here is put back afterwards. */
+    private void setBranchTaxRate(String rate) {
+        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+        branch.setTaxRate(new BigDecimal(rate));
+        branches.save(branch);
+    }
+
+    @AfterEach
+    void restoreBranchTaxRate() {
+        if (branchId != null) {
+            setBranchTaxRate("0");
+        }
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b, String tok) {
@@ -97,10 +118,11 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
         String[] ids = setup(uniq());
         String ingredientId = ids[0];
         String productId = ids[1];
+        setBranchTaxRate("0.1");
 
         // Order: 2 x Latte, 10% tax → subtotal 50000, tax 5000, grand 55000
         String orderJson = create("/api/v1/orders",
-                "{\"orderType\":\"TAKEAWAY\",\"taxRate\":0.10,\"lines\":[{\"productId\":\"%s\",\"quantity\":2}]}".formatted(productId));
+                "{\"orderType\":\"TAKEAWAY\",\"lines\":[{\"productId\":\"%s\",\"quantity\":2}]}".formatted(productId));
         String orderId = JsonPath.read(orderJson, "$.id");
         assertThat(num(orderJson, "$.grandTotal")).isEqualByComparingTo("55000");
         String status = JsonPath.read(orderJson, "$.status");

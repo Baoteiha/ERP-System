@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.web;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -12,6 +13,7 @@ public record BranchResponse(
         String address,
         String phone,
         boolean active,
+        BigDecimal taxRate,
         Instant createdAt,
         String createdBy,
         Instant updatedAt,

@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { CatalogService, SalesService } from '../../core/api.services';
+import { CatalogService, OrganizationService, SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { CategoryResponse, LineRequest, ModifierGroupResponse, OrderResponse, OrderType, PaymentMethod, ProductResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
@@ -105,8 +105,8 @@ interface CartLine {
             <input id="pos-discount" class="input money-input" type="number" min="0" [(ngModel)]="orderDiscount" />
           </div>
           <div>
-            <label for="pos-tax">Tax rate</label>
-            <input id="pos-tax" class="input money-input" type="number" min="0" step="0.01" [(ngModel)]="taxRate" />
+            <span>Tax ({{ taxPercent() }}%)</span>
+            <b>{{ taxAmount() | money }}</b>
           </div>
           <div class="grand"><span>Total</span><b>{{ grandTotal() | money }}</b></div>
         </div>
@@ -260,6 +260,7 @@ export class PosComponent {
   auth = inject(AuthService);
   private catalog = inject(CatalogService);
   private sales = inject(SalesService);
+  private organization = inject(OrganizationService);
   private toast = inject(ToastService);
   private router = inject(Router);
 
@@ -274,7 +275,8 @@ export class PosComponent {
   configuringIndex = signal<number | null>(null);
   createdOrder = signal<OrderResponse | null>(null);
   search = '';
-  taxRate = '0';
+  /** The active branch's rate (a fraction); the server applies it, this only previews the total. */
+  taxRate = signal('0');
   orderDiscount = '0';
   paymentMethod: PaymentMethod = 'CASH';
 
@@ -289,13 +291,24 @@ export class PosComponent {
   lineDiscountTotal = computed(() => this.cart().reduce((sum, line) => sum + Number(line.lineDiscount || 0), 0).toString());
   grandTotal = computed(() => {
     const taxable = Math.max(0, Number(this.subtotal()) - Number(this.lineDiscountTotal()) - Number(this.orderDiscount || 0));
-    return (taxable + taxable * Number(this.taxRate || 0)).toString();
+    return (taxable + taxable * Number(this.taxRate() || 0)).toString();
+  });
+  taxPercent = computed(() => String(Math.round(Number(this.taxRate() || 0) * 10000) / 100));
+  taxAmount = computed(() => {
+    const taxable = Math.max(0, Number(this.subtotal()) - Number(this.lineDiscountTotal()) - Number(this.orderDiscount || 0));
+    return (taxable * Number(this.taxRate() || 0)).toString();
   });
 
   constructor() { this.load(); }
 
   load() {
     this.loading.set(true);
+    const branchId = this.auth.activeBranchId();
+    if (this.auth.can('branch:read') && branchId) {
+      this.organization.listBranches(0, 100, true).subscribe({
+        next: (page) => this.taxRate.set(page.content.find((b) => b.id === branchId)?.taxRate ?? '0'),
+      });
+    }
     this.catalog.listCategories().subscribe({ next: (items) => this.categories.set(items.filter((c) => c.active)) });
     this.catalog.listModifierGroups().subscribe({ next: (items) => this.modifierGroups.set(items) });
     this.catalog.listProducts(0, 500).subscribe({
@@ -385,7 +398,7 @@ export class PosComponent {
     }));
     if (!lines.length) return;
     this.saving.set(true);
-    this.sales.createOrder({ orderType: this.orderType(), taxRate: this.taxRate || '0', orderDiscount: this.orderDiscount || '0', lines }).subscribe({
+    this.sales.createOrder({ orderType: this.orderType(), orderDiscount: this.orderDiscount || '0', lines }).subscribe({
       next: (order) => {
         // a zero-total ticket is already completed at creation; there is nothing to pay
         if (order.status !== 'OPEN') {
@@ -407,7 +420,6 @@ export class PosComponent {
     this.createdOrder.set(null);
     this.clearCart();
     this.orderDiscount = '0';
-    this.taxRate = '0';
     this.router.navigateByUrl('/pos');
   }
 }

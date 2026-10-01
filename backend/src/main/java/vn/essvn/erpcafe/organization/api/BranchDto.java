@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.api;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
@@ -11,5 +12,6 @@ public record BranchDto(
         UUID companyId,
         String name,
         String code,
-        boolean active) {
+        boolean active,
+        BigDecimal taxRate) {
 }

@@ -28,7 +28,6 @@ public final class OrderDtos {
 
     public record CreateOrderRequest(
             @NotNull OrderType orderType,
-            @PositiveOrZero BigDecimal taxRate,
             @PositiveOrZero BigDecimal orderDiscount,
             @NotEmpty @Valid List<LineRequest> lines) {
     }

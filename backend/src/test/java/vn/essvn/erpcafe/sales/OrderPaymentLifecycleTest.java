@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -26,6 +27,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
+import vn.essvn.erpcafe.organization.domain.Branch;
+import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -37,6 +40,9 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
     @Autowired
     private StockMovementRepository movements;
 
+    @Autowired
+    private BranchRepository branches;
+
     private String token;
     private String branchId;
     private String ingredientId;
@@ -45,6 +51,20 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
     /** Globally-unique suffix — all integration tests share one Testcontainers DB, so names must not collide. */
     private static String uniq() {
         return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    /** The seeded admin branch is shared by every test class, so a rate set here is put back afterwards. */
+    private void setBranchTaxRate(String rate) {
+        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+        branch.setTaxRate(new BigDecimal(rate));
+        branches.save(branch);
+    }
+
+    @AfterEach
+    void restoreBranchTaxRate() {
+        if (branchId != null) {
+            setBranchTaxRate("0");
+        }
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b, String tok) {
@@ -163,8 +183,9 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
     @Test
     void totals_subtotalIsGross_discountsCountOnce() throws Exception {
         setup();
+        setBranchTaxRate("0.1");
         String json = create("/api/v1/orders",
-                ("{\"orderType\":\"DINE_IN\",\"taxRate\":0.1,\"orderDiscount\":3000,"
+                ("{\"orderType\":\"DINE_IN\",\"orderDiscount\":3000,"
                         + "\"lines\":[{\"productId\":\"%s\",\"quantity\":2,\"lineDiscount\":5000}]}")
                         .formatted(productId));
         assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(json, "$.subtotal")))).isEqualByComparingTo("50000");

@@ -115,5 +115,8 @@ public class BranchService implements OrganizationApi {
         if (request.active() != null) {
             branch.setActive(request.active());
         }
+        if (request.taxRate() != null) {
+            branch.setTaxRate(request.taxRate());
+        }
     }
 }

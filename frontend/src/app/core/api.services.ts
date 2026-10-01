@@ -24,8 +24,11 @@ export class OrganizationService {
   updateCompany(id: string, body: M.CompanyRequest) { return this.http.put<M.CompanyResponse>(`${V1}/companies/${id}`, body); }
   deleteCompany(id: string) { return this.http.delete<void>(`${V1}/companies/${id}`); }
 
-  listBranches(page = 0, size = 100) {
-    return this.http.get<M.PageResponse<M.BranchResponse>>(`${V1}/branches`, { params: pageParams(page, size) });
+  listBranches(page = 0, size = 100, quiet = false) {
+    return this.http.get<M.PageResponse<M.BranchResponse>>(`${V1}/branches`, {
+      params: pageParams(page, size),
+      context: new HttpContext().set(SUPPRESS_ERROR_TOAST, quiet),
+    });
   }
   createBranch(body: M.BranchRequest) { return this.http.post<M.BranchResponse>(`${V1}/branches`, body); }
   updateBranch(id: string, body: M.BranchRequest) { return this.http.put<M.BranchResponse>(`${V1}/branches/${id}`, body); }

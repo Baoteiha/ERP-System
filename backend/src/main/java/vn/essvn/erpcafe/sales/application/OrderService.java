@@ -20,6 +20,8 @@ import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
+import vn.essvn.erpcafe.organization.api.BranchDto;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
@@ -48,13 +50,16 @@ public class OrderService {
     private final CatalogApi catalogApi;
     private final InventoryApi inventoryApi;
     private final IdentityApi identityApi;
+    private final OrganizationApi organizationApi;
 
     public OrderService(OrderRepository orderRepository, CatalogApi catalogApi,
-            InventoryApi inventoryApi, IdentityApi identityApi) {
+            InventoryApi inventoryApi, IdentityApi identityApi,
+            OrganizationApi organizationApi) {
         this.orderRepository = orderRepository;
         this.catalogApi = catalogApi;
         this.inventoryApi = inventoryApi;
         this.identityApi = identityApi;
+        this.organizationApi = organizationApi;
     }
 
     @Transactional(readOnly = true)
@@ -71,7 +76,10 @@ public class OrderService {
     public Order create(CreateOrderInput input) {
         UUID branchId = activeBranch();
         UUID cashierId = identityApi.currentUserId().orElse(null);
-        Order order = new Order(branchId, cashierId, input.orderType(), input.taxRate());
+        // the rate is the branch's setting, never the client's: a till cannot undercharge tax
+        BranchDto branch = organizationApi.findBranch(branchId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Branch", branchId));
+        Order order = new Order(branchId, cashierId, input.orderType(), branch.taxRate());
 
         for (LineInput li : input.lines()) {
             catalogApi.validateModifierSelection(li.productId(), li.modifierIds());

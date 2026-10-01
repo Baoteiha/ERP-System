@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.organization.domain;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
@@ -39,6 +40,9 @@ public class Branch extends AuditableEntity {
 
     @Column(name = "active", nullable = false)
     private boolean active = true;
+
+    @Column(name = "tax_rate", nullable = false, precision = 5, scale = 4)
+    private BigDecimal taxRate = BigDecimal.ZERO;
 
     @Column(name = "deleted", nullable = false)
     private boolean deleted = false;
@@ -99,6 +103,14 @@ public class Branch extends AuditableEntity {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public BigDecimal getTaxRate() {
+        return taxRate;
+    }
+
+    public void setTaxRate(BigDecimal taxRate) {
+        this.taxRate = taxRate;
     }
 
     public boolean isDeleted() {

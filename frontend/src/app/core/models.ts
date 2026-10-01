@@ -59,12 +59,15 @@ export interface CompanyRequest { name: string; code: string; }
 export interface BranchResponse {
   id: UUID; companyId: UUID; name: string; code: string;
   address?: string; phone?: string; active: boolean;
+  /** Fraction 0..1 (0.08 = 8%); every order at the branch uses it. */
+  taxRate: string;
   createdAt: string; createdBy: string; updatedAt: string; updatedBy: string;
 }
 /** The owning company is never client-supplied: the API takes it from the access token. */
 export interface BranchRequest {
   name: string; code: string;
   address?: string; phone?: string; active?: boolean;
+  taxRate?: string;
 }
 
 /* ---- catalog ---------------------------------------------------------- */
@@ -161,7 +164,7 @@ export type OrderStatus = 'OPEN' | 'PAID' | 'COMPLETED' | 'CANCELLED' | 'VOID' |
 
 export interface LineRequest { productId: UUID; quantity: number; modifierIds?: UUID[]; lineDiscount?: string; }
 export interface CreateOrderRequest {
-  orderType: OrderType; taxRate?: string; orderDiscount?: string; lines: LineRequest[];
+  orderType: OrderType; orderDiscount?: string; lines: LineRequest[];
 }
 export interface PaymentRequest { method: PaymentMethod; amount: string; }
 export interface RefundRequest { method?: PaymentMethod; }

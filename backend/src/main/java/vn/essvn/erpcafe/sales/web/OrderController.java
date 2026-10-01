@@ -69,7 +69,7 @@ public class OrderController {
                         l.modifierIds() == null ? Set.of() : l.modifierIds(), l.lineDiscount()))
                 .toList();
         OrderResponse body = toResponse(orderService.create(
-                new CreateOrderInput(request.orderType(), request.taxRate(), request.orderDiscount(), lines)));
+                new CreateOrderInput(request.orderType(), request.orderDiscount(), lines)));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/orders/" + body.id())).body(body);
     }
 
