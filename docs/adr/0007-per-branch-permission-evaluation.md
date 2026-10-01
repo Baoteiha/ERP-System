@@ -6,9 +6,16 @@ union of every role the user holds. A user who is MANAGER at A and CASHIER at
 B refunds at A and only sells at B.
 
 The access token carries the user's identity and **branch → role id** for each
-live branch, never permission strings. `JwtAuthenticationFilter` resolves each
-role through `RolePermissionCache` (one database read per role per minute,
-dropped after a role edit commits) and sets the authorities in force:
+live branch, never permission strings. `JwtAuthenticationFilter` honours a
+branch → role pair only while the user still holds that grant
+(`UserGrantCache`: the user's current grants on live branches, one read per
+user per minute, dropped after a grant or revoke commits and when a branch is
+deleted or deactivated); a pair no longer granted gives nothing, and its branch
+is refused as `X-Branch-Id` (403). Otherwise a token could keep a revoked grant
+for its lifetime — and with it whatever a role it names is later given. The
+filter resolves each remaining role through `RolePermissionCache` (one read per
+role per minute, dropped after a role edit commits) and sets the authorities in
+force:
 
 - **Branch-level permissions** (everything except the six below) come from the
   role at the branch the request names. A request that names no branch is
@@ -59,6 +66,10 @@ where the role carries `catalog:read`, set only where it carries
 `catalog:write`, and priced at a branch only with `catalog:read` there (403;
 another company's branch stays 404).
 
+Granting a role and widening it take the role's row lock (`SELECT … FOR
+UPDATE`) before reading it, so the two serialize: a widening sees the grant
+made just before it, and a grant sees the permissions just added.
+
 ## Considered options
 
 - **Union of every role (before).** Simple, but a cashier at B with a manager
@@ -80,10 +91,14 @@ another company's branch stays 404).
 
 ## Consequences
 
-- A role edit reaches tokens already issued within a minute — at once on the
-  instance that made the edit. A grant or revoke still waits for the access
-  token to expire (up to 15 minutes); the `auth_version` claim (Task 36) closes
-  that, and its invalidation belongs in `RolePermissionCache`.
+- A role edit, grant or revoke reaches tokens already issued within a minute —
+  at once on the instance that made it. Logging in or refreshing re-reads the
+  user's grants, so a new token and the check always agree. A status or
+  password change still waits for the access token to expire (up to 15
+  minutes); the `auth_version` claim (Task 36) closes that, and its
+  invalidation belongs beside the two caches.
+- Every authenticated request reads two caches; a miss costs one query per
+  role or two per user, at most once a minute each.
 - Access tokens issued before this change carry no branch roles and are
   refused with 401, so clients refresh once.
 - Switching branch in the frontend can close the page in view: the shell

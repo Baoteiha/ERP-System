@@ -15,6 +15,7 @@ import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
+import vn.essvn.erpcafe.identity.security.UserGrantCache;
 import vn.essvn.erpcafe.organization.api.BranchCreated;
 import vn.essvn.erpcafe.organization.api.BranchDeactivated;
 import vn.essvn.erpcafe.organization.api.BranchDeleted;
@@ -31,12 +32,14 @@ public class BranchAccessListener {
     private final UserBranchAccessRepository accessRepository;
     private final RoleRepository roleRepository;
     private final OrganizationApi organizationApi;
+    private final UserGrantCache grantCache;
 
     public BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository,
-            OrganizationApi organizationApi) {
+            OrganizationApi organizationApi, UserGrantCache grantCache) {
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
         this.organizationApi = organizationApi;
+        this.grantCache = grantCache;
     }
 
     /**
@@ -63,8 +66,11 @@ public class BranchAccessListener {
                 .flatMap(actedFrom -> held.stream()
                         .filter(g -> g.getBranchId().equals(actedFrom)).findFirst())
                 .map(UserBranchAccess::getRoleId));
-        roleId.ifPresent(id -> accessRepository.save(
-                new UserBranchAccess(event.actorUserId(), event.branchId(), id)));
+        roleId.ifPresent(id -> {
+            roleRepository.lockByIdAndCompanyId(id, event.companyId());
+            accessRepository.save(new UserBranchAccess(event.actorUserId(), event.branchId(), id));
+            grantCache.evictAfterCommit(event.actorUserId());
+        });
     }
 
     @EventListener
@@ -78,6 +84,8 @@ public class BranchAccessListener {
     }
 
     private void revokeAll(UUID branchId) {
-        accessRepository.deleteAll(accessRepository.findByBranchId(branchId));
+        List<UserBranchAccess> grants = accessRepository.findByBranchId(branchId);
+        grants.forEach(g -> grantCache.evictAfterCommit(g.getUserId()));
+        accessRepository.deleteAll(grants);
     }
 }

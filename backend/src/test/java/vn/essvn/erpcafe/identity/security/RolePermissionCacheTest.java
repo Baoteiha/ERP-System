@@ -92,6 +92,22 @@ class RolePermissionCacheTest {
     }
 
     @Test
+    void aReadThatRacedAnEviction_isNotKept() {
+        Role before = new Role(UUID.randomUUID(), "CASHIER", "d");
+        Role after = new Role(UUID.randomUUID(), "CASHIER", "d");
+        after.getPermissions().add(new Permission("sales:refund", "sales:refund"));
+        // the edit commits, and its eviction runs, while the first read is still on its way back
+        when(roles.findById(roleId)).thenAnswer(inv -> {
+            cache.evictAfterCommit(roleId);
+            return Optional.of(before);
+        }).thenReturn(Optional.of(after));
+
+        cache.get(roleId);
+
+        assertThat(cache.get(roleId)).hasValueSatisfying(g -> assertThat(g.permissions()).contains("sales:refund"));
+    }
+
+    @Test
     void aMissingRoleGrantsNothing() {
         when(roles.findById(roleId)).thenReturn(Optional.empty());
 

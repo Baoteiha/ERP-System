@@ -2,18 +2,13 @@ package vn.essvn.erpcafe.identity.security;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
@@ -35,12 +30,8 @@ public class RolePermissionCache {
     public record RoleGrant(String name, Set<String> permissions) {
     }
 
-    private record Entry(Optional<RoleGrant> grant, Instant loadedAt) {
-    }
-
     private final RoleRepository roleRepository;
-    private final Clock clock;
-    private final ConcurrentMap<UUID, Entry> entries = new ConcurrentHashMap<>();
+    private final ExpiringCache<UUID, Optional<RoleGrant>> cache;
 
     @Autowired
     public RolePermissionCache(RoleRepository roleRepository) {
@@ -49,32 +40,17 @@ public class RolePermissionCache {
 
     RolePermissionCache(RoleRepository roleRepository, Clock clock) {
         this.roleRepository = roleRepository;
-        this.clock = clock;
+        this.cache = new ExpiringCache<>(TTL, clock);
     }
 
     /** The role's name and permissions; empty when the role no longer exists. */
     public Optional<RoleGrant> get(UUID roleId) {
-        Instant now = clock.instant();
-        Entry entry = entries.get(roleId);
-        if (entry == null || !now.isBefore(entry.loadedAt().plus(TTL))) {
-            entry = new Entry(load(roleId), now);
-            entries.put(roleId, entry);
-        }
-        return entry.grant();
+        return cache.get(roleId, this::load);
     }
 
     /** Forgets the role once the transaction changing it commits, so the next request reads the change. */
     public void evictAfterCommit(UUID roleId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            entries.remove(roleId);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                entries.remove(roleId);
-            }
-        });
+        cache.evictAfterCommit(roleId);
     }
 
     private Optional<RoleGrant> load(UUID roleId) {

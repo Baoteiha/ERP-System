@@ -150,8 +150,13 @@ public class RoleService {
         return role;
     }
 
-    /** Loads a role, enforcing it belongs to the caller's company and is not the system-managed OWNER. */
+    /**
+     * Loads a role, enforcing it belongs to the caller's company and is not the system-managed OWNER.
+     * The row is locked first, so a concurrent grant of the role either waits for this change or is seen by it.
+     */
     private Role requireMutableRole(UUID roleId) {
+        roleRepository.lockByIdAndCompanyId(roleId, currentUser.require().companyId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         Role role = get(roleId);
         if (DefaultRole.OWNER.roleName().equals(role.getName())) {
             throw new BusinessRuleException("The OWNER role is system-managed and cannot be edited");

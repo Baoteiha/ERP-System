@@ -10,8 +10,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -29,7 +33,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
+import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
@@ -65,6 +73,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     private CompanyRepository companies;
     @Autowired
     private BranchRepository branchRepository;
+    @Autowired
+    private SecurityProperties security;
 
     private final List<String> createdBranches = new ArrayList<>();
     private final List<UUID> createdRoles = new ArrayList<>();
@@ -150,6 +160,13 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                         .formatted(SEQ.incrementAndGet(), names))), "$.id");
         createdRoles.add(UUID.fromString(id));
         return id;
+    }
+
+    /** An active branch of a company of its own. */
+    private UUID foreignBranch() {
+        int n = SEQ.incrementAndGet();
+        Company other = companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n)));
+        return branchRepository.save(new Branch(other.getId(), "PB Foreign", "PBF%d".formatted(n))).getId();
     }
 
     /** A product of the owner's company, priced 20000. */
@@ -309,6 +326,12 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         assertThat(availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(unheld)))
                 .isEmpty();
 
+        UUID foreign = foreignBranch();
+        setAvailability(user, productId, foreign.toString(), false)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        assertThat(availability.findByProductIdAndBranchId(UUID.fromString(productId), foreign)).isEmpty();
+
         setAvailability(user, productId, branchA, false).andExpect(status().isOk());
         assertThat(availableAt(productId, branchA)).isFalse();
     }
@@ -331,9 +354,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     void productPrice_atABranch_needsTheCatalogThere() throws Exception {
         String productId = newProduct(branchA);
         String unheld = createBranch(admin);
-        int n = SEQ.incrementAndGet();
-        Company other = companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n)));
-        UUID foreign = branchRepository.save(new Branch(other.getId(), "PB Foreign", "PBF%d".formatted(n))).getId();
+        UUID foreign = foreignBranch();
         String price = "/api/v1/products/" + productId + "/price?branchId=";
 
         send(get(price + branchB), user, branchA, null).andExpect(status().isOk());
@@ -405,5 +426,72 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(delete("/api/v1/roles/" + editor.tillRoleId() + "/permissions/sales:write"), editor.token(), branchB, null)
                 .andExpect(status().isOk());
         assertThat(permissionsOf(editor.tillRoleId())).containsExactly("sales:read");
+    }
+
+    @Test
+    void revokedGrant_stopsWorkingWithTheTokenAlreadyIssued() throws Exception {
+        send(delete("/api/v1/users/" + userAccount.id() + "/access/" + branchB), admin, null, null)
+                .andExpect(status().isNoContent());
+
+        send(get("/api/v1/auth/me"), user, branchB, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        String me = json(send(get("/api/v1/auth/me"), user, null, null));
+        assertThat(JsonPath.<List<String>>read(me, "$.branchIds")).containsExactly(branchA);
+    }
+
+    @Test
+    void roleWidenedAfterItsGrantWasRevoked_grantsNothingThroughTheOldToken() throws Exception {
+        String atB = completedOrderAt(branchB);
+        // also every till permission, so widening the till role below passes the union check either way
+        String backOffice = customRole("role:read", "role:write", "user:read", "user:write", "branch:read",
+                "catalog:read", "inventory:read", "sales:read", "sales:write", "sales:refund",
+                "staff:read", "staff:clock");
+        NewUser actor = newUser();
+        grant(actor, branchA, backOffice);
+        grant(actor, branchB, roleId("CASHIER"));
+        String refreshToken = JsonPath.read(loginBody(actor.email(), "password123"), "$.refreshToken");
+        String first = accessToken(actor.email(), "password123");
+
+        // 1. a role with a cashier's permissions, 2. granted to themselves at B in place of CASHIER
+        String till = JsonPath.read(json(send(post("/api/v1/roles"), first, branchA,
+                ("{\"name\":\"PB_TILL_%d\",\"description\":\"d\",\"permissions\":[\"branch:read\",\"catalog:read\","
+                        + "\"inventory:read\",\"sales:read\",\"sales:write\",\"staff:read\",\"staff:clock\"]}")
+                        .formatted(SEQ.incrementAndGet()))), "$.id");
+        createdRoles.add(UUID.fromString(till));
+        json(send(post("/api/v1/users/" + actor.id() + "/access"), first, branchA,
+                "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchB, till)));
+        // 3. a token naming that role at B
+        String old = JsonPath.read(json(send(post("/api/v1/auth/refresh"), first, null,
+                "{\"refreshToken\":\"%s\"}".formatted(refreshToken))), "$.accessToken");
+        // 4. the grant revoked, so 5. widening the role sees nobody holding it
+        send(delete("/api/v1/users/" + actor.id() + "/access/" + branchB), old, branchA, null)
+                .andExpect(status().isNoContent());
+        json(send(post("/api/v1/roles/" + till + "/permissions"), old, branchA,
+                "{\"permissions\":[\"sales:refund\"]}"));
+
+        // 6. the old token still names the role at B
+        send(post("/api/v1/orders/" + atB + "/refund"), old, branchB, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(orders.findById(UUID.fromString(atB)).orElseThrow().getStatus()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
+    void tokenFromBeforePerBranchPermissions_isUnauthorized() throws Exception {
+        String legacy = Jwts.builder()
+                .subject(userAccount.id())
+                .claim("email", userAccount.email())
+                .claim("companyId", branchRepository.findById(UUID.fromString(branchA)).orElseThrow()
+                        .getCompanyId().toString())
+                .claim("perms", List.of("sales:refund"))
+                .claim("branches", List.of(branchA))
+                .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
+                .signWith(Keys.hmacShaKeyFor(security.jwt().secret().getBytes(StandardCharsets.UTF_8)))
+                .compact();
+
+        send(get("/api/v1/auth/me"), legacy, null, null)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 }

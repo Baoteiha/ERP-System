@@ -5,10 +5,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,15 +16,12 @@ import vn.essvn.erpcafe.common.exception.UnauthorizedException;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.User;
-import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
-import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AccessClaims;
 import vn.essvn.erpcafe.identity.security.JwtService;
 import vn.essvn.erpcafe.identity.security.LoginAttemptService;
-import vn.essvn.erpcafe.organization.api.BranchDto;
-import vn.essvn.erpcafe.organization.api.OrganizationApi;
+import vn.essvn.erpcafe.identity.security.UserGrantCache;
 
 /**
  * Authentication use cases: login, token refresh (with rotation), and logout.
@@ -43,28 +37,26 @@ public class AuthService {
     private static final String DUMMY_HASH = "$2y$10$z9vj/OETvQdVWGLhV4ih8edtiq1fW2b3c1CM4WC2pTyEeq8ztpVTK";
 
     private final UserRepository userRepository;
-    private final UserBranchAccessRepository accessRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final LoginAttemptService loginAttemptService;
     private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
-    private final OrganizationApi organizationApi;
+    private final UserGrantCache grantCache;
 
-    public AuthService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
-            RefreshTokenRepository refreshTokenRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
+    public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder, JwtService jwtService,
             LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
-            SecurityProperties securityProperties, OrganizationApi organizationApi) {
+            SecurityProperties securityProperties, UserGrantCache grantCache) {
         this.userRepository = userRepository;
-        this.accessRepository = accessRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.loginAttemptService = loginAttemptService;
         this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
-        this.organizationApi = organizationApi;
+        this.grantCache = grantCache;
     }
 
     /**
@@ -126,15 +118,10 @@ public class AuthService {
                 .ifPresent(RefreshToken::revoke);
     }
 
-    /** What a user's access token asserts: the role they hold at each live branch. */
+    /** What a user's access token asserts: the role they hold at each live branch, read afresh. */
     private AccessClaims accessClaimsFor(User user) {
-        // a grant on a deleted or deactivated branch grants nothing: not the branch, not its role's permissions
-        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(user.getCompanyId()).stream()
-                .map(BranchDto::id).collect(Collectors.toSet());
-        Map<UUID, UUID> roleByBranch = accessRepository.findByUserId(user.getId()).stream()
-                .filter(a -> liveBranchIds.contains(a.getBranchId()))
-                .collect(Collectors.toMap(UserBranchAccess::getBranchId, UserBranchAccess::getRoleId));
-        return new AccessClaims(user.getId(), user.getEmail(), user.getCompanyId(), roleByBranch);
+        return new AccessClaims(user.getId(), user.getEmail(), user.getCompanyId(),
+                grantCache.reload(user.getId(), user.getCompanyId()));
     }
 
     /** A login starts a brand-new token family. */

@@ -33,7 +33,7 @@ import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
  *
  * <ul>
  *   <li>Invalid/expired token → 401.</li>
- *   <li>Valid token but {@code X-Branch-Id} not in the user's accessible set → 403.</li>
+ *   <li>Valid token but {@code X-Branch-Id} not among the token's branches still granted → 403.</li>
  *   <li>No token → request continues unauthenticated (protected routes then 401).</li>
  * </ul>
  *
@@ -50,10 +50,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final RolePermissionCache roleCache;
+    private final UserGrantCache grantCache;
 
-    public JwtAuthenticationFilter(JwtService jwtService, RolePermissionCache roleCache) {
+    public JwtAuthenticationFilter(JwtService jwtService, RolePermissionCache roleCache, UserGrantCache grantCache) {
         this.jwtService = jwtService;
         this.roleCache = roleCache;
+        this.grantCache = grantCache;
     }
 
     @Override
@@ -74,6 +76,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
+            // the token's branch roles count only while still granted: a revoke or a closed branch ends them at once
+            Map<UUID, UUID> current = grantCache.current(claims.userId(), claims.companyId());
+            Map<UUID, UUID> roleByBranch = new HashMap<>();
+            claims.roleByBranch().forEach((branchId, roleId) -> {
+                if (roleId.equals(current.get(branchId))) {
+                    roleByBranch.put(branchId, roleId);
+                }
+            });
+
             // Resolve the active branch, if one was requested.
             UUID activeBranch = null;
             String branchHeader = request.getHeader(BRANCH_HEADER);
@@ -84,14 +95,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     writeError(response, HttpStatus.BAD_REQUEST, "Malformed " + BRANCH_HEADER);
                     return;
                 }
-                if (!claims.roleByBranch().containsKey(activeBranch)) {
+                if (!roleByBranch.containsKey(activeBranch)) {
                     writeError(response, HttpStatus.FORBIDDEN, "No access to branch " + activeBranch);
                     return;
                 }
                 BranchContext.set(activeBranch);
             }
 
-            SecurityContextHolder.getContext().setAuthentication(authenticate(claims, activeBranch));
+            SecurityContextHolder.getContext().setAuthentication(authenticate(claims, roleByBranch, activeBranch));
 
             filterChain.doFilter(request, response);
         } finally {
@@ -100,12 +111,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    /** Resolves the token's branch roles, and the authorities in force at {@code activeBranch} (null: none named). */
-    private UsernamePasswordAuthenticationToken authenticate(AccessClaims claims, UUID activeBranch) {
+    /** Resolves the branch roles still granted, and the authorities in force at {@code activeBranch} (null: none). */
+    private UsernamePasswordAuthenticationToken authenticate(AccessClaims claims, Map<UUID, UUID> roleByBranch,
+            UUID activeBranch) {
         Map<UUID, Set<String>> permissionsByBranch = new HashMap<>();
         Set<String> roles = new HashSet<>();
         Set<String> rolesInForce = new HashSet<>();
-        claims.roleByBranch().forEach((branchId, roleId) -> {
+        roleByBranch.forEach((branchId, roleId) -> {
             Optional<RoleGrant> role = roleCache.get(roleId);
             permissionsByBranch.put(branchId, role.map(RoleGrant::permissions).orElse(Set.of()));
             role.ifPresent(r -> {

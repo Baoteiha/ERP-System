@@ -29,6 +29,7 @@ import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.security.UserGrantCache;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
@@ -48,10 +49,12 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
+    private final UserGrantCache grantCache;
 
     public UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser) {
+            PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser,
+            UserGrantCache grantCache) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -59,6 +62,7 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
         this.organizationApi = organizationApi;
         this.currentUser = currentUser;
+        this.grantCache = grantCache;
     }
 
     @Transactional(readOnly = true)
@@ -101,10 +105,14 @@ public class UserService {
         if (!organizationApi.branchExistsInCompany(branchId, user.getCompanyId())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
+        // locked first: a concurrent widening of the role waits for this grant, or this grant sees it
+        roleRepository.lockByIdAndCompanyId(roleId, user.getCompanyId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         Role role = roleRepository.findByIdAndCompanyId(roleId, user.getCompanyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         requireCanManage(userId);
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
+        grantCache.evictAfterCommit(userId);
         return accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .map(existing -> {
                     existing.setRoleId(roleId);
@@ -127,6 +135,7 @@ public class UserService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", access.getRoleId()));
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         accessRepository.delete(access);
+        grantCache.evictAfterCommit(userId);
     }
 
     // --- account lifecycle ---

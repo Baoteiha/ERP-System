@@ -14,6 +14,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import vn.essvn.erpcafe.config.SecurityProperties;
 
@@ -63,7 +64,8 @@ class JwtServiceTest {
                 .compact();
 
         assertThatThrownBy(() -> jwtService(Duration.ofMinutes(15)).parseAccessToken(legacy))
-                .isInstanceOf(Exception.class);
+                .isInstanceOf(MalformedJwtException.class)
+                .hasMessageContaining("branch roles");
     }
 
     @Test
