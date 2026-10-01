@@ -163,9 +163,8 @@ public class DataInitializer implements ApplicationRunner {
 
     private void seedTenant(Company company, String password) {
         Branch branch = branchRepository.findAll().stream()
-                .filter(b -> b.getCompanyId().equals(company.getId()))
                 .findFirst()
-                .orElseGet(() -> branchRepository.save(new Branch(company.getId(), "Headquarters", "HQ")));
+                .orElseGet(() -> branchRepository.save(new Branch("Headquarters", "HQ")));
 
         for (DefaultRole def : DefaultRole.all()) {
             roleRepository.findByCompanyIdAndName(company.getId(), def.roleName())

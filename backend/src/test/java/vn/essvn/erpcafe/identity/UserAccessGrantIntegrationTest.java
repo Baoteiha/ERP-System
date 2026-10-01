@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
@@ -61,9 +62,9 @@ class UserAccessGrantIntegrationTest extends AbstractIntegrationTest {
         // API deliberately no longer accepts a client-supplied company, so a foreign
         // branch cannot be created over HTTP at all.
         Company companyB = companyRepository.save(new Company("Company B %d".formatted(n), "CB%d".formatted(n)));
-        String branchBId = branchRepository
-                .save(new Branch(companyB.getId(), "B Branch", "BB%d".formatted(n)))
-                .getId().toString();
+        String branchBId = TenantContext.runAs(companyB.getId(), () -> branchRepository
+                .save(new Branch("B Branch", "BB%d".formatted(n)))
+                .getId().toString());
 
         // Granting company A's user access to company B's branch must be refused.
         mockMvc.perform(post("/api/v1/users/" + userAId + "/access")

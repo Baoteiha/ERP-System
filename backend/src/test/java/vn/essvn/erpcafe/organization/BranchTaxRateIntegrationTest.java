@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -41,9 +42,11 @@ class BranchTaxRateIntegrationTest extends AbstractIntegrationTest {
     void restoreSeededBranchRate() {
         // the seeded admin branch is shared by every test class: leave it at the default rate
         if (branchId != null) {
-            Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
-            branch.setTaxRate(BigDecimal.ZERO);
-            branches.save(branch);
+            TenantContext.runAsSystem(() -> {
+                Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+                branch.setTaxRate(BigDecimal.ZERO);
+                branches.save(branch);
+            });
         }
     }
 
@@ -52,6 +55,10 @@ class BranchTaxRateIntegrationTest extends AbstractIntegrationTest {
         branchId = ((List<String>) JsonPath.read(
                 mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
                         .andReturn().getResponse().getContentAsString(), "$.branchIds")).get(0);
+    }
+
+    private BigDecimal storedRate() {
+        return TenantContext.runAsSystem(() -> branches.findById(UUID.fromString(branchId)).orElseThrow().getTaxRate());
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b) {
@@ -72,7 +79,7 @@ class BranchTaxRateIntegrationTest extends AbstractIntegrationTest {
 
         updateBranch("0.08").andExpect(status().isOk()).andExpect(jsonPath("$.taxRate").value(0.08));
 
-        assertThat(branches.findById(UUID.fromString(branchId)).orElseThrow().getTaxRate()).isEqualByComparingTo("0.08");
+        assertThat(storedRate()).isEqualByComparingTo("0.08");
     }
 
     @Test
@@ -83,7 +90,7 @@ class BranchTaxRateIntegrationTest extends AbstractIntegrationTest {
         updateBranch("1.5").andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION"));
         updateBranch("-0.1").andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION"));
 
-        assertThat(branches.findById(UUID.fromString(branchId)).orElseThrow().getTaxRate()).isEqualByComparingTo("0.08");
+        assertThat(storedRate()).isEqualByComparingTo("0.08");
     }
 
     @Test

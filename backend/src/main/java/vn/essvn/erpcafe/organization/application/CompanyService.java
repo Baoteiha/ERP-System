@@ -8,10 +8,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
@@ -23,19 +23,16 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final BranchRepository branchRepository;
-    private final CurrentUser currentUser;
 
-    public CompanyService(CompanyRepository companyRepository, BranchRepository branchRepository,
-            CurrentUser currentUser) {
+    public CompanyService(CompanyRepository companyRepository, BranchRepository branchRepository) {
         this.companyRepository = companyRepository;
         this.branchRepository = branchRepository;
-        this.currentUser = currentUser;
     }
 
     /** A tenant sees exactly one company: their own. */
     @Transactional(readOnly = true)
     public Page<Company> list(Pageable pageable) {
-        return companyRepository.findByIdIn(List.of(currentUser.require().companyId()), pageable);
+        return companyRepository.findByIdIn(List.of(TenantContext.require()), pageable);
     }
 
     /**
@@ -44,7 +41,7 @@ public class CompanyService {
      */
     @Transactional(readOnly = true)
     public Company get(UUID id) {
-        if (!id.equals(currentUser.require().companyId())) {
+        if (!id.equals(TenantContext.require())) {
             throw ResourceNotFoundException.of("Company", id);
         }
         return companyRepository.findById(id)

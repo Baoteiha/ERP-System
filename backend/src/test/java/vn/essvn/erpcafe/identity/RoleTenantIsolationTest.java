@@ -19,6 +19,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
@@ -52,11 +53,14 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Role Other %d".formatted(n), "ROL%d".formatted(n)));
-        Branch branchB = branchRepository.save(new Branch(b.getId(), "B Branch", "RLB%d".formatted(n)));
-        Role roleB = roleRepository.save(new Role(b.getId(), "B-ROLE-%d".formatted(n), "foreign"));
-        User userB = userRepository.save(new User(b.getId(), "role-foreign%d@other.test".formatted(n), "x", "B User"));
-        accessRepository.save(new UserBranchAccess(userB.getId(), branchB.getId(), roleB.getId()));
-        return new Foreign(roleB.getId(), userB.getId(), branchB.getId());
+        return TenantContext.runAs(b.getId(), () -> {
+            Branch branchB = branchRepository.save(new Branch("B Branch", "RLB%d".formatted(n)));
+            Role roleB = roleRepository.save(new Role(b.getId(), "B-ROLE-%d".formatted(n), "foreign"));
+            User userB = userRepository.save(
+                    new User(b.getId(), "role-foreign%d@other.test".formatted(n), "x", "B User"));
+            accessRepository.save(new UserBranchAccess(userB.getId(), branchB.getId(), roleB.getId()));
+            return new Foreign(roleB.getId(), userB.getId(), branchB.getId());
+        });
     }
 
     private String auth() throws Exception {

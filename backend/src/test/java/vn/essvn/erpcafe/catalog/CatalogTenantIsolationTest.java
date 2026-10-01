@@ -28,6 +28,7 @@ import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
@@ -57,13 +58,15 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Cat Other %d".formatted(n), "CTB%d".formatted(n)));
-        Branch branch = branchRepository.save(new Branch(b.getId(), "B Branch", "CTBB%d".formatted(n)));
-        Category cat = categoryRepository.save(new Category(b.getId(), "Foreign Cat %d".formatted(n), 0));
-        Product product = productRepository.save(new Product(b.getId(), cat.getId(),
-                "Foreign Prod %d".formatted(n), "FSKU%d".formatted(n), Money.of(BigDecimal.TEN)));
-        ModifierGroup group = modifierGroupRepository.save(
-                new ModifierGroup(b.getId(), "Foreign Group %d".formatted(n), 0, 1));
-        return new Foreign(branch.getId(), cat.getId(), product.getId(), group.getId());
+        return TenantContext.runAs(b.getId(), () -> {
+            Branch branch = branchRepository.save(new Branch("B Branch", "CTBB%d".formatted(n)));
+            Category cat = categoryRepository.save(new Category(b.getId(), "Foreign Cat %d".formatted(n), 0));
+            Product product = productRepository.save(new Product(b.getId(), cat.getId(),
+                    "Foreign Prod %d".formatted(n), "FSKU%d".formatted(n), Money.of(BigDecimal.TEN)));
+            ModifierGroup group = modifierGroupRepository.save(
+                    new ModifierGroup(b.getId(), "Foreign Group %d".formatted(n), 0, 1));
+            return new Foreign(branch.getId(), cat.getId(), product.getId(), group.getId());
+        });
     }
 
     private String admin() throws Exception {

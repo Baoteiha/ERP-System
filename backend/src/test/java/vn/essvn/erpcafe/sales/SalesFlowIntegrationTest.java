@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -43,9 +44,11 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
 
     /** The seeded admin branch is shared by every test class, so a rate set here is put back afterwards. */
     private void setBranchTaxRate(String rate) {
-        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
-        branch.setTaxRate(new BigDecimal(rate));
-        branches.save(branch);
+        TenantContext.runAsSystem(() -> {
+            Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+            branch.setTaxRate(new BigDecimal(rate));
+            branches.save(branch);
+        });
     }
 
     @AfterEach

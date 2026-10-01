@@ -6,6 +6,8 @@ import org.hibernate.annotations.TenantId;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.PrePersist;
+import vn.essvn.erpcafe.common.context.TenantContext;
 
 /**
  * Class: TenantOwnedEntity
@@ -21,5 +23,19 @@ public abstract class TenantOwnedEntity extends AuditableEntity {
 
     public UUID getCompanyId() {
         return companyId;
+    }
+
+    /**
+     * Hibernate stamps the session's company only when the INSERT runs, at flush. Taking it at persist
+     * makes it readable at once (an event published in the same transaction carries it); Hibernate
+     * still refuses the insert if it is not the session's company. Outside a company (the system
+     * scope, or no tenant at all) there is no company to take, so the row is refused.
+     */
+    @PrePersist
+    void takeCompanyFromTenant() {
+        if (companyId == null) {
+            companyId = TenantContext.current().orElseThrow(() -> new IllegalStateException(
+                    "A tenant-owned row can only be written inside its company's tenant"));
+        }
     }
 }

@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.domain.MovementType;
@@ -39,6 +40,7 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
 
     private String token;
     private String branchId;
+    private UUID companyId;
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b) {
         return b.header(HttpHeaders.AUTHORIZATION, authHeader(token)).header("X-Branch-Id", branchId);
@@ -83,9 +85,10 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
     private void soldThenRecipeAndCostChanged(String endpoint) throws Exception {
         String s = UUID.randomUUID().toString().substring(0, 8);
         token = adminToken();
-        branchId = ((List<String>) JsonPath.read(
-                mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
-                        .andReturn().getResponse().getContentAsString(), "$.branchIds")).get(0);
+        String me = mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andReturn().getResponse().getContentAsString();
+        branchId = ((List<String>) JsonPath.read(me, "$.branchIds")).get(0);
+        companyId = UUID.fromString(JsonPath.read(me, "$.companyId"));
 
         String ingredientId = JsonPath.read(create("/api/v1/ingredients",
                 "{\"name\":\"Coffee-%s\",\"baseUnit\":\"g\"}".formatted(s)), "$.id");
@@ -126,8 +129,8 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
         String reversalRef = endpoint.equals("/void") ? "ORDER_VOID" : "ORDER_REFUND";
         long before = movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId)).size();
         assertThat(before).isEqualTo(1);
-        CogsResult again = inventoryApi.reverseDeduction(UUID.fromString(branchId), "ORDER",
-                UUID.fromString(orderId), reversalRef);
+        CogsResult again = TenantContext.runAs(companyId, () -> inventoryApi.reverseDeduction(
+                UUID.fromString(branchId), "ORDER", UUID.fromString(orderId), reversalRef));
         assertThat(again.totalCost().getAmount()).isEqualByComparingTo("0");
         List<StockMovement> reversals = movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId));
         assertThat(reversals).hasSize(1);

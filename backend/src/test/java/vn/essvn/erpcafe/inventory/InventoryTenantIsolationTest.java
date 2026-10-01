@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
@@ -186,9 +187,11 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
     /** Seeds an independent company (its own branch, full-permission role, and a user) and logs in. */
     private TenantB seedOtherCompany(int n) throws Exception {
         String email = "owner%d@rival.test".formatted(n);
-        String branchId = new TransactionTemplate(txManager).execute(statusTx -> {
-            Company company = companyRepository.save(new Company("Rival Cafe " + n, "RIV" + n));
-            Branch branch = branchRepository.save(new Branch(company.getId(), "Rival HQ " + n, "RHQ" + n));
+        Company company = companyRepository.save(new Company("Rival Cafe " + n, "RIV" + n));
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        // a session takes its tenant when it opens: the transaction starts inside the company's tenant
+        String branchId = TenantContext.runAs(company.getId(), () -> tx.execute(statusTx -> {
+            Branch branch = branchRepository.save(new Branch("Rival HQ " + n, "RHQ" + n));
             Role role = new Role(company.getId(), "TenantOwner" + n, "Full access");
             role.setPermissions(new HashSet<>(permissionRepository.findAll()));
             role = roleRepository.save(role);
@@ -196,7 +199,7 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
                     passwordEncoder.encode("rival1234"), "Rival Owner"));
             accessRepository.save(new UserBranchAccess(user.getId(), branch.getId(), role.getId()));
             return branch.getId().toString();
-        });
+        }));
         return new TenantB(accessToken(email, "rival1234"), branchId);
     }
 

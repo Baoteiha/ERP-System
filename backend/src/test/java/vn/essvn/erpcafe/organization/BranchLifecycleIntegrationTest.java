@@ -22,6 +22,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
@@ -55,10 +56,17 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
     @AfterEach
     void cleanUp() {
         orders.deleteAll(createdOrders);
-        for (UUID id : createdBranches) {
-            grants.deleteAll(grants.findByBranchId(id));
-            branches.findById(id).ifPresent(branches::delete);
-        }
+        TenantContext.runAsSystem(() -> {
+            for (UUID id : createdBranches) {
+                grants.deleteAll(grants.findByBranchId(id));
+                branches.findById(id).ifPresent(branches::delete);
+            }
+        });
+    }
+
+    /** Reads a branch of any company, as the system. */
+    private Branch branch(String id) {
+        return TenantContext.runAsSystem(() -> branches.findById(UUID.fromString(id)).orElseThrow());
     }
 
     private String postJson(String token, String url, String body) throws Exception {
@@ -89,7 +97,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String email = "lifecycle%d@t.test".formatted(n);
         String userId = JsonPath.read(postJson(adminToken, "/api/v1/users",
                 "{\"email\":\"%s\",\"password\":\"password123\",\"fullName\":\"LC\"}".formatted(email)), "$.id");
-        UUID companyId = branches.findById(UUID.fromString(branchIds[0])).orElseThrow().getCompanyId();
+        UUID companyId = branch(branchIds[0]).getCompanyId();
         UUID roleId = roles.findByCompanyIdAndName(companyId, roleName).orElseThrow().getId();
         for (String branchId : branchIds) {
             mockMvc.perform(post("/api/v1/users/" + userId + "/access")
@@ -139,7 +147,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(admin))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Lifecycle off\",\"code\":\"%s\",\"active\":false}"
-                                .formatted(branches.findById(UUID.fromString(branchId)).orElseThrow().getCode())))
+                                .formatted(branch(branchId).getCode())))
                 .andExpect(status().isOk());
 
         String fresh = accessToken(email, "password123");
@@ -160,7 +168,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(branches.findById(UUID.fromString(branchId))).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> branches.findById(UUID.fromString(branchId)))).isPresent();
     }
 
     @Test
@@ -199,7 +207,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String branchId = createBranch(admin);
         createdOrders.add(orders.save(
                 new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO)));
-        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+        Branch branch = branch(branchId);
 
         mockMvc.perform(put("/api/v1/branches/" + branchId)
                         .header(HttpHeaders.AUTHORIZATION, authHeader(admin))
@@ -208,7 +216,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(branches.findById(UUID.fromString(branchId)).orElseThrow().isActive()).isTrue();
+        assertThat(branch(branchId).isActive()).isTrue();
         assertThat(grants.findByBranchId(UUID.fromString(branchId))).isNotEmpty();
     }
 
@@ -218,11 +226,11 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String home = seededBranch(admin);
         String dead = createBranch(admin);
         String[] user = userWithRole(admin, "CASHIER", home).split("\\|");
-        UUID companyId = branches.findById(UUID.fromString(home)).orElseThrow().getCompanyId();
+        UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
         grants.save(new UserBranchAccess(UUID.fromString(user[0]), UUID.fromString(dead),
                 roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
-        branches.delete(branches.findById(UUID.fromString(dead)).orElseThrow());
+        TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
 
         String token = accessToken(user[1], "password123");
 
@@ -249,14 +257,14 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .content("{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(home, roleId)))
                 .andExpect(status().isOk());
         String token = accessToken("maker%d@t.test".formatted(n), "password123");
-        long before = branches.count();
+        long before = TenantContext.runAsSystem(() -> branches.count());
 
         mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"NoHdr\",\"code\":\"NH%d\"}".formatted(n)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
-        assertThat(branches.count()).isEqualTo(before);
+        assertThat(TenantContext.runAsSystem(() -> branches.count())).isEqualTo(before);
 
         String created = mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
                         .header("X-Branch-Id", home).contentType(MediaType.APPLICATION_JSON)
@@ -284,11 +292,11 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, authHeader(admin)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(home, roleId)))
                 .andExpect(status().isOk());
-        UUID companyId = branches.findById(UUID.fromString(home)).orElseThrow().getCompanyId();
+        UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
         grants.save(new UserBranchAccess(UUID.fromString(userId), UUID.fromString(dead),
                 roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
-        branches.delete(branches.findById(UUID.fromString(dead)).orElseThrow());
+        TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
         String token = accessToken("opener%d@t.test".formatted(n), "password123");
 
         String created = mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
@@ -310,7 +318,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         UUID id = UUID.fromString(JsonPath.read(body, "$.id"));
         createdBranches.add(id);
 
-        assertThat(branches.findById(id).orElseThrow().isActive()).isFalse();
+        assertThat(branch(id.toString()).isActive()).isFalse();
         assertThat(grants.findByBranchId(id)).isEmpty();
     }
 }

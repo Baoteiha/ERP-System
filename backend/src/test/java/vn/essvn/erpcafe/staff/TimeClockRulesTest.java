@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
@@ -84,11 +85,13 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
     void clockIn_refusedWhileTheEmployeeHasAnOpenShiftAtAnotherBranch() throws Exception {
         login();
         UUID emp = employee("Open " + unique(), "30000");
-        Employee employee = employeeRepository.findById(emp).orElseThrow();
-        Branch other = branchRepository.save(new Branch(employee.getCompanyId(), "Other", unique()));
-        Shift open = new Shift(employee.getCompanyId(), other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
-        open.clockIn(Instant.now(), Money.of(new BigDecimal("30000")));
-        shiftRepository.save(open);
+        Employee employee = TenantContext.runAsSystem(() -> employeeRepository.findById(emp).orElseThrow());
+        TenantContext.runAs(employee.getCompanyId(), () -> {
+            Branch other = branchRepository.save(new Branch("Other", unique()));
+            Shift open = new Shift(employee.getCompanyId(), other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
+            open.clockIn(Instant.now(), Money.of(new BigDecimal("30000")));
+            shiftRepository.save(open);
+        });
         UUID mine = shift(emp, Instant.now().plus(1, ChronoUnit.DAYS));
 
         mockMvc.perform(authed(post("/api/v1/staff/shifts/" + mine + "/clock-in")))

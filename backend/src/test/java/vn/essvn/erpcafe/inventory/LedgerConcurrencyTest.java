@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.application.StockLedgerService;
@@ -51,25 +52,33 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     @Autowired private BranchRepository branches;
     @Autowired private PlatformTransactionManager txManager;
 
-    private record Seed(UUID branchId, UUID ingredientId) {
+    private record Seed(UUID companyId, UUID branchId, UUID ingredientId) {
     }
 
     private Seed seed() {
         int n = SEQ.incrementAndGet();
         Company company = companies.save(new Company("Ledger Co %d".formatted(n), "LDG%d".formatted(n)));
-        Branch branch = branches.save(new Branch(company.getId(), "Ledger Branch", "LDB%d".formatted(n)));
-        Ingredient ingredient = ingredients.save(new Ingredient(company.getId(), "Ledger Beans %d".formatted(n), "g", null));
-        return new Seed(branch.getId(), ingredient.getId());
+        return TenantContext.runAs(company.getId(), () -> {
+            Branch branch = branches.save(new Branch("Ledger Branch", "LDB%d".formatted(n)));
+            Ingredient ingredient = ingredients.save(
+                    new Ingredient(company.getId(), "Ledger Beans %d".formatted(n), "g", null));
+            return new Seed(company.getId(), branch.getId(), ingredient.getId());
+        });
     }
 
-    /** Runs both tasks in their own transactions, released together so they overlap in the ledger. */
-    private <T> List<T> runTogether(List<Supplier<T>> tasks) throws Exception {
+    /** Runs work on the seed's ledger as its company, as a request of that company would. */
+    private <T> T asCompany(Seed seed, Supplier<T> work) {
+        return TenantContext.runAs(seed.companyId(), work);
+    }
+
+    /** Runs both tasks as the seed's company in their own transactions, released together so they overlap. */
+    private <T> List<T> runTogether(Seed seed, List<Supplier<T>> tasks) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
         CountDownLatch ready = new CountDownLatch(tasks.size());
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (Supplier<T> task : tasks) {
-                futures.add(pool.submit(() -> new TransactionTemplate(txManager).execute(status -> {
+                futures.add(pool.submit(() -> asCompany(seed, () -> new TransactionTemplate(txManager).execute(status -> {
                     ready.countDown();
                     try {
                         ready.await(30, TimeUnit.SECONDS);
@@ -77,7 +86,7 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
                         Thread.currentThread().interrupt();
                     }
                     return task.get();
-                })));
+                }))));
             }
             List<T> results = new ArrayList<>();
             for (Future<T> future : futures) {
@@ -97,11 +106,11 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     void twoDeductionsOfOneReference_recordASingleSetOfMovements() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
-            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
-                    vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null);
+            asCompany(seed, () -> ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
+                    vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null));
             UUID orderId = UUID.randomUUID();
 
-            List<CogsResult> results = runTogether(List.of(
+            List<CogsResult> results = runTogether(seed, List.of(
                     () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId),
                     () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId)));
 
@@ -119,7 +128,7 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
 
-            runTogether(List.of(
+            runTogether(seed, List.of(
                     () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", UUID.randomUUID()),
                     () -> ledger.deduct(seed.branchId(), grams(seed, "50"), "ORDER", UUID.randomUUID())));
 
@@ -133,12 +142,12 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     void voidAndRefundOfOneOrderAtOnce_restoreStockOnlyOnce() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
-            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
-                    vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null);
+            asCompany(seed, () -> ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
+                    vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null));
             UUID orderId = UUID.randomUUID();
-            ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId);
+            asCompany(seed, () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId));
 
-            runTogether(List.of(
+            runTogether(seed, List.of(
                     () -> ledger.reverseDeduction(seed.branchId(), "ORDER", orderId, "ORDER_VOID"),
                     () -> ledger.reverseDeduction(seed.branchId(), "ORDER", orderId, "ORDER_REFUND")));
 

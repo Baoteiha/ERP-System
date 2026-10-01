@@ -23,6 +23,7 @@ import vn.essvn.erpcafe.catalog.domain.Category;
 import vn.essvn.erpcafe.catalog.domain.Product;
 import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
@@ -56,9 +57,11 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     @Autowired private UserBranchAccessRepository accessRepository;
 
     private UUID seedOpenOrder(UUID companyId, UUID branchId, int n) {
-        Category category = categoryRepository.save(new Category(companyId, "Cat %d".formatted(n), 0));
-        Product product = productRepository.save(new Product(
-                companyId, category.getId(), "Prod %d".formatted(n), "SKU-S%d".formatted(n), Money.of(BigDecimal.TEN)));
+        Product product = TenantContext.runAs(companyId, () -> {
+            Category category = categoryRepository.save(new Category(companyId, "Cat %d".formatted(n), 0));
+            return productRepository.save(new Product(companyId, category.getId(), "Prod %d".formatted(n),
+                    "SKU-S%d".formatted(n), Money.of(BigDecimal.TEN)));
+        });
         Order order = new Order(branchId, null, OrderType.DINE_IN, BigDecimal.ZERO);
         order.addLine(new PricedLine(product.getId(), product.getName(), Money.of(BigDecimal.TEN), List.of(),
                 Money.of(BigDecimal.TEN)), 1, BigDecimal.ZERO);
@@ -99,7 +102,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     void orderActions_rejectAnotherCompanysOrder() throws Exception {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Sales Other %d".formatted(n), "SLB%d".formatted(n)));
-        Branch branchB = branchRepository.save(new Branch(b.getId(), "B Branch", "SLBB%d".formatted(n)));
+        Branch branchB = TenantContext.runAs(b.getId(),
+                () -> branchRepository.save(new Branch("B Branch", "SLBB%d".formatted(n))));
         UUID orderB = seedOpenOrder(b.getId(), branchB.getId(), n);
 
         assertEveryActionIs404(orderB.toString(), ownBranch(), adminToken());
@@ -110,8 +114,11 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     @Test
     void orderActions_rejectAnotherBranchOfTheSameCompany() throws Exception {
         int n = SEQ.incrementAndGet();
-        UUID companyA = branchRepository.findById(UUID.fromString(ownBranch())).orElseThrow().getCompanyId();
-        Branch second = branchRepository.save(new Branch(companyA, "Second", "SLS%d".formatted(n)));
+        String own = ownBranch();
+        UUID companyA = TenantContext.runAsSystem(
+                () -> branchRepository.findById(UUID.fromString(own)).orElseThrow().getCompanyId());
+        Branch second = TenantContext.runAs(companyA,
+                () -> branchRepository.save(new Branch("Second", "SLS%d".formatted(n))));
         UUID adminId = userRepository.findByEmail("admin@esscafe.vn").orElseThrow().getId();
         UserBranchAccess existing = accessRepository.findByUserId(adminId).get(0);
         accessRepository.save(new UserBranchAccess(adminId, second.getId(), existing.getRoleId()));
@@ -138,9 +145,11 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     void createOrder_rejectsAnotherCompanysProduct() throws Exception {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Sales Prod %d".formatted(n), "SLP%d".formatted(n)));
-        Category cat = categoryRepository.save(new Category(b.getId(), "CatP %d".formatted(n), 0));
-        Product productB = productRepository.save(new Product(
-                b.getId(), cat.getId(), "ProdP %d".formatted(n), "SKU-P%d".formatted(n), Money.of(BigDecimal.TEN)));
+        Product productB = TenantContext.runAs(b.getId(), () -> {
+            Category cat = categoryRepository.save(new Category(b.getId(), "CatP %d".formatted(n), 0));
+            return productRepository.save(new Product(b.getId(), cat.getId(), "ProdP %d".formatted(n),
+                    "SKU-P%d".formatted(n), Money.of(BigDecimal.TEN)));
+        });
 
         mockMvc.perform(post("/api/v1/orders")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))

@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Permissions;
@@ -85,19 +86,21 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
      */
     @AfterEach
     void cleanUp() {
-        User owner = userRepository.findById(ownerId).orElseThrow();
-        owner.setEmail(ownerEmail);
-        owner.setPasswordHash(ownerPasswordHash);
-        owner.setStatus(ownerStatus);
-        userRepository.save(owner);
-        for (UUID userId : createdUsers) {
-            accessRepository.deleteAll(accessRepository.findByUserId(userId));
-            User user = userRepository.findById(userId).orElseThrow();
-            user.setStatus(UserStatus.DISABLED);
-            userRepository.save(user);
-        }
-        createdRoles.forEach(roleRepository::deleteById);
-        createdBranches.forEach(id -> branchRepository.delete(branchRepository.findById(id).orElseThrow()));
+        TenantContext.runAsSystem(() -> {
+            User owner = userRepository.findById(ownerId).orElseThrow();
+            owner.setEmail(ownerEmail);
+            owner.setPasswordHash(ownerPasswordHash);
+            owner.setStatus(ownerStatus);
+            userRepository.save(owner);
+            for (UUID userId : createdUsers) {
+                accessRepository.deleteAll(accessRepository.findByUserId(userId));
+                User user = userRepository.findById(userId).orElseThrow();
+                user.setStatus(UserStatus.DISABLED);
+                userRepository.save(user);
+            }
+            createdRoles.forEach(roleRepository::deleteById);
+            createdBranches.forEach(id -> branchRepository.delete(branchRepository.findById(id).orElseThrow()));
+        });
     }
 
     private ResultActions send(MockHttpServletRequestBuilder request, String token, String body) throws Exception {
@@ -138,9 +141,9 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
 
     /** A second branch of the seeded company, held by nobody until a test grants it. */
     private UUID newBranch() {
-        UUID id = branchRepository
-                .save(new Branch(companyId, "Unheld Branch", "ESCB%d".formatted(SEQ.incrementAndGet())))
-                .getId();
+        UUID id = TenantContext.runAs(companyId, () -> branchRepository
+                .save(new Branch("Unheld Branch", "ESCB%d".formatted(SEQ.incrementAndGet())))
+                .getId());
         createdBranches.add(id);
         return id;
     }

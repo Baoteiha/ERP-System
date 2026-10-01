@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
@@ -48,7 +49,8 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
 
     private Branch seedForeignBranch() {
         Company foreign = seedForeignCompany();
-        return branchRepository.save(new Branch(foreign.getId(), "Foreign Outlet", "FOUT"));
+        return TenantContext.runAs(foreign.getId(),
+                () -> branchRepository.save(new Branch("Foreign Outlet", "FOUT")));
     }
 
     @Test
@@ -117,8 +119,8 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
                         .content("{\"name\":\"Hijacked\",\"code\":\"HIJ\"}"))
                 .andExpect(status().isNotFound());
 
-        assertThat(branchRepository.findById(foreign.getId()).orElseThrow().getName())
-                .isEqualTo("Foreign Outlet");
+        assertThat(TenantContext.runAsSystem(() -> branchRepository.findById(foreign.getId())).orElseThrow()
+                .getName()).isEqualTo("Foreign Outlet");
     }
 
     @Test
@@ -129,7 +131,7 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken())))
                 .andExpect(status().isNotFound());
 
-        assertThat(branchRepository.findById(foreign.getId())).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> branchRepository.findById(foreign.getId()))).isPresent();
     }
 
     @Test

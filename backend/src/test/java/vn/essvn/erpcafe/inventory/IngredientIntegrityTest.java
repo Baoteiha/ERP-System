@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.application.StockLedgerService;
@@ -45,13 +46,22 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
 
     private String token;
     private String branchId;
+    private UUID companyId;
 
     @BeforeEach
     void signIn() throws Exception {
         token = adminToken();
-        branchId = ((List<String>) JsonPath.read(
-                mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
-                        .andReturn().getResponse().getContentAsString(), "$.branchIds")).get(0);
+        String me = mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andReturn().getResponse().getContentAsString();
+        branchId = ((List<String>) JsonPath.read(me, "$.branchIds")).get(0);
+        companyId = UUID.fromString(JsonPath.read(me, "$.companyId"));
+    }
+
+    /** Deducts at the admin's branch as its company, as a sale completed there would. */
+    private void deduct(String ingredientId, String quantity, String unit, String refType) {
+        TenantContext.runAs(companyId, () -> ledger.deduct(UUID.fromString(branchId),
+                List.of(new StockLine(UUID.fromString(ingredientId), new BigDecimal(quantity), unit)),
+                refType, UUID.randomUUID()));
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b) {
@@ -114,8 +124,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
     void receipt_afterOversellTakesTheReceiptCostNotABlendWithTheZeroCost() throws Exception {
         String id = ingredient("g");
         // Sold 100 g that were never received: on hand -100 at cost 0.
-        ledger.deduct(UUID.fromString(branchId), List.of(new StockLine(UUID.fromString(id), new BigDecimal("100"), "g")),
-                "TEST_OVERSELL", UUID.randomUUID());
+        deduct(id, "100", "g", "TEST_OVERSELL");
 
         receiveAll(sentPurchaseOrder(id, "1000", "0.24"), "1000");
 
@@ -239,8 +248,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
         String id = ingredient("g");
         mockMvc.perform(authed(delete("/api/v1/ingredients/" + id))).andExpect(status().isNoContent());
 
-        assertThatThrownBy(() -> ledger.deduct(UUID.fromString(branchId),
-                List.of(new StockLine(UUID.fromString(id), BigDecimal.ONE, "kg")), "TEST_DEDUCT", UUID.randomUUID()))
+        assertThatThrownBy(() -> deduct(id, "1", "kg", "TEST_DEDUCT"))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining(id);
     }

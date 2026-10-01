@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
@@ -36,13 +37,20 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
 
     private String token;
     private String branchId;
+    private UUID companyId;
 
     private void setUp() throws Exception {
         token = adminToken();
-        branchId = ((List<String>) JsonPath.read(
-                mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
-                        .andReturn().getResponse().getContentAsString(),
-                "$.branchIds")).get(0);
+        String me = mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andReturn().getResponse().getContentAsString();
+        branchId = ((List<String>) JsonPath.read(me, "$.branchIds")).get(0);
+        companyId = UUID.fromString(JsonPath.read(me, "$.companyId"));
+    }
+
+    /** Deducts at the admin's branch as its company, as an order completed there would. */
+    private CogsResult deduct(String ingredientId, String grams, UUID orderId) {
+        return TenantContext.runAs(companyId, () -> inventoryApi.deductForOrder(UUID.fromString(branchId),
+                List.of(new StockLine(UUID.fromString(ingredientId), new BigDecimal(grams), "g")), "ORDER", orderId));
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b) {
@@ -121,14 +129,12 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
         UUID orderId = UUID.randomUUID();
 
         // deduct 600g → COGS = 600 * 0.20 = 120
-        CogsResult first = inventoryApi.deductForOrder(UUID.fromString(branchId),
-                List.of(new StockLine(UUID.fromString(ingredientId), new BigDecimal("600"), "g")), "ORDER", orderId);
+        CogsResult first = deduct(ingredientId, "600", orderId);
         assertThat(first.totalCost().getAmount()).isEqualByComparingTo("120");
         assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("400");
 
         // repeat with same ref → idempotent: same COGS, no further deduction
-        CogsResult again = inventoryApi.deductForOrder(UUID.fromString(branchId),
-                List.of(new StockLine(UUID.fromString(ingredientId), new BigDecimal("600"), "g")), "ORDER", orderId);
+        CogsResult again = deduct(ingredientId, "600", orderId);
         assertThat(again.totalCost().getAmount()).isEqualByComparingTo("120");
         assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("400");
     }
@@ -140,8 +146,7 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
         String ingredientId = receivePurchase(n, new BigDecimal("100"), "0.30");
 
         // deduct 150g from 100g on hand → allowed, stock goes to -50
-        inventoryApi.deductForOrder(UUID.fromString(branchId),
-                List.of(new StockLine(UUID.fromString(ingredientId), new BigDecimal("150"), "g")), "ORDER", UUID.randomUUID());
+        deduct(ingredientId, "150", UUID.randomUUID());
         assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("-50");
     }
 

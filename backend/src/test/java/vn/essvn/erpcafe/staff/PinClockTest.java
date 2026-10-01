@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
@@ -267,14 +268,17 @@ class PinClockTest extends AbstractIntegrationTest {
     @Test
     void laborCost_forAnotherCompanysBranch_isNotFound() throws Exception {
         login();
-        UUID myCompany = organizationApi.companyIdOf(UUID.fromString(branchId)).orElseThrow();
+        UUID myCompany = TenantContext.runAsSystem(() -> organizationApi.companyIdOf(UUID.fromString(branchId)))
+                .orElseThrow();
         Foreign foreign = seedForeign();
         Instant from = Instant.now().minus(Duration.ofDays(1));
         Instant to = Instant.now().plus(Duration.ofDays(1));
 
-        assertThatThrownBy(() -> staffApi.laborCost(myCompany, foreign.branchIds().get(0), from, to))
+        assertThatThrownBy(() -> TenantContext.runAs(myCompany,
+                () -> staffApi.laborCost(myCompany, foreign.branchIds().get(0), from, to)))
                 .isInstanceOf(ResourceNotFoundException.class);
-        assertThatThrownBy(() -> staffApi.laborCostByBranch(myCompany, foreign.branchIds(), from, to))
+        assertThatThrownBy(() -> TenantContext.runAs(myCompany,
+                () -> staffApi.laborCostByBranch(myCompany, foreign.branchIds(), from, to)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -289,11 +293,13 @@ class PinClockTest extends AbstractIntegrationTest {
         completed(foreign, 0, now.minus(48, ChronoUnit.HOURS), 1, "99999");
         Instant from = now.minus(1, ChronoUnit.DAYS);
 
-        Map<UUID, BigDecimal> batch = staffApi.laborCostByBranch(foreign.companyId(), foreign.branchIds(), from, now);
+        Map<UUID, BigDecimal> batch = TenantContext.runAs(foreign.companyId(),
+                () -> staffApi.laborCostByBranch(foreign.companyId(), foreign.branchIds(), from, now));
 
         assertThat(batch).hasSize(2);
         for (UUID b : foreign.branchIds()) {
-            assertThat(batch.get(b)).isEqualByComparingTo(staffApi.laborCost(foreign.companyId(), b, from, now));
+            assertThat(batch.get(b)).isEqualByComparingTo(TenantContext.runAs(foreign.companyId(),
+                    () -> staffApi.laborCost(foreign.companyId(), b, from, now)));
         }
         assertThat(batch.get(foreign.branchIds().get(0))).isEqualByComparingTo("80000");
         assertThat(batch.get(foreign.branchIds().get(1))).isEqualByComparingTo("30000");
@@ -304,7 +310,7 @@ class PinClockTest extends AbstractIntegrationTest {
                 clockOut.minus(hours + 1, ChronoUnit.HOURS), clockOut, null);
         s.clockIn(clockOut.minus(hours, ChronoUnit.HOURS), Money.of(new BigDecimal(rate)));
         s.clockOut(clockOut, Duration.ofHours(16));
-        shiftRepository.save(s);
+        TenantContext.runAs(f.companyId(), () -> shiftRepository.save(s));
     }
 
     private record Foreign(UUID companyId, List<UUID> branchIds, UUID employeeId) {
@@ -313,10 +319,12 @@ class PinClockTest extends AbstractIntegrationTest {
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
         Company c = companyRepository.save(new Company("Pin Other %d".formatted(n), "PIN%d".formatted(n)));
-        Branch b1 = branchRepository.save(new Branch(c.getId(), "P1", "PA%d".formatted(n)));
-        Branch b2 = branchRepository.save(new Branch(c.getId(), "P2", "PB%d".formatted(n)));
-        Employee e = employeeRepository.save(
-                new Employee(c.getId(), "Pin Foreign %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
-        return new Foreign(c.getId(), List.of(b1.getId(), b2.getId()), e.getId());
+        return TenantContext.runAs(c.getId(), () -> {
+            Branch b1 = branchRepository.save(new Branch("P1", "PA%d".formatted(n)));
+            Branch b2 = branchRepository.save(new Branch("P2", "PB%d".formatted(n)));
+            Employee e = employeeRepository.save(
+                    new Employee(c.getId(), "Pin Foreign %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
+            return new Foreign(c.getId(), List.of(b1.getId(), b2.getId()), e.getId());
+        });
     }
 }

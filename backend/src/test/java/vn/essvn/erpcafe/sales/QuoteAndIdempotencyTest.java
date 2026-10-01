@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
@@ -64,9 +65,11 @@ class QuoteAndIdempotencyTest extends AbstractIntegrationTest {
     }
 
     private void setBranchTaxRate(String rate) {
-        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
-        branch.setTaxRate(new BigDecimal(rate));
-        branches.save(branch);
+        TenantContext.runAsSystem(() -> {
+            Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+            branch.setTaxRate(new BigDecimal(rate));
+            branches.save(branch);
+        });
     }
 
     private static String uniq() {

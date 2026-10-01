@@ -28,6 +28,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.sales.domain.Order;
@@ -79,10 +80,12 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
     @AfterEach
     void cleanUp() {
         orders.deleteAll(createdOrders);
-        for (UUID id : createdBranches) {
-            grants.deleteAll(grants.findByBranchId(id));
-            branches.findById(id).ifPresent(branches::delete);
-        }
+        TenantContext.runAsSystem(() -> {
+            for (UUID id : createdBranches) {
+                grants.deleteAll(grants.findByBranchId(id));
+                branches.findById(id).ifPresent(branches::delete);
+            }
+        });
         jdbc.execute("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE");
     }
 

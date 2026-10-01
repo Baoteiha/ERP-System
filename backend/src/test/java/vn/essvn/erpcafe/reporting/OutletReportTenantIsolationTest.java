@@ -13,6 +13,7 @@ import org.springframework.http.HttpHeaders;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
@@ -43,7 +44,7 @@ class OutletReportTenantIsolationTest extends AbstractIntegrationTest {
         // Class-specific code prefix: all integration tests share one DB, so codes must be globally unique.
         Company other = companyRepository.save(new Company("Outlet Other %d".formatted(n), "ORPT%d".formatted(n)));
         String foreignCode = "FB%d".formatted(n);
-        branchRepository.save(new Branch(other.getId(), "Foreign Branch", foreignCode));
+        TenantContext.runAs(other.getId(), () -> branchRepository.save(new Branch("Foreign Branch", foreignCode)));
 
         String json = mockMvc.perform(get("/api/v1/reports/outlets")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken())))

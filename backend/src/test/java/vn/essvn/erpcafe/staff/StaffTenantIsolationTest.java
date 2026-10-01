@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
@@ -53,11 +54,14 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Staff Other %d".formatted(n), "STF%d".formatted(n)));
-        Branch branchB = branchRepository.save(new Branch(b.getId(), "B Branch", "SFB%d".formatted(n)));
-        Employee empB = employeeRepository.save(
-                new Employee(b.getId(), "Foreign Emp %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
-        Shift shiftB = shiftRepository.save(new Shift(b.getId(), branchB.getId(), empB.getId(), START, END, "b shift"));
-        return new Foreign(empB.getId(), shiftB.getId());
+        return TenantContext.runAs(b.getId(), () -> {
+            Branch branchB = branchRepository.save(new Branch("B Branch", "SFB%d".formatted(n)));
+            Employee empB = employeeRepository.save(
+                    new Employee(b.getId(), "Foreign Emp %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
+            Shift shiftB = shiftRepository.save(
+                    new Shift(b.getId(), branchB.getId(), empB.getId(), START, END, "b shift"));
+            return new Foreign(empB.getId(), shiftB.getId());
+        });
     }
 
     /** The admin's own active branch (company A), from the token's branch set. */

@@ -61,31 +61,31 @@ public class BranchService implements OrganizationApi {
 
     @Transactional(readOnly = true)
     public Page<Branch> list(Pageable pageable) {
-        return branchRepository.findByCompanyId(currentUser.require().companyId(), pageable);
+        return branchRepository.findAll(pageable);
     }
 
     /** Resolves a branch within the caller's company; another tenant's id is a 404. */
     @Transactional(readOnly = true)
     public Branch get(UUID id) {
-        return branchRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return branchRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Branch", id));
     }
 
     public Branch create(BranchRequest request) {
         AuthPrincipal actor = currentUser.require();
-        UUID companyId = actor.companyId();
         // a non-owner's grant at the new branch is copied from the branch they act from: without one there is none
         boolean owner = actor.roles().contains(DefaultRole.OWNER.roleName());
         if (!owner && BranchContext.current().isEmpty()) {
             throw new BadRequestException("X-Branch-Id is required to create a branch");
         }
-        if (branchRepository.existsByCompanyIdAndCode(companyId, request.code())) {
+        if (branchRepository.existsByCode(request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
         }
-        Branch branch = new Branch(companyId, request.name(), request.code());
+        Branch branch = new Branch(request.name(), request.code());
         apply(branch, request);
         Branch saved = branchRepository.save(branch);
-        events.publishEvent(new BranchCreated(saved.getId(), companyId, actor.userId(), saved.isActive()));
+        events.publishEvent(
+                new BranchCreated(saved.getId(), saved.getCompanyId(), actor.userId(), saved.isActive()));
         return saved;
     }
 
@@ -97,8 +97,7 @@ public class BranchService implements OrganizationApi {
     public Branch update(UUID id, BranchRequest request) {
         Branch branch = get(id);
         requireBranchWriteAt(id);
-        if (!branch.getCode().equals(request.code())
-                && branchRepository.existsByCompanyIdAndCode(branch.getCompanyId(), request.code())) {
+        if (!branch.getCode().equals(request.code()) && branchRepository.existsByCode(request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
         }
         boolean wasActive = branch.isActive();
@@ -149,12 +148,16 @@ public class BranchService implements OrganizationApi {
     //
     // These take an explicit companyId and are deliberately not scoped through
     // CurrentUser: callers are other modules that already pass the caller's own
-    // company, plus DataInitializer, which runs with no security context.
+    // company, plus login, which reads as the system across every company. Inside a
+    // tenant the seam has already narrowed the rows to that company; the companyId
+    // still decides, so the answer is the same in either scope.
 
     @Override
     @Transactional(readOnly = true)
     public Optional<BranchDto> findBranch(UUID companyId, UUID branchId) {
-        return branchRepository.findByIdAndCompanyId(branchId, companyId).map(branchMapper::toDto);
+        return branchRepository.findById(branchId)
+                .filter(b -> b.getCompanyId().equals(companyId))
+                .map(branchMapper::toDto);
     }
 
     @Override
@@ -166,7 +169,9 @@ public class BranchService implements OrganizationApi {
     @Override
     @Transactional(readOnly = true)
     public boolean branchExistsInCompany(UUID branchId, UUID companyId) {
-        return branchRepository.existsByIdAndCompanyIdAndActiveTrue(branchId, companyId);
+        return branchRepository.findById(branchId)
+                .filter(b -> b.isActive() && b.getCompanyId().equals(companyId))
+                .isPresent();
     }
 
     @Override

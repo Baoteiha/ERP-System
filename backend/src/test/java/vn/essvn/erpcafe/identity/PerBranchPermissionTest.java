@@ -37,6 +37,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
@@ -166,7 +167,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     private UUID foreignBranch() {
         int n = SEQ.incrementAndGet();
         Company other = companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n)));
-        return branchRepository.save(new Branch(other.getId(), "PB Foreign", "PBF%d".formatted(n))).getId();
+        return TenantContext.runAs(other.getId(),
+                () -> branchRepository.save(new Branch("PB Foreign", "PBF%d".formatted(n))).getId());
     }
 
     /** A product of the owner's company, priced 20000. */
@@ -482,8 +484,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         String legacy = Jwts.builder()
                 .subject(userAccount.id())
                 .claim("email", userAccount.email())
-                .claim("companyId", branchRepository.findById(UUID.fromString(branchA)).orElseThrow()
-                        .getCompanyId().toString())
+                .claim("companyId", branch(branchA).getCompanyId().toString())
                 .claim("perms", List.of("sales:refund"))
                 .claim("branches", List.of(branchA))
                 .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
@@ -495,8 +496,13 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
+    /** Reads a branch of any company, as the system. */
+    private Branch branch(String branchId) {
+        return TenantContext.runAsSystem(() -> branchRepository.findById(UUID.fromString(branchId)).orElseThrow());
+    }
+
     private String branchCode(String branchId) {
-        return branchRepository.findById(UUID.fromString(branchId)).orElseThrow().getCode();
+        return branch(branchId).getCode();
     }
 
     @Test
@@ -506,7 +512,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         grant(editor, branchA, keeper);
         grant(editor, branchB, roleId("CASHIER"));
         String token = accessToken(editor.email(), "password123");
-        String nameOfB = branchRepository.findById(UUID.fromString(branchB)).orElseThrow().getName();
+        String nameOfB = branch(branchB).getName();
         int grantsAtB = grants.findByBranchId(UUID.fromString(branchB)).size();
 
         send(put("/api/v1/branches/" + branchB), token, branchA,
@@ -517,7 +523,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        Branch b = branchRepository.findById(UUID.fromString(branchB)).orElseThrow();
+        Branch b = branch(branchB);
         assertThat(b.getName()).isEqualTo(nameOfB);
         assertThat(b.isActive()).isTrue();
         assertThat(grants.findByBranchId(UUID.fromString(branchB))).hasSize(grantsAtB);
