@@ -12,13 +12,18 @@ modifier_group, ingredient, supplier, item, role, app_user and employee.
 How the company reaches Hibernate:
 
 - `TenantContext` holds the company the current thread acts for.
-  `JwtAuthenticationFilter` enters the access token's company before any
-  lookup (the grant cache already reads branches through it) and, in
-  `finally`, restores whatever scope was in force before the request —
-  nothing, on a servlet thread. `require()` answers 401 without a company.
-  The two persistence identifiers below are never a company: `set`, `enter`
-  and `runAs` refuse them, and a token naming one is refused (401), so a
-  request can reach neither the system scope nor the blind one by its data.
+  `JwtAuthenticationFilter` is the request edge: it sets the access token's
+  company (`startRequest`, its only caller) before any lookup — the grant
+  cache already reads branches through it — and clears the scope in `finally`
+  on every path: authenticated, anonymous, and every early 400/401/403. A
+  container thread never legitimately brings a scope in, so one found on
+  arrival was leaked by earlier work; it is logged (WARN) and cleared before
+  the request runs, so not even an anonymous request reads or stamps as it.
+  Elsewhere, scopes nest only through `runAs`/`runAsSystem`, which restore
+  what they interrupted. `require()` answers 401 without a company. The two
+  persistence identifiers below are never a company: `startRequest` and
+  `runAs` refuse them, and a token naming one is refused (401), so a request
+  can reach neither the system scope nor the blind one by its data.
 - `TenantIdentifierResolver` gives that company to each Hibernate session when
   it opens; `HibernateTenantConfig` registers it
   (`hibernate.tenant_identifier_resolver`).
@@ -108,9 +113,9 @@ either scope.
   and sees nothing until it sets one (`TenantContext.runAs`).
 - Tests that seed another company write inside it
   (`TenantContext.runAs(companyB, …)`) and read rows back as the system
-  (`runAsSystem`). MockMvc runs the JWT filter on the test thread; because the
-  filter restores the scope it found, a request made inside such a block leaves
-  the block's scope in place.
+  (`runAsSystem`). Never make a request inside such a block: MockMvc runs the
+  JWT filter on the test thread, the filter treats the block's scope as a leak
+  and clears it, and the rest of the block then runs with no company.
 - Task 31 sets `app.company_id` from `TenantContext` at transaction begin and
   runs the system scope on a BYPASSRLS owner connection.
 - The remaining `CurrentUser` uses outside identity are for the user id and

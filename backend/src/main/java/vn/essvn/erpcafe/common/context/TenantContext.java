@@ -26,29 +26,20 @@ public final class TenantContext {
     private static final Scope SYSTEM_SCOPE = new Scope(null);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
-    /**
-     * Class: Entered
-     * Purpose: Ends a company scope opened with {@link #enter}, bringing back whatever was in force before it.
-     */
-    @FunctionalInterface
-    public interface Entered extends AutoCloseable {
-
-        @Override
-        void close();
-    }
-
     private TenantContext() {
     }
 
-    public static void set(UUID companyId) {
+    /**
+     * Puts the company of the request being served in force. Only the request edge calls this
+     * ({@code JwtAuthenticationFilter}), and it clears the scope when the request ends, whatever
+     * the outcome; anywhere else, scope work with {@link #runAs}. A thread that already carries a
+     * scope is refused: the edge clears before it starts.
+     */
+    public static void startRequest(UUID companyId) {
+        if (CURRENT.get() != null) {
+            throw new IllegalStateException("A tenant scope is already in force on this thread");
+        }
         CURRENT.set(companyScope(companyId));
-    }
-
-    /** Puts the company in force until the returned handle is closed; the previous scope then comes back. */
-    public static Entered enter(UUID companyId) {
-        Scope previous = CURRENT.get();
-        CURRENT.set(companyScope(companyId));
-        return () -> restore(previous);
     }
 
     /** The company in force; empty with no tenant and in the system scope, which acts for no one company. */
@@ -97,6 +88,7 @@ public final class TenantContext {
         runAs(companyId, asSupplier(work));
     }
 
+    /** Ends whatever scope is in force; the request edge calls it as every request ends. */
     public static void clear() {
         CURRENT.remove();
     }

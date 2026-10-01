@@ -13,8 +13,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
@@ -51,16 +49,6 @@ class ReportServiceTest {
     // the company comes from the tenant context; a principal naming another one must not matter
     private final UUID notTheTenant = UUID.randomUUID();
 
-    @BeforeEach
-    void enterTenant() {
-        TenantContext.set(companyId);
-    }
-
-    @AfterEach
-    void leaveTenant() {
-        TenantContext.clear();
-    }
-
     private void stub(UUID branch, String net, String cogs, String labor) {
         when(salesApi.summary(branch, from, to)).thenReturn(new SalesSummary(1, new BigDecimal("50000"),
                 new BigDecimal("8000"), new BigDecimal(net), new BigDecimal("4200"), new BigDecimal("46200")));
@@ -77,7 +65,7 @@ class ReportServiceTest {
         when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", notTheTenant,
                 Map.of(), Set.of(), Set.of()));
         try {
-            PeriodSummary summary = service.branchSummary(from, to);
+            PeriodSummary summary = TenantContext.runAs(companyId, () -> service.branchSummary(from, to));
             assertThat(summary.grossMargin()).isEqualByComparingTo("32000");
             assertThat(summary.netMargin()).isEqualByComparingTo("25000");
             assertThat(summary.cogs()).isEqualByComparingTo("10000");
@@ -98,6 +86,7 @@ class ReportServiceTest {
                 new BranchDto(cashierAt, companyId, "Till only", "C", true, BigDecimal.ZERO),
                 new BranchDto(other, companyId, "Theirs", "T", true, BigDecimal.ZERO)));
 
-        assertThat(service.outletComparison(from, to)).extracting(b -> b.branchId()).containsExactly(branchId);
+        assertThat(TenantContext.runAs(companyId, () -> service.outletComparison(from, to)))
+                .extracting(b -> b.branchId()).containsExactly(branchId);
     }
 }

@@ -10,6 +10,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -42,12 +44,17 @@ import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
  * company-level permissions they hold at any branch; a request naming no branch
  * gets every branch's (ADR-0007). It can reach no branch's data that way: every
  * branch-scoped operation requires the header.
+ *
+ * <p>The token's company is the request's tenant ({@code TenantContext}). Every request,
+ * authenticated or not, ends with no tenant on the thread, and one that arrives carrying a
+ * scope left by earlier work has it cleared first (ADR-0008).
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     public static final String BRANCH_HEADER = "X-Branch-Id";
     private static final String BEARER = "Bearer ";
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
     private final RolePermissionCache roleCache;
@@ -62,6 +69,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
+        // A container thread never brings a tenant in, so one that does carries a scope leaked by
+        // earlier work; an anonymous request would otherwise read and stamp rows as that company.
+        if (TenantContext.current().isPresent() || TenantContext.isSystem()) {
+            log.warn("A tenant scope was left on the request thread; cleared before {} {}",
+                    request.getMethod(), request.getRequestURI());
+            TenantContext.clear();
+        }
+        try {
+            filterAsTokenTenant(request, response, filterChain);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private void filterAsTokenTenant(HttpServletRequest request, HttpServletResponse response,
+            FilterChain filterChain) throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith(BEARER)) {
             filterChain.doFilter(request, response);
@@ -69,12 +92,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         AccessClaims claims;
-        TenantContext.Entered tenant;
         try {
             claims = jwtService.parseAccessToken(header.substring(BEARER.length()));
-            // entered first: every lookup below, and the whole request after it, reads only this company's
-            // rows. A token naming no real company (one of the persistence identifiers) is as bad as a forged one.
-            tenant = TenantContext.enter(claims.companyId());
+            // set first: every lookup below, and the whole request after it, reads only this company's rows.
+            // A token naming no real company (one of the persistence identifiers) is as bad as a forged one.
+            TenantContext.startRequest(claims.companyId());
         } catch (Exception ex) {
             writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
             return;
@@ -112,8 +134,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             BranchContext.clear();
-            // back to whatever was in force before the request: nothing, on a servlet thread
-            tenant.close();
             SecurityContextHolder.clearContext();
         }
     }

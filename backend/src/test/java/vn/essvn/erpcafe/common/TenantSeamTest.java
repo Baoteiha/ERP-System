@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,7 +16,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -43,9 +47,11 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  * Class: TenantSeamTest
  * Purpose: Proves the tenant seam: Hibernate filters reads by, and stamps inserts with, the company in TenantContext.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class TenantSeamTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
+    private static final String LEAK_WARNING = "tenant scope was left on the request thread";
 
     @Autowired private CompanyRepository companyRepository;
     @Autowired private CategoryRepository categoryRepository;
@@ -88,13 +94,13 @@ class TenantSeamTest extends AbstractIntegrationTest {
         Tenant a = seedCompany();
         Tenant b = seedCompany();
 
-        TenantContext.set(a.companyId());
-
-        assertThat(productRepository.findById(b.productId())).isEmpty();
-        assertThat(productRepository.findById(a.productId())).isPresent();
-        assertThat(productRepository.existsById(b.productId())).isFalse();
-        assertThat(productRepository.findAllById(List.of(a.productId(), b.productId())))
-                .extracting(Product::getId).containsExactly(a.productId());
+        TenantContext.runAs(a.companyId(), () -> {
+            assertThat(productRepository.findById(b.productId())).isEmpty();
+            assertThat(productRepository.findById(a.productId())).isPresent();
+            assertThat(productRepository.existsById(b.productId())).isFalse();
+            assertThat(productRepository.findAllById(List.of(a.productId(), b.productId())))
+                    .extracting(Product::getId).containsExactly(a.productId());
+        });
     }
 
     @Test
@@ -102,11 +108,10 @@ class TenantSeamTest extends AbstractIntegrationTest {
         Tenant a = seedCompany();
         Tenant b = seedCompany();
 
-        TenantContext.set(a.companyId());
+        List<Product> seen = TenantContext.runAs(a.companyId(), () -> productRepository.findAll());
 
-        assertThat(productRepository.findAll()).extracting(Product::getCompanyId).containsOnly(a.companyId());
-        assertThat(productRepository.findAll()).extracting(Product::getId)
-                .contains(a.productId()).doesNotContain(b.productId());
+        assertThat(seen).extracting(Product::getCompanyId).containsOnly(a.companyId());
+        assertThat(seen).extracting(Product::getId).contains(a.productId()).doesNotContain(b.productId());
     }
 
     @Test
@@ -114,19 +119,18 @@ class TenantSeamTest extends AbstractIntegrationTest {
         Tenant a = seedCompany();
         Tenant b = seedCompany();
 
-        TenantContext.set(a.companyId());
-
         // a modifier has no company of its own: only its group, the query's root, is filtered
-        assertThat(modifierRepository.findThroughGroup(b.modifierId())).isEmpty();
-        assertThat(modifierRepository.findThroughGroup(a.modifierId())).isPresent();
+        TenantContext.runAs(a.companyId(), () -> {
+            assertThat(modifierRepository.findThroughGroup(b.modifierId())).isEmpty();
+            assertThat(modifierRepository.findThroughGroup(a.modifierId())).isPresent();
+        });
     }
 
     @Test
     void save_stampsTheCurrentCompanyOnARowBuiltWithoutOne() {
         Tenant a = seedCompany();
 
-        TenantContext.set(a.companyId());
-        Product saved = productRepository.save(newProduct(a, "MOC"));
+        Product saved = TenantContext.runAs(a.companyId(), () -> productRepository.save(newProduct(a, "MOC")));
 
         assertThat(saved.getCompanyId()).isEqualTo(a.companyId());
         UUID stored = TenantContext.runAsSystem(() -> productRepository.findById(saved.getId()).orElseThrow())
@@ -141,9 +145,7 @@ class TenantSeamTest extends AbstractIntegrationTest {
         Product forged = newProduct(a, "FRG");
         ReflectionTestUtils.setField(forged, "companyId", b.companyId());
 
-        TenantContext.set(a.companyId());
-
-        assertThatThrownBy(() -> productRepository.save(forged))
+        assertThatThrownBy(() -> TenantContext.runAs(a.companyId(), () -> productRepository.save(forged)))
                 .hasStackTraceContaining("differs from current tenant id");
         assertThat(TenantContext.runAsSystem(() -> productRepository.findAll()))
                 .extracting(Product::getSku).doesNotContain("FRG");
@@ -163,13 +165,14 @@ class TenantSeamTest extends AbstractIntegrationTest {
     void runAsSystem_seesEveryCompany() {
         Tenant a = seedCompany();
         Tenant b = seedCompany();
-        TenantContext.set(a.companyId());
 
-        List<UUID> seen = TenantContext.runAsSystem(() -> productRepository
-                .findAllById(List.of(a.productId(), b.productId())).stream().map(Product::getCompanyId).toList());
+        TenantContext.runAs(a.companyId(), () -> {
+            List<UUID> seen = TenantContext.runAsSystem(() -> productRepository
+                    .findAllById(List.of(a.productId(), b.productId())).stream().map(Product::getCompanyId).toList());
 
-        assertThat(seen).containsExactlyInAnyOrder(a.companyId(), b.companyId());
-        assertThat(TenantContext.current()).contains(a.companyId());
+            assertThat(seen).containsExactlyInAnyOrder(a.companyId(), b.companyId());
+            assertThat(TenantContext.current()).contains(a.companyId());
+        });
     }
 
     @Test
@@ -183,13 +186,15 @@ class TenantSeamTest extends AbstractIntegrationTest {
     @Test
     void runAsSystem_restoresTheTenantItInterrupted() {
         UUID company = UUID.randomUUID();
-        TenantContext.set(company);
 
-        boolean insideWasSystem = TenantContext.runAsSystem(TenantContext::isSystem);
+        TenantContext.runAs(company, () -> {
+            boolean insideWasSystem = TenantContext.runAsSystem(TenantContext::isSystem);
 
-        assertThat(insideWasSystem).isTrue();
-        assertThat(TenantContext.isSystem()).isFalse();
-        assertThat(TenantContext.current()).contains(company);
+            assertThat(insideWasSystem).isTrue();
+            assertThat(TenantContext.isSystem()).isFalse();
+            assertThat(TenantContext.current()).contains(company);
+        });
+        assertThat(TenantContext.current()).isEmpty();
     }
 
     @Test
@@ -209,22 +214,38 @@ class TenantSeamTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void request_restoresTheScopeItInterrupted() throws Exception {
-        UUID company = UUID.randomUUID();
+    void leakedScope_isClearedByAnAuthenticatedRequest(CapturedOutput output) throws Exception {
         String token = adminToken();
-        TenantContext.set(company);
+        // a request edge that never cleared up, on this pooled thread
+        TenantContext.startRequest(UUID.randomUUID());
 
         mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
                 .andExpect(status().isOk());
 
-        assertThat(TenantContext.current()).contains(company);
+        assertThat(TenantContext.current()).isEmpty();
+        assertThat(TenantContext.isSystem()).isFalse();
+        assertThat(output).contains(LEAK_WARNING);
+    }
+
+    @Test
+    void leakedScope_isClearedByAnAnonymousRequest(CapturedOutput output) throws Exception {
+        TenantContext.startRequest(UUID.randomUUID());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"never-issued\"}"))
+                .andExpect(status().isNoContent());
+
+        assertThat(TenantContext.current()).isEmpty();
+        assertThat(TenantContext.isSystem()).isFalse();
+        assertThat(output).contains(LEAK_WARNING);
     }
 
     @Test
     void sentinelTenants_areNeverACompany() {
         for (UUID sentinel : List.of(TenantContext.NO_TENANT_ID, TenantContext.SYSTEM_TENANT_ID)) {
-            assertThatThrownBy(() -> TenantContext.set(sentinel)).isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> TenantContext.enter(sentinel)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> TenantContext.startRequest(sentinel))
+                    .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> TenantContext.runAs(sentinel, () -> "unreachable"))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThat(TenantContext.current()).isEmpty();
@@ -250,19 +271,25 @@ class TenantSeamTest extends AbstractIntegrationTest {
         String token = adminToken();
 
         // the existsBy… pre-checks see only the caller's company, as the partial unique indexes do
-        String category = mockMvc.perform(post("/api/v1/categories")
+        String category = JsonPath.read(mockMvc.perform(post("/api/v1/categories")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"%s\",\"displayOrder\":1}".formatted(other.categoryName())))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        mockMvc.perform(post("/api/v1/products")
+                .andReturn().getResponse().getContentAsString(), "$.id");
+        String product = JsonPath.read(mockMvc.perform(post("/api/v1/products")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"categoryId\":\"%s\",\"name\":\"Latte\",\"sku\":\"%s\",\"basePrice\":45000}"
-                                .formatted(JsonPath.<String>read(category, "$.id"), other.sku())))
-                .andExpect(status().isCreated());
+                                .formatted(category, other.sku())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "$.id");
 
+        // the admin's company is shared by every test class: take the copies back out
+        mockMvc.perform(delete("/api/v1/products/" + product).header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/categories/" + category).header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andExpect(status().isNoContent());
         Product theirs = TenantContext.runAsSystem(() -> productRepository.findById(other.productId())).orElseThrow();
         assertThat(theirs.getCompanyId()).isEqualTo(other.companyId());
     }
