@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -78,7 +79,7 @@ public class ShiftController {
     public ResponseEntity<ShiftResponse> schedule(@Valid @RequestBody ShiftRequest request) {
         Shift shift = shiftService.schedule(request.employeeId(),
                 request.scheduledStart(), request.scheduledEnd(), request.note());
-        ShiftResponse body = toResponse(shift, employeeNames(shift));
+        ShiftResponse body = toResponse(shift);
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/staff/shifts/" + body.id())).body(body);
     }
 
@@ -87,35 +88,35 @@ public class ShiftController {
     public ShiftResponse reschedule(@PathVariable UUID id, @Valid @RequestBody RescheduleRequest request) {
         Shift shift = shiftService.reschedule(id, request.scheduledStart(), request.scheduledEnd(),
                 request.note());
-        return toResponse(shift, employeeNames(shift));
+        return toResponse(shift);
     }
 
     @PostMapping("/{id}/clock-in")
     @PreAuthorize("hasAuthority('staff:clock')")
     public ShiftResponse clockIn(@PathVariable UUID id, @RequestBody(required = false) ClockRequest request) {
         Shift shift = shiftService.clockIn(id, pinOf(request));
-        return toResponse(shift, employeeNames(shift));
+        return toResponse(shift);
     }
 
     @PostMapping("/{id}/clock-out")
     @PreAuthorize("hasAuthority('staff:clock')")
     public ShiftResponse clockOut(@PathVariable UUID id, @RequestBody(required = false) ClockRequest request) {
         Shift shift = shiftService.clockOut(id, pinOf(request));
-        return toResponse(shift, employeeNames(shift));
+        return toResponse(shift);
     }
 
     @PostMapping("/{id}/adjust")
     @PreAuthorize("hasAuthority('staff:write')")
     public ShiftResponse adjust(@PathVariable UUID id, @Valid @RequestBody AdjustRequest request) {
         Shift shift = shiftService.adjust(id, request.clockIn(), request.clockOut());
-        return toResponse(shift, employeeNames(shift));
+        return toResponse(shift);
     }
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('staff:write')")
     public ShiftResponse cancel(@PathVariable UUID id) {
         Shift shift = shiftService.cancel(id);
-        return toResponse(shift, employeeNames(shift));
+        return toResponse(shift);
     }
 
     private static String pinOf(ClockRequest request) {
@@ -125,20 +126,23 @@ public class ShiftController {
     private List<ShiftResponse> responses(List<Shift> shifts) {
         Map<UUID, String> names = employeeService.namesByIds(
                 shifts.stream().map(Shift::getEmployeeId).collect(Collectors.toSet()));
-        return shifts.stream().map(s -> toResponse(s, names)).toList();
+        Set<UUID> withPin = employeeService.idsWithPin(names.keySet());
+        return shifts.stream().map(s -> toResponse(s, names, withPin)).toList();
     }
 
-    private Map<UUID, String> employeeNames(Shift shift) {
-        return employeeService.namesByIds(List.of(shift.getEmployeeId()));
+    private ShiftResponse toResponse(Shift shift) {
+        List<UUID> ids = List.of(shift.getEmployeeId());
+        return toResponse(shift, employeeService.namesByIds(ids), employeeService.idsWithPin(ids));
     }
 
-    private ShiftResponse toResponse(Shift s, Map<UUID, String> names) {
+    private ShiftResponse toResponse(Shift s, Map<UUID, String> names, Set<UUID> withPin) {
         boolean canSeePay = StaffAccess.canSeePay(currentUser);
         return new ShiftResponse(s.getId(), s.getBranchId(), s.getEmployeeId(),
                 names.getOrDefault(s.getEmployeeId(), "—"),
                 s.getStatus().name(), s.getScheduledStart(), s.getScheduledEnd(),
                 s.getClockInAt(), s.getClockOutAt(),
                 canSeePay ? MoneyDto.from(s.getHourlyRate()) : null,
-                canSeePay ? MoneyDto.from(s.getLaborCost()) : null, s.getNote());
+                canSeePay ? MoneyDto.from(s.getLaborCost()) : null, s.getNote(),
+                withPin.contains(s.getEmployeeId()));
     }
 }

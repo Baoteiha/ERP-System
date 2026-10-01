@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -57,6 +58,16 @@ public class EmployeeService {
         }
         return employeeRepository.findByCompanyIdAndIdIn(currentUser.require().companyId(), ids).stream()
                 .collect(Collectors.toMap(Employee::getId, Employee::getFullName));
+    }
+
+    /** Which of these employees have a PIN, so a shift list can tell the UI when to ask for one. */
+    @Transactional(readOnly = true)
+    public Set<UUID> idsWithPin(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        return employeeRepository.findByCompanyIdAndIdIn(currentUser.require().companyId(), ids).stream()
+                .filter(Employee::hasPin).map(Employee::getId).collect(Collectors.toSet());
     }
 
     @Transactional(readOnly = true)

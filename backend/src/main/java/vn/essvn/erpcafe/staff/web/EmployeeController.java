@@ -84,6 +84,6 @@ public class EmployeeController {
         boolean canSeePay = StaffAccess.canSeePay(currentUser);
         return new EmployeeResponse(e.getId(), e.getFullName(), e.getPosition(),
                 canSeePay ? MoneyDto.from(e.getHourlyRate()) : null,
-                canSeePay ? e.getPhone() : null, canSeePay ? e.getEmail() : null, e.isActive());
+                canSeePay ? e.getPhone() : null, canSeePay ? e.getEmail() : null, e.isActive(), e.hasPin());
     }
 }

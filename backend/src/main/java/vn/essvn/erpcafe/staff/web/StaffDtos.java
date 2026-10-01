@@ -27,7 +27,7 @@ public final class StaffDtos {
     }
 
     public record EmployeeResponse(UUID id, String fullName, String position,
-            MoneyDto hourlyRate, String phone, String email, boolean active) {
+            MoneyDto hourlyRate, String phone, String email, boolean active, boolean hasPin) {
     }
 
     /** The PIN is optional on a punch: employees who have none set clock without one. */
@@ -57,6 +57,6 @@ public final class StaffDtos {
     public record ShiftResponse(UUID id, UUID branchId, UUID employeeId, String employeeName,
             String status, Instant scheduledStart, Instant scheduledEnd,
             Instant clockInAt, Instant clockOutAt,
-            MoneyDto hourlyRate, MoneyDto laborCost, String note) {
+            MoneyDto hourlyRate, MoneyDto laborCost, String note, boolean employeeHasPin) {
     }
 }

@@ -45,10 +45,12 @@ public class ShiftService implements StaffApi {
     private final ObjectProvider<PasswordEncoder> passwordEncoder;
     // Lazy: organization already depends on this module (BranchService calls hasOpenShifts).
     private final ObjectProvider<OrganizationApi> organizationApi;
+    private final PinAttemptService pinAttempts;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
             CurrentUser currentUser, StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
-            ObjectProvider<OrganizationApi> organizationApi) {
+            ObjectProvider<OrganizationApi> organizationApi, PinAttemptService pinAttempts) {
+        this.pinAttempts = pinAttempts;
         this.passwordEncoder = passwordEncoder;
         this.organizationApi = organizationApi;
         this.properties = properties;
@@ -115,8 +117,13 @@ public class ShiftService implements StaffApi {
     private Employee employeeOf(Shift shift, String pin) {
         Employee employee = employeeRepository.findByIdAndCompanyId(shift.getEmployeeId(), shift.getCompanyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", shift.getEmployeeId()));
-        if (!employee.pinMatches(pin, passwordEncoder.getObject())) {
-            throw new ForbiddenException("Wrong PIN");
+        if (employee.hasPin()) {
+            pinAttempts.checkNotLocked(employee.getId());
+            if (!employee.pinMatches(pin, passwordEncoder.getObject())) {
+                pinAttempts.recordFailure(employee.getId());
+                throw new ForbiddenException("Wrong PIN");
+            }
+            pinAttempts.reset(employee.getId());
         }
         return employee;
     }

@@ -128,7 +128,7 @@ import { IconComponent } from '../../shared/icon';
 
     @if (punching(); as p) {
       <app-modal [title]="p.action === 'in' ? 'Clock in' : 'Clock out'" (close)="punching.set(null)">
-        <p class="soft">{{ p.shift.employeeName }}: enter your PIN. Leave it empty if you have not set one.</p>
+        <p class="soft">{{ p.shift.employeeName }}: enter your PIN.</p>
         <div class="field">
           <label for="punch-pin">PIN</label>
           <input id="punch-pin" class="input" type="password" inputmode="numeric" autocomplete="off" maxlength="6" [(ngModel)]="pin" (keydown.enter)="confirmPunch()" />
@@ -331,22 +331,26 @@ export class ShiftsComponent {
     });
   }
 
+  /** Asks for the PIN only when the employee has one; otherwise punches straight away. */
   askPin(shift: ShiftResponse, action: 'in' | 'out') {
+    if (!shift.employeeHasPin) { this.punch(shift, action); return; }
     this.pin = '';
     this.punching.set({ shift, action });
   }
 
   confirmPunch() {
     const target = this.punching();
-    if (!target) return;
-    const pin = this.pin.trim() || undefined;
-    const req = target.action === 'in' ? this.staff.clockIn(target.shift.id, pin) : this.staff.clockOut(target.shift.id, pin);
+    if (target) this.punch(target.shift, target.action, this.pin.trim() || undefined);
+  }
+
+  private punch(shift: ShiftResponse, action: 'in' | 'out', pin?: string) {
+    const req = action === 'in' ? this.staff.clockIn(shift.id, pin) : this.staff.clockOut(shift.id, pin);
     this.saving.set(true);
     req.subscribe({
       next: () => {
         this.saving.set(false);
         this.punching.set(null);
-        this.toast.success(target.action === 'in' ? 'Clocked in' : 'Clocked out');
+        this.toast.success(action === 'in' ? 'Clocked in' : 'Clocked out');
         this.load();
         this.loadOpen();
       },

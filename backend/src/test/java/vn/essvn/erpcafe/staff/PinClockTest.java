@@ -147,6 +147,76 @@ class PinClockTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void fiveWrongPins_lockTheEmployee_evenForTheCorrectPin() throws Exception {
+        login();
+        UUID emp = employee();
+        setPin(emp, "1234");
+        UUID shift = shift(emp);
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(punch(shift, "clock-in", "0000")).andExpect(status().isForbidden());
+        }
+
+        mockMvc.perform(punch(shift, "clock-in", "1234"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+
+        assertThat(shiftRepository.findById(shift).orElseThrow().getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
+    }
+
+    @Test
+    void aCorrectPin_resetsTheCounter() throws Exception {
+        login();
+        UUID emp = employee();
+        setPin(emp, "1234");
+        UUID shift = shift(emp);
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(punch(shift, "clock-in", "0000")).andExpect(status().isForbidden());
+        }
+        mockMvc.perform(punch(shift, "clock-in", "1234")).andExpect(status().isOk());
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(punch(shift, "clock-out", "0000")).andExpect(status().isForbidden());
+        }
+        mockMvc.perform(punch(shift, "clock-out", "1234")).andExpect(status().isOk());
+    }
+
+    @Test
+    void lockingOneEmployee_leavesAnotherUnaffected() throws Exception {
+        login();
+        UUID locked = employee();
+        setPin(locked, "1234");
+        UUID lockedShift = shift(locked);
+        UUID other = employee();
+        setPin(other, "5678");
+        UUID otherShift = shift(other);
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(punch(lockedShift, "clock-in", "0000")).andExpect(status().isForbidden());
+        }
+
+        mockMvc.perform(punch(otherShift, "clock-in", "5678")).andExpect(status().isOk());
+    }
+
+    @Test
+    void employeeAndShiftResponses_sayWhetherAPinIsSet_butNeverTheHash() throws Exception {
+        login();
+        UUID emp = employee();
+        UUID shift = shift(emp);
+        mockMvc.perform(authed(get("/api/v1/staff/employees/" + emp)))
+                .andExpect(jsonPath("$.hasPin").value(false));
+        mockMvc.perform(authed(get("/api/v1/staff/shifts/open"))).andExpect(status().isOk());
+
+        setPin(emp, "1234");
+
+        mockMvc.perform(authed(get("/api/v1/staff/employees/" + emp)))
+                .andExpect(jsonPath("$.hasPin").value(true))
+                .andExpect(jsonPath("$.pinHash").doesNotExist());
+        mockMvc.perform(authed(get("/api/v1/staff/shifts")
+                        .param("from", Instant.now().minus(1, ChronoUnit.DAYS).toString())
+                        .param("to", Instant.now().plus(1, ChronoUnit.DAYS).toString())))
+                .andExpect(jsonPath("$[?(@.id=='%s')].employeeHasPin".formatted(shift)).value(true));
+    }
+
+    @Test
     void managerAdjust_doesNotNeedThePin() throws Exception {
         login();
         UUID emp = employee();

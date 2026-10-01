@@ -209,7 +209,7 @@ export interface OrderResponse {
 /* ---- staff (phase 5) --------------------------------------------------- */
 export interface EmployeeResponse {
   id: UUID; fullName: string; position?: string; hourlyRate?: Money; // rate and contact only for staff:write
-  phone?: string; email?: string; active: boolean;
+  phone?: string; email?: string; active: boolean; hasPin: boolean;
 }
 export interface EmployeeRequest {
   fullName: string; position?: string; hourlyRate: string;
@@ -219,7 +219,7 @@ export type ShiftStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED
 export interface ShiftResponse {
   id: UUID; branchId: UUID; employeeId: UUID; employeeName: string; status: ShiftStatus;
   scheduledStart: string; scheduledEnd: string; clockInAt?: string; clockOutAt?: string;
-  hourlyRate?: Money; laborCost?: Money; note?: string;
+  hourlyRate?: Money; laborCost?: Money; note?: string; employeeHasPin: boolean;
 }
 export interface AdjustShiftRequest { clockIn?: string; clockOut: string; }
 export interface ShiftRequest { employeeId: UUID; scheduledStart: string; scheduledEnd: string; note?: string; }
