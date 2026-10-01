@@ -12,9 +12,13 @@ modifier_group, ingredient, supplier, item, role, app_user and employee.
 How the company reaches Hibernate:
 
 - `TenantContext` holds the company the current thread acts for.
-  `JwtAuthenticationFilter` sets it from the access token's company before any
-  lookup (the grant cache already reads branches through it) and clears it in
-  `finally`, next to `BranchContext`. `require()` answers 401 without one.
+  `JwtAuthenticationFilter` enters the access token's company before any
+  lookup (the grant cache already reads branches through it) and, in
+  `finally`, restores whatever scope was in force before the request —
+  nothing, on a servlet thread. `require()` answers 401 without a company.
+  The two persistence identifiers below are never a company: `set`, `enter`
+  and `runAs` refuse them, and a token naming one is refused (401), so a
+  request can reach neither the system scope nor the blind one by its data.
 - `TenantIdentifierResolver` gives that company to each Hibernate session when
   it opens; `HibernateTenantConfig` registers it
   (`hibernate.tenant_identifier_resolver`).
@@ -33,31 +37,44 @@ How the company reaches Hibernate:
   row is therefore only ever written inside its own company — outside one, the
   insert is refused.
 - **No tenant.** A session opened with no company gets an identifier that
-  matches none (`TenantIdentifierResolver.NO_TENANT`): it sees no tenant-owned
-  row. The seam fails closed.
+  matches none (`TenantContext.NO_TENANT_ID`): it sees no tenant-owned row.
+  The seam fails closed.
 - **System scope.** `TenantContext.runAsSystem` gives the session a root
-  identifier, for which `isRoot` lifts the filter. Only work that runs before
-  any company is known uses it: login and refresh (`AuthService`: the user by
-  email or by the refresh token's user id) and startup (`DataInitializer`: the
-  permission catalog sync across every company). Every query there names its
+  identifier (`TenantContext.SYSTEM_TENANT_ID`), for which `isRoot` lifts the
+  filter. Only work that runs before any company is known uses it: login and
+  refresh (`AuthService`: the user by email or by the refresh token's user id)
+  and startup (`DataInitializer`: the permission catalog sync across every
+  company). Every query there names its
   row (email, token hash, user id, company id). The first company's own rows
   are seeded inside that company (`TenantContext.runAs`).
 
 A session takes its tenant when it opens, which Spring does at transaction
 begin. `runAsSystem`/`runAs` must therefore wrap a transaction, never run inside
 one: `AuthService` and `DataInitializer` open theirs with a `TransactionTemplate`
-inside the scope.
+inside the scope. For the same reason `spring.jpa.open-in-view: false` is
+load-bearing: open-in-view binds one session to the whole request as it enters
+MVC, and every transaction in the request joins that session. Login and refresh
+would then run on the request's session — which has no company — instead of
+opening one in the system scope, and would find no user.
 
 What the seam does not see is SQL Hibernate does not write. These stay
 explicitly scoped, and row-level security (Task 31) is their backstop:
 
 - `RoleRepository.lockByIdAndCompanyId` — `SELECT … FOR UPDATE` on `role`,
   names the company.
-- `UserRepository.existsByEmailInAnyCompany` — deliberately crosses companies:
-  login finds a user by email alone, so an email is unique system-wide.
 - `StockLedgerService` — `INSERT … ON CONFLICT` into `ledger_reference` and
   `stock_item`, both branch-scoped tables, keyed by the branch.
+- `OrderRepository.netSalesByDay` — reads `sales_order` (branch-scoped) by the
+  active branch.
 - `TenantRlsAspect` — `set_config('app.company_id', …)`.
+
+One native query must see every company and has no backstop:
+`UserRepository.existsByEmailInAnyCompany`. Login finds a user by email alone,
+so an email is unique system-wide, and creating or renaming a user checks it
+across companies. Under row-level security it would silently see only the
+tenant's rows, and a duplicate would fall through to the unique index's generic
+409; Task 31 must run it on the owner (BYPASSRLS) connection, with login,
+refresh and startup.
 
 Published module APIs that take a `companyId` (`OrganizationApi`, `StaffApi`,
 `InventoryApi.validateConsumption`, `IngredientReferenceCheck`) keep it: a
@@ -91,8 +108,9 @@ either scope.
   and sees nothing until it sets one (`TenantContext.runAs`).
 - Tests that seed another company write inside it
   (`TenantContext.runAs(companyB, …)`) and read rows back as the system
-  (`runAsSystem`). MockMvc runs the JWT filter on the test thread, and the
-  filter clears the tenant, so a request is never made inside such a block.
+  (`runAsSystem`). MockMvc runs the JWT filter on the test thread; because the
+  filter restores the scope it found, a request made inside such a block leaves
+  the block's scope in place.
 - Task 31 sets `app.company_id` from `TenantContext` at transaction begin and
   runs the system scope on a BYPASSRLS owner connection.
 - The remaining `CurrentUser` uses outside identity are for the user id and

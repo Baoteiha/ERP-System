@@ -13,7 +13,10 @@ public interface OrganizationApi {
     /** Resolves a branch of {@code companyId} by id; another company's branch is empty, like a missing one. */
     Optional<BranchDto> findBranch(UUID companyId, UUID branchId);
 
-    /** The company that owns the given branch, or empty when the branch does not exist. */
+    /**
+     * The company that owns the given branch. Empty when the branch does not exist, belongs to
+     * another company than the caller's (the tenant seam hides it), or when no tenant is set.
+     */
     Optional<UUID> companyIdOf(UUID branchId);
 
     /** Whether the given branch exists, is active, and belongs to {@code companyId}. */
