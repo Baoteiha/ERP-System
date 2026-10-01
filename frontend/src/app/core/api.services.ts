@@ -157,7 +157,12 @@ export class SalesService {
   quote(b: M.CreateOrderRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/quote`, b); }
   addPayment(id: string, b: M.PaymentRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/payments`, b); }
   complete(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/complete`, {}); }
-  cancel(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/cancel`, {}); }
+  /** `quiet` is for background clean-up the cashier never asked for: its failure must not toast. */
+  cancel(id: string, quiet = false) {
+    return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/cancel`, {}, {
+      context: new HttpContext().set(SUPPRESS_ERROR_TOAST, quiet),
+    });
+  }
   void(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/void`, {}); }
   refund(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/refund`, {}); }
 }

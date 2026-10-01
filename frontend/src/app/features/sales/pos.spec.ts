@@ -4,6 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { SUPPRESS_ERROR_TOAST } from '../../core/http.interceptors';
 import { MenuProduct } from '../../core/models';
 import { PosComponent } from './pos';
 
@@ -165,5 +166,26 @@ describe('PosComponent', () => {
     ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(quoteOf('58000'));
     pos.submit();
     ctrl.expectOne(isPost('/api/v1/orders'));
+  });
+
+  it('cancels the stale order silently, and a failed cancel does not stop the next sale', () => {
+    pos.addProduct(latte);
+    nextQuote().flush(quoteOf('28000'));
+    pos.submit();
+    ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o1', status: 'OPEN', grandTotal: '28000', currency: 'VND' });
+    ctrl.expectOne('/api/v1/orders/o1/payments').flush({ code: 'X' }, { status: 500, statusText: 'Server Error' });
+
+    pos.addProduct(mocha);
+    TestBed.tick();
+    const cancel = ctrl.expectOne(isPost('/api/v1/orders/o1/cancel'));
+    expect(cancel.request.context.get(SUPPRESS_ERROR_TOAST)).toBe(true);
+    cancel.flush({ code: 'X' }, { status: 500, statusText: 'Server Error' });
+
+    vi.advanceTimersByTime(250);
+    ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(quoteOf('58000'));
+    pos.submit();
+    ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o2', status: 'OPEN', grandTotal: '58000', currency: 'VND' });
+    ctrl.expectOne('/api/v1/orders/o2/payments').flush({ id: 'o2', status: 'COMPLETED', grandTotal: '58000', currency: 'VND' });
+    expect(pos.createdOrder()?.id).toBe('o2');
   });
 });

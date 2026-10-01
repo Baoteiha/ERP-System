@@ -327,7 +327,7 @@ export class PosComponent {
       // a changed cart is a different sale: it gets its own request id and order
       tap(() => {
         // the unpaid order made for the old cart must not linger OPEN at the branch
-        if (this.awaitingPayment) this.sales.cancel(this.awaitingPayment.id).subscribe({ error: () => undefined });
+        if (this.awaitingPayment) this.sales.cancel(this.awaitingPayment.id, true).subscribe({ error: () => undefined });
         this.clientRequestId = null;
         this.awaitingPayment = null;
       }),
