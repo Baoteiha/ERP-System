@@ -130,13 +130,14 @@ public class AuthService {
     /** Builds the security principal for a user from their per-branch role grants. */
     @Transactional(readOnly = true)
     public AuthPrincipal buildPrincipal(User user) {
-        List<UserBranchAccess> accesses = accessRepository.findByUserId(user.getId());
-        // grants can outlive a branch that was deleted or deactivated: only live branches count
+        // a grant on a deleted or deactivated branch grants nothing: not the branch, not its role's permissions
         Set<UUID> liveBranchIds = organizationApi.listActiveBranches(user.getCompanyId()).stream()
                 .map(BranchDto::id).collect(Collectors.toSet());
+        List<UserBranchAccess> accesses = accessRepository.findByUserId(user.getId()).stream()
+                .filter(a -> liveBranchIds.contains(a.getBranchId()))
+                .toList();
         Set<UUID> branchIds = accesses.stream()
                 .map(UserBranchAccess::getBranchId)
-                .filter(liveBranchIds::contains)
                 .collect(Collectors.toSet());
         List<UUID> roleIds = accesses.stream()
                 .map(UserBranchAccess::getRoleId).distinct().toList();

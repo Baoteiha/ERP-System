@@ -22,8 +22,10 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
+import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderType;
@@ -54,7 +56,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
     void cleanUp() {
         orders.deleteAll(createdOrders);
         for (UUID id : createdBranches) {
-            grants.deleteAll(grants.findAll().stream().filter(g -> g.getBranchId().equals(id)).toList());
+            grants.deleteAll(grants.findByBranchId(id));
             branches.findById(id).ifPresent(branches::delete);
         }
     }
@@ -189,5 +191,81 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                         .content("{\"name\":\"Another\",\"code\":\"ANO%d\"}".formatted(SEQ.incrementAndGet())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void deactivateBranch_withOpenOrder_isRefusedAndKeepsGrants() throws Exception {
+        String admin = adminToken();
+        String branchId = createBranch(admin);
+        createdOrders.add(orders.save(
+                new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO)));
+        Branch branch = branches.findById(UUID.fromString(branchId)).orElseThrow();
+
+        mockMvc.perform(put("/api/v1/branches/" + branchId)
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"x\",\"code\":\"%s\",\"active\":false}".formatted(branch.getCode())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(branches.findById(UUID.fromString(branchId)).orElseThrow().isActive()).isTrue();
+        assertThat(grants.findByBranchId(UUID.fromString(branchId))).isNotEmpty();
+    }
+
+    @Test
+    void grantOnDeletedBranch_givesNeitherPermissionsNorOwnership() throws Exception {
+        String admin = adminToken();
+        String home = seededBranch(admin);
+        String dead = createBranch(admin);
+        String[] user = userWithRole(admin, "CASHIER", home).split("\\|");
+        UUID companyId = branches.findById(UUID.fromString(home)).orElseThrow().getCompanyId();
+        // a leftover from before grants were dropped on delete: seeded straight into the table
+        grants.save(new UserBranchAccess(UUID.fromString(user[0]), UUID.fromString(dead),
+                roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
+        branches.delete(branches.findById(UUID.fromString(dead)).orElseThrow());
+
+        String token = accessToken(user[1], "password123");
+
+        mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.permissions").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.hasItem("sales:refund"))))
+                .andExpect(jsonPath("$.roles").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.hasItem("OWNER"))));
+    }
+
+    @Test
+    void nonOwnerCreatesBranch_getsOwnRoleThere_orIsRefusedWithoutHeader() throws Exception {
+        String admin = adminToken();
+        String home = seededBranch(admin);
+        int n = SEQ.incrementAndGet();
+        String roleId = JsonPath.read(postJson(admin, "/api/v1/roles",
+                "{\"name\":\"BranchMaker%d\",\"description\":\"d\",\"permissions\":[\"branch:read\",\"branch:write\"]}"
+                        .formatted(n)), "$.id");
+        String userId = JsonPath.read(postJson(admin, "/api/v1/users",
+                "{\"email\":\"maker%d@t.test\",\"password\":\"password123\",\"fullName\":\"M\"}".formatted(n)), "$.id");
+        mockMvc.perform(post("/api/v1/users/" + userId + "/access")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(admin)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(home, roleId)))
+                .andExpect(status().isOk());
+        String token = accessToken("maker%d@t.test".formatted(n), "password123");
+        long before = branches.count();
+
+        mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"NoHdr\",\"code\":\"NH%d\"}".formatted(n)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+        assertThat(branches.count()).isEqualTo(before);
+
+        String created = mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
+                        .header("X-Branch-Id", home).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"WithHdr\",\"code\":\"WH%d\"}".formatted(n)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID newId = UUID.fromString(JsonPath.read(created, "$.id"));
+        createdBranches.add(newId);
+
+        assertThat(grants.findByUserIdAndBranchId(UUID.fromString(userId), newId))
+                .hasValueSatisfying(g -> assertThat(g.getRoleId()).isEqualTo(UUID.fromString(roleId)));
     }
 }

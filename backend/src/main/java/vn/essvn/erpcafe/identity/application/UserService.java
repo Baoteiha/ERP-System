@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -26,6 +27,7 @@ import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
@@ -184,9 +186,13 @@ public class UserService {
         AccessPolicy.requireCanManage(currentUser.require(), heldAccessOf(userId));
     }
 
-    /** The branches, roles and permissions the user holds across all of their branch grants. */
+    /** The branches, roles and permissions the user holds across all of their branch grants that are still on a live branch. */
     private HeldAccess heldAccessOf(UUID userId) {
-        List<UserBranchAccess> grants = accessRepository.findByUserId(userId);
+        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(currentUser.require().companyId()).stream()
+                .map(BranchDto::id).collect(Collectors.toSet());
+        List<UserBranchAccess> grants = accessRepository.findByUserId(userId).stream()
+                .filter(g -> liveBranchIds.contains(g.getBranchId()))
+                .toList();
         List<Role> roles = roleRepository.findAllById(
                 grants.stream().map(UserBranchAccess::getRoleId).distinct().toList());
         return new HeldAccess(

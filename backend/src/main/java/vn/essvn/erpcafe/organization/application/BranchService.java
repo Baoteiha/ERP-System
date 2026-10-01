@@ -13,6 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.exception.BadRequestException;
+import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
@@ -68,6 +71,11 @@ public class BranchService implements OrganizationApi {
     public Branch create(BranchRequest request) {
         AuthPrincipal actor = currentUser.require();
         UUID companyId = actor.companyId();
+        // a non-owner's grant at the new branch is copied from the branch they act from: without one there is none
+        boolean owner = actor.roles().contains(DefaultRole.OWNER.roleName());
+        if (!owner && BranchContext.current().isEmpty()) {
+            throw new BadRequestException("X-Branch-Id is required to create a branch");
+        }
         if (branchRepository.existsByCompanyIdAndCode(companyId, request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
         }
@@ -93,14 +101,21 @@ public class BranchService implements OrganizationApi {
         branch.setCode(request.code());
         apply(branch, request);
         if (wasActive && !branch.isActive()) {
+            requireNoLiveWork(id);
             events.publishEvent(new BranchDeactivated(branch.getId(), branch.getCompanyId()));
         }
         return branch;
     }
 
-    /** A branch with live work (open orders, clocked-in shifts, stock) cannot be deleted. */
+    /** A branch with live work (open orders, clocked-in shifts, stock) cannot be deleted or deactivated. */
     public void delete(UUID id) {
         Branch branch = get(id);
+        requireNoLiveWork(id);
+        branchRepository.delete(branch);
+        events.publishEvent(new BranchDeleted(id, branch.getCompanyId()));
+    }
+
+    private void requireNoLiveWork(UUID id) {
         if (salesApi.hasOpenOrders(id)) {
             throw new ConflictException("Branch has open orders; settle or cancel them first");
         }
@@ -110,8 +125,6 @@ public class BranchService implements OrganizationApi {
         if (inventoryApi.getObject().hasStockOnHand(id)) {
             throw new ConflictException("Branch still has stock on hand; zero it out first");
         }
-        branchRepository.delete(branch);
-        events.publishEvent(new BranchDeleted(id, branch.getCompanyId()));
     }
 
     // --- OrganizationApi (published to other modules) ---
