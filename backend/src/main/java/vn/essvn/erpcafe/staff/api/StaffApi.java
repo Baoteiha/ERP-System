@@ -10,6 +10,9 @@ import java.util.UUID;
  */
 public interface StaffApi {
 
+    /** Whether someone is clocked in at the branch right now. */
+    boolean hasOpenShifts(UUID branchId);
+
     /**
      * Total labor cost captured by shifts completed in {@code [from, to)} at a
      * branch, counted in the period of the clock-out time. Amounts are in the

@@ -12,6 +12,9 @@ import java.util.UUID;
  */
 public interface InventoryApi {
 
+    /** Whether any ingredient at the branch has a non-zero quantity on hand (negative counts). */
+    boolean hasStockOnHand(UUID branchId);
+
     /**
      * Checks that every line could be consumed from the company's stock: the ingredient exists in
      * that company (a foreign or deleted one counts as missing), the unit is known, and it measures

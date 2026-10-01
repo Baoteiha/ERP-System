@@ -13,11 +13,14 @@ import org.springframework.data.repository.query.Param;
 
 import vn.essvn.erpcafe.sales.api.SalesSummary;
 import vn.essvn.erpcafe.sales.domain.Order;
+import vn.essvn.erpcafe.sales.domain.OrderStatus;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     /** Branch-scoped lookup: empty (→ 404) for an order at any other branch. */
     Optional<Order> findByIdAndBranchId(UUID id, UUID branchId);
+
+    boolean existsByBranchIdAndStatus(UUID branchId, OrderStatus status);
 
     Optional<Order> findByBranchIdAndClientRequestId(UUID branchId, UUID clientRequestId);
 

@@ -22,6 +22,8 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     List<Shift> findByBranchIdAndStatusOrderByScheduledStart(UUID branchId, ShiftStatus status);
 
+    boolean existsByBranchIdAndStatus(UUID branchId, ShiftStatus status);
+
     boolean existsByEmployeeIdAndStatus(UUID employeeId, ShiftStatus status);
 
     List<Shift> findByEmployeeIdAndStatusAndScheduledStartAfter(UUID employeeId, ShiftStatus status, Instant after);

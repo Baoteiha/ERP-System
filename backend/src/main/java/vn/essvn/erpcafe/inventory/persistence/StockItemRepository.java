@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.inventory.persistence;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,8 @@ import jakarta.persistence.LockModeType;
 import vn.essvn.erpcafe.inventory.domain.StockItem;
 
 public interface StockItemRepository extends JpaRepository<StockItem, UUID> {
+
+    boolean existsByBranchIdAndQuantityOnHandNot(UUID branchId, BigDecimal quantityOnHand);
 
     List<StockItem> findByBranchId(UUID branchId);
 

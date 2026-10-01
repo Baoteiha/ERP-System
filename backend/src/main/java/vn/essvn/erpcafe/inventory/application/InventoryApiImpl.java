@@ -19,6 +19,7 @@ import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.MovementType;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
+import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
 
 /** Implements the published {@link InventoryApi} over the stock ledger. */
@@ -28,12 +29,20 @@ public class InventoryApiImpl implements InventoryApi {
     private final IngredientRepository ingredientRepository;
     private final StockLedgerService ledger;
     private final StockMovementRepository movementRepository;
+    private final StockItemRepository stockItemRepository;
 
     public InventoryApiImpl(IngredientRepository ingredientRepository, StockLedgerService ledger,
-            StockMovementRepository movementRepository) {
+            StockMovementRepository movementRepository, StockItemRepository stockItemRepository) {
+        this.stockItemRepository = stockItemRepository;
         this.ingredientRepository = ingredientRepository;
         this.ledger = ledger;
         this.movementRepository = movementRepository;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasStockOnHand(UUID branchId) {
+        return stockItemRepository.existsByBranchIdAndQuantityOnHandNot(branchId, BigDecimal.ZERO);
     }
 
     @Override

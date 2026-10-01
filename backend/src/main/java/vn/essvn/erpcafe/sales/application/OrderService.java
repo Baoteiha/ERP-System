@@ -131,8 +131,10 @@ public class OrderService {
     private Order build(CreateOrderInput input) {
         UUID branchId = activeBranch();
         UUID cashierId = identityApi.currentUserId().orElse(null);
+        UUID companyId = identityApi.currentCompanyId()
+                .orElseThrow(() -> new BusinessRuleException("Authentication required"));
         // the rate is the branch's setting, never the client's: a till cannot undercharge tax
-        BranchDto branch = organizationApi.findBranch(branchId)
+        BranchDto branch = organizationApi.findBranch(companyId, branchId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Branch", branchId));
         Order order = new Order(branchId, cashierId, input.orderType(), branch.taxRate());
 

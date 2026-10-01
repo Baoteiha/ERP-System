@@ -120,6 +120,12 @@ public class ShiftService implements StaffApi {
 
     @Override
     @Transactional(readOnly = true)
+    public boolean hasOpenShifts(UUID branchId) {
+        return shiftRepository.existsByBranchIdAndStatus(branchId, ShiftStatus.IN_PROGRESS);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public BigDecimal laborCost(UUID branchId, Instant from, Instant to) {
         return shiftRepository.laborCostBetween(branchId, from, to);
     }

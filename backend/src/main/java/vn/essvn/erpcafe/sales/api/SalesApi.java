@@ -15,6 +15,9 @@ import java.util.UUID;
  */
 public interface SalesApi {
 
+    /** Whether the branch has an order still open, neither paid nor cancelled. */
+    boolean hasOpenOrders(UUID branchId);
+
     /** Totals for a branch over {@code [from, to)}. */
     SalesSummary summary(UUID branchId, Instant from, Instant to);
 
