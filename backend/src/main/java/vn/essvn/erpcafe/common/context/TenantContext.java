@@ -13,18 +13,42 @@ import vn.essvn.erpcafe.common.exception.UnauthorizedException;
  */
 public final class TenantContext {
 
+    /** The persistence identifier of "no tenant": it matches no company, so such a session sees no tenant rows. */
+    public static final UUID NO_TENANT_ID = new UUID(0L, 0L);
+
+    /** The persistence identifier of the system scope, for which the tenant filter is lifted. */
+    public static final UUID SYSTEM_TENANT_ID = new UUID(-1L, -1L);
+
     /** A company, or the system scope ({@code companyId == null}). */
     private record Scope(UUID companyId) {
     }
 
-    private static final Scope SYSTEM = new Scope(null);
+    private static final Scope SYSTEM_SCOPE = new Scope(null);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
+
+    /**
+     * Class: Entered
+     * Purpose: Ends a company scope opened with {@link #enter}, bringing back whatever was in force before it.
+     */
+    @FunctionalInterface
+    public interface Entered extends AutoCloseable {
+
+        @Override
+        void close();
+    }
 
     private TenantContext() {
     }
 
     public static void set(UUID companyId) {
-        CURRENT.set(new Scope(Objects.requireNonNull(companyId, "companyId")));
+        CURRENT.set(companyScope(companyId));
+    }
+
+    /** Puts the company in force until the returned handle is closed; the previous scope then comes back. */
+    public static Entered enter(UUID companyId) {
+        Scope previous = CURRENT.get();
+        CURRENT.set(companyScope(companyId));
+        return () -> restore(previous);
     }
 
     /** The company in force; empty with no tenant and in the system scope, which acts for no one company. */
@@ -48,7 +72,7 @@ public final class TenantContext {
     }
 
     public static boolean isSystem() {
-        return CURRENT.get() == SYSTEM;
+        return CURRENT.get() == SYSTEM_SCOPE;
     }
 
     /**
@@ -57,16 +81,16 @@ public final class TenantContext {
      * open its own transaction; one already running keeps the tenant it began with.
      */
     public static <T> T runAsSystem(Supplier<T> work) {
-        return runIn(SYSTEM, work);
+        return runIn(SYSTEM_SCOPE, work);
     }
 
     public static void runAsSystem(Runnable work) {
-        runIn(SYSTEM, asSupplier(work));
+        runIn(SYSTEM_SCOPE, asSupplier(work));
     }
 
     /** Runs work as one company, as a request of that company would; used to seed a new company's rows. */
     public static <T> T runAs(UUID companyId, Supplier<T> work) {
-        return runIn(new Scope(Objects.requireNonNull(companyId, "companyId")), work);
+        return runIn(companyScope(companyId), work);
     }
 
     public static void runAs(UUID companyId, Runnable work) {
@@ -75,6 +99,16 @@ public final class TenantContext {
 
     public static void clear() {
         CURRENT.remove();
+    }
+
+    // The system scope is reached only through runAsSystem: a company id that is one of the
+    // persistence identifiers would make a request root (or blind) without anyone asking for it.
+    private static Scope companyScope(UUID companyId) {
+        Objects.requireNonNull(companyId, "companyId");
+        if (companyId.equals(NO_TENANT_ID) || companyId.equals(SYSTEM_TENANT_ID)) {
+            throw new IllegalArgumentException("Not a company: " + companyId);
+        }
+        return new Scope(companyId);
     }
 
     private static Supplier<Void> asSupplier(Runnable work) {
@@ -90,11 +124,15 @@ public final class TenantContext {
         try {
             return work.get();
         } finally {
-            if (previous == null) {
-                CURRENT.remove();
-            } else {
-                CURRENT.set(previous);
-            }
+            restore(previous);
+        }
+    }
+
+    private static void restore(Scope previous) {
+        if (previous == null) {
+            CURRENT.remove();
+        } else {
+            CURRENT.set(previous);
         }
     }
 }

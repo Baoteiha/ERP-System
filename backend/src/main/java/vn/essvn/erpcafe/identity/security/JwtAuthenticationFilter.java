@@ -69,16 +69,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         AccessClaims claims;
+        TenantContext.Entered tenant;
         try {
             claims = jwtService.parseAccessToken(header.substring(BEARER.length()));
+            // entered first: every lookup below, and the whole request after it, reads only this company's
+            // rows. A token naming no real company (one of the persistence identifiers) is as bad as a forged one.
+            tenant = TenantContext.enter(claims.companyId());
         } catch (Exception ex) {
             writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
             return;
         }
 
         try {
-            // set first: every lookup below, and the whole request after it, reads only this company's rows
-            TenantContext.set(claims.companyId());
             // the token's branch roles count only while still granted: a revoke or a closed branch ends them at once
             Map<UUID, UUID> current = grantCache.current(claims.userId(), claims.companyId());
             Map<UUID, UUID> roleByBranch = new HashMap<>();
@@ -110,7 +112,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             BranchContext.clear();
-            TenantContext.clear();
+            // back to whatever was in force before the request: nothing, on a servlet thread
+            tenant.close();
             SecurityContextHolder.clearContext();
         }
     }

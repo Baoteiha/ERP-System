@@ -12,18 +12,13 @@ import vn.essvn.erpcafe.common.context.TenantContext;
  */
 public class TenantIdentifierResolver implements CurrentTenantIdentifierResolver<UUID> {
 
-    /** Matches no company: a session opened outside any tenant sees no tenant-owned row (fails closed). */
-    public static final UUID NO_TENANT = new UUID(0L, 0L);
-
-    /** The system scope's identifier, for which Hibernate lifts the tenant filter. */
-    public static final UUID SYSTEM = new UUID(-1L, -1L);
-
+    // No tenant resolves to an identifier that matches no company, so the session fails closed.
     @Override
     public UUID resolveCurrentTenantIdentifier() {
         if (TenantContext.isSystem()) {
-            return SYSTEM;
+            return TenantContext.SYSTEM_TENANT_ID;
         }
-        return TenantContext.current().orElse(NO_TENANT);
+        return TenantContext.current().orElse(TenantContext.NO_TENANT_ID);
     }
 
     // Spring opens and binds sessions itself; Hibernate's current-session lookup is never used.
@@ -34,6 +29,6 @@ public class TenantIdentifierResolver implements CurrentTenantIdentifierResolver
 
     @Override
     public boolean isRoot(UUID tenantId) {
-        return SYSTEM.equals(tenantId);
+        return TenantContext.SYSTEM_TENANT_ID.equals(tenantId);
     }
 }
