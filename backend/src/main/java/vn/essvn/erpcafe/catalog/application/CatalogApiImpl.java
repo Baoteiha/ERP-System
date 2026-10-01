@@ -25,10 +25,10 @@ import vn.essvn.erpcafe.catalog.persistence.ModifierRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
@@ -44,12 +44,10 @@ public class CatalogApiImpl implements CatalogApi {
     private final ModifierRepository modifierRepository;
     private final ProductBranchAvailabilityRepository availabilityRepository;
     private final OrganizationApi organizationApi;
-    private final CurrentUser currentUser;
 
     public CatalogApiImpl(ProductRepository productRepository, RecipeRepository recipeRepository,
             ModifierRepository modifierRepository, ProductBranchAvailabilityRepository availabilityRepository,
-            OrganizationApi organizationApi, CurrentUser currentUser) {
-        this.currentUser = currentUser;
+            OrganizationApi organizationApi) {
         this.productRepository = productRepository;
         this.recipeRepository = recipeRepository;
         this.modifierRepository = modifierRepository;
@@ -75,7 +73,7 @@ public class CatalogApiImpl implements CatalogApi {
         // Selected modifiers layer signed deltas on top (extra shot = +coffee; oat = -dairy, +oat).
         if (modifierIds != null) {
             for (UUID modifierId : modifierIds) {
-                Modifier modifier = modifierRepository.findByIdAndCompanyId(modifierId, companyId()).orElse(null);
+                Modifier modifier = modifierRepository.findThroughGroup(modifierId).orElse(null);
                 if (modifier == null) {
                     continue; // ignore unknown modifier ids rather than fail the whole explosion
                 }
@@ -88,11 +86,10 @@ public class CatalogApiImpl implements CatalogApi {
 
     @Override
     public PricedLine priceLine(UUID branchId, UUID productId, Set<UUID> modifierIds) {
-        UUID companyId = companyId();
-        Product product = productRepository.findByIdAndCompanyId(productId, companyId)
+        Product product = productRepository.findById(productId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
         // No branch means a company-wide quote (catalog browsing): base price, no availability rules.
-        if (branchId != null && !organizationApi.branchExistsInCompany(branchId, companyId)) {
+        if (branchId != null && !organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
             throw ResourceNotFoundException.of("Branch", branchId);
         }
 
@@ -141,10 +138,6 @@ public class CatalogApiImpl implements CatalogApi {
             throw new BusinessRuleException("Modifiers not offered by this product: " + unaccounted);
         }
         return chosen;
-    }
-
-    private UUID companyId() {
-        return currentUser.require().companyId();
     }
 
     private void add(Map<String, IngredientConsumption> acc, UUID ingredientId, BigDecimal quantity, String unit) {

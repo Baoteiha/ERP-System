@@ -1,6 +1,5 @@
 package vn.essvn.erpcafe.catalog.domain;
 
-import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -9,7 +8,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A menu grouping (e.g. Coffee, Tea, Pastries), scoped to a company.
@@ -19,10 +18,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 @Table(name = "category", uniqueConstraints = @UniqueConstraint(name = "uk_category_company_name", columnNames = {"company_id", "name"}))
 @SQLDelete(sql = "UPDATE category SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Category extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Category extends TenantOwnedEntity {
 
     @Column(name = "name", nullable = false)
     private String name;
@@ -39,14 +35,9 @@ public class Category extends AuditableEntity {
     protected Category() {
     }
 
-    public Category(UUID companyId, String name, int displayOrder) {
-        this.companyId = companyId;
+    public Category(String name, int displayOrder) {
         this.name = name;
         this.displayOrder = displayOrder;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getName() {

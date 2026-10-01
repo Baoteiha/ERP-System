@@ -58,8 +58,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
 
     private UUID seedOpenOrder(UUID companyId, UUID branchId, int n) {
         Product product = TenantContext.runAs(companyId, () -> {
-            Category category = categoryRepository.save(new Category(companyId, "Cat %d".formatted(n), 0));
-            return productRepository.save(new Product(companyId, category.getId(), "Prod %d".formatted(n),
+            Category category = categoryRepository.save(new Category("Cat %d".formatted(n), 0));
+            return productRepository.save(new Product(category.getId(), "Prod %d".formatted(n),
                     "SKU-S%d".formatted(n), Money.of(BigDecimal.TEN)));
         });
         Order order = new Order(branchId, null, OrderType.DINE_IN, BigDecimal.ZERO);
@@ -147,8 +147,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
         int n = SEQ.incrementAndGet();
         Company b = companyRepository.save(new Company("Sales Prod %d".formatted(n), "SLP%d".formatted(n)));
         Product productB = TenantContext.runAs(b.getId(), () -> {
-            Category cat = categoryRepository.save(new Category(b.getId(), "CatP %d".formatted(n), 0));
-            return productRepository.save(new Product(b.getId(), cat.getId(), "ProdP %d".formatted(n),
+            Category cat = categoryRepository.save(new Category("CatP %d".formatted(n), 0));
+            return productRepository.save(new Product(cat.getId(), "ProdP %d".formatted(n),
                     "SKU-P%d".formatted(n), Money.of(BigDecimal.TEN)));
         });
 

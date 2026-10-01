@@ -11,7 +11,6 @@ import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /** Menu category management within the acting user's company. */
 @Service
@@ -20,38 +19,33 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
-    private final CurrentUser currentUser;
 
-    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository,
-            CurrentUser currentUser) {
+    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository) {
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<Category> list() {
-        return categoryRepository.findByCompanyIdOrderByDisplayOrderAsc(currentUser.require().companyId());
+        return categoryRepository.findAllByOrderByDisplayOrderAsc();
     }
 
     @Transactional(readOnly = true)
     public Category get(UUID id) {
-        return categoryRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return categoryRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Category", id));
     }
 
     public Category create(String name, int displayOrder) {
-        UUID companyId = currentUser.require().companyId();
-        if (categoryRepository.existsByCompanyIdAndName(companyId, name)) {
+        if (categoryRepository.existsByName(name)) {
             throw new ConflictException("Category already exists: " + name);
         }
-        return categoryRepository.save(new Category(companyId, name, displayOrder));
+        return categoryRepository.save(new Category(name, displayOrder));
     }
 
     public Category update(UUID id, String name, int displayOrder, boolean active) {
         Category category = get(id);
-        if (!category.getName().equals(name)
-                && categoryRepository.existsByCompanyIdAndName(category.getCompanyId(), name)) {
+        if (!category.getName().equals(name) && categoryRepository.existsByName(name)) {
             throw new ConflictException("Category already exists: " + name);
         }
         category.setName(name);
@@ -62,7 +56,7 @@ public class CategoryService {
 
     public void delete(UUID id) {
         Category category = get(id);
-        if (productRepository.existsByCompanyIdAndCategoryId(category.getCompanyId(), id)) {
+        if (productRepository.existsByCategoryId(id)) {
             throw new ConflictException("Category still has products; move or delete them first");
         }
         categoryRepository.delete(category);

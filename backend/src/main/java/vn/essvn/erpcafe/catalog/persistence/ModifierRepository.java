@@ -11,9 +11,12 @@ import vn.essvn.erpcafe.catalog.domain.Modifier;
 
 public interface ModifierRepository extends JpaRepository<Modifier, UUID> {
 
-    /** Tenant-scoped lookup through the owning group: empty (→ 404) for another company's modifier. */
-    @Query("select m from ModifierGroup g join g.modifiers m where m.id = :id and g.companyId = :companyId")
-    Optional<Modifier> findByIdAndCompanyId(@Param("id") UUID id, @Param("companyId") UUID companyId);
+    /**
+     * A modifier has no company of its own; it is found through its group, which the tenant filter
+     * scopes, so another company's modifier is empty (→ 404).
+     */
+    @Query("select m from ModifierGroup g join g.modifiers m where m.id = :id")
+    Optional<Modifier> findThroughGroup(@Param("id") UUID id);
 
     /** Whether any live modifier of the company has a recipe delta for the ingredient. */
     @Query("select count(l) > 0 from ModifierGroup g join g.modifiers m join m.recipeLines l "

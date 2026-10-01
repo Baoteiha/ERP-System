@@ -2,7 +2,6 @@ package vn.essvn.erpcafe.catalog.domain;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -16,7 +15,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A group of choices attached to products (e.g. "Size", "Milk", "Temperature",
@@ -26,10 +25,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 @Table(name = "modifier_group", uniqueConstraints = @UniqueConstraint(name = "uk_modifier_group_company_name", columnNames = {"company_id", "name"}))
 @SQLDelete(sql = "UPDATE modifier_group SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class ModifierGroup extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class ModifierGroup extends TenantOwnedEntity {
 
     @Column(name = "name", nullable = false)
     private String name;
@@ -53,15 +49,10 @@ public class ModifierGroup extends AuditableEntity {
     protected ModifierGroup() {
     }
 
-    public ModifierGroup(UUID companyId, String name, int minSelect, int maxSelect) {
-        this.companyId = companyId;
+    public ModifierGroup(String name, int minSelect, int maxSelect) {
         this.name = name;
         this.minSelect = minSelect;
         this.maxSelect = maxSelect;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getName() {

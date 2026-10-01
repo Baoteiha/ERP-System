@@ -20,6 +20,7 @@ import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
 import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
@@ -59,22 +60,21 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Page<Product> list(Pageable pageable) {
-        return productRepository.findByCompanyId(currentUser.require().companyId(), pageable);
+        return productRepository.findAll(pageable);
     }
 
     @Transactional(readOnly = true)
     public Product get(UUID id) {
-        return productRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return productRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", id));
     }
 
     public Product create(UUID categoryId, String name, String sku, BigDecimal basePrice, String description) {
-        UUID companyId = currentUser.require().companyId();
-        requireCategory(companyId, categoryId);
-        if (productRepository.existsByCompanyIdAndSku(companyId, sku)) {
+        requireCategory(categoryId);
+        if (productRepository.existsBySku(sku)) {
             throw new ConflictException("Product SKU already exists: " + sku);
         }
-        Product product = new Product(companyId, categoryId, name, sku, Money.of(basePrice));
+        Product product = new Product(categoryId, name, sku, Money.of(basePrice));
         product.setDescription(description);
         return productRepository.save(product);
     }
@@ -82,9 +82,8 @@ public class ProductService {
     public Product update(UUID id, UUID categoryId, String name, String sku, BigDecimal basePrice,
             String description, Boolean active) {
         Product product = get(id);
-        requireCategory(product.getCompanyId(), categoryId);
-        if (!product.getSku().equals(sku)
-                && productRepository.existsByCompanyIdAndSku(product.getCompanyId(), sku)) {
+        requireCategory(categoryId);
+        if (!product.getSku().equals(sku) && productRepository.existsBySku(sku)) {
             throw new ConflictException("Product SKU already exists: " + sku);
         }
         product.setCategoryId(categoryId);
@@ -107,7 +106,7 @@ public class ProductService {
         Product product = get(productId);
         Set<ModifierGroup> groups = new HashSet<>();
         for (UUID groupId : groupIds) {
-            ModifierGroup group = modifierGroupRepository.findByIdAndCompanyId(groupId, product.getCompanyId())
+            ModifierGroup group = modifierGroupRepository.findById(groupId)
                     .orElseThrow(() -> ResourceNotFoundException.of("ModifierGroup", groupId));
             groups.add(group);
         }
@@ -128,8 +127,8 @@ public class ProductService {
     /** Sets (or updates) availability and optional price override for a product at a branch. */
     public ProductBranchAvailability setBranchAvailability(UUID productId, UUID branchId,
             boolean available, BigDecimal priceOverride) {
-        Product product = get(productId);
-        requireAtBranch(product.getCompanyId(), branchId, CATALOG_WRITE);
+        get(productId);
+        requireAtBranch(branchId, CATALOG_WRITE);
         Money override = priceOverride == null ? null : Money.of(priceOverride);
         return availabilityRepository.findByProductIdAndBranchId(productId, branchId)
                 .map(existing -> {
@@ -145,7 +144,7 @@ public class ProductService {
     @Transactional(readOnly = true)
     public PricedLine price(UUID productId, UUID branchId, Set<UUID> modifierIds) {
         if (branchId != null) {
-            requireAtBranch(currentUser.require().companyId(), branchId, CATALOG_READ);
+            requireAtBranch(branchId, CATALOG_READ);
         }
         return catalogApi.priceLine(branchId, productId, modifierIds);
     }
@@ -154,8 +153,8 @@ public class ProductService {
      * Another company's (or an inactive) branch is not found; a branch where the caller's role lacks the
      * permission is forbidden, whichever branch the request acts in (ADR-0007).
      */
-    private void requireAtBranch(UUID companyId, UUID branchId, String permission) {
-        if (!organizationApi.branchExistsInCompany(branchId, companyId)) {
+    private void requireAtBranch(UUID branchId, String permission) {
+        if (!organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
         if (!currentUser.require().permissionsAt(branchId).contains(permission)) {
@@ -163,8 +162,8 @@ public class ProductService {
         }
     }
 
-    private void requireCategory(UUID companyId, UUID categoryId) {
-        categoryRepository.findByIdAndCompanyId(categoryId, companyId)
+    private void requireCategory(UUID categoryId) {
+        categoryRepository.findById(categoryId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Category", categoryId));
     }
 }

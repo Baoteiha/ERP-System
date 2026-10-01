@@ -5,14 +5,30 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import vn.essvn.erpcafe.catalog.domain.Category;
+import vn.essvn.erpcafe.catalog.domain.Modifier;
+import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
+import vn.essvn.erpcafe.catalog.domain.Product;
+import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
+import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
+import vn.essvn.erpcafe.catalog.persistence.ModifierRepository;
+import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.UnauthorizedException;
+import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -21,9 +37,136 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  */
 class TenantSeamTest extends AbstractIntegrationTest {
 
+    private static final AtomicInteger SEQ = new AtomicInteger();
+
+    @Autowired private CompanyRepository companyRepository;
+    @Autowired private CategoryRepository categoryRepository;
+    @Autowired private ProductRepository productRepository;
+    @Autowired private ModifierGroupRepository groupRepository;
+    @Autowired private ModifierRepository modifierRepository;
+
+    private record Tenant(UUID companyId, UUID categoryId, UUID productId, UUID modifierId) {
+    }
+
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    /** A company with one category, product and modifier, written inside that company's tenant. */
+    private Tenant seedCompany() {
+        int n = SEQ.incrementAndGet();
+        Company company = companyRepository.save(new Company("Seam %d".formatted(n), "SEAM%d".formatted(n)));
+        return TenantContext.runAs(company.getId(), () -> {
+            Category category = categoryRepository.save(new Category("Drinks", 1));
+            Product product = productRepository.save(
+                    new Product(category.getId(), "Latte", "LAT", Money.of(BigDecimal.valueOf(45_000))));
+            ModifierGroup group = new ModifierGroup("Size", 0, 1);
+            group.getModifiers().add(new Modifier("Large", Money.of(BigDecimal.valueOf(5_000)), 0));
+            UUID modifierId = groupRepository.save(group).getModifiers().get(0).getId();
+            return new Tenant(company.getId(), category.getId(), product.getId(), modifierId);
+        });
+    }
+
+    private Product newProduct(Tenant tenant, String sku) {
+        return new Product(tenant.categoryId(), "Mocha " + sku, sku, Money.of(BigDecimal.valueOf(50_000)));
+    }
+
+    @Test
+    void findById_ofAnotherCompanysProduct_isEmpty() {
+        Tenant a = seedCompany();
+        Tenant b = seedCompany();
+
+        TenantContext.set(a.companyId());
+
+        assertThat(productRepository.findById(b.productId())).isEmpty();
+        assertThat(productRepository.findById(a.productId())).isPresent();
+        assertThat(productRepository.existsById(b.productId())).isFalse();
+        assertThat(productRepository.findAllById(List.of(a.productId(), b.productId())))
+                .extracting(Product::getId).containsExactly(a.productId());
+    }
+
+    @Test
+    void queries_seeOnlyTheCurrentCompanysRows() {
+        Tenant a = seedCompany();
+        Tenant b = seedCompany();
+
+        TenantContext.set(a.companyId());
+
+        assertThat(productRepository.findAll()).extracting(Product::getCompanyId).containsOnly(a.companyId());
+        assertThat(productRepository.findAll()).extracting(Product::getId)
+                .contains(a.productId()).doesNotContain(b.productId());
+    }
+
+    @Test
+    void queryRootedInATenantEntity_isFilteredForTheChildItSelects() {
+        Tenant a = seedCompany();
+        Tenant b = seedCompany();
+
+        TenantContext.set(a.companyId());
+
+        // a modifier has no company of its own: only its group, the query's root, is filtered
+        assertThat(modifierRepository.findThroughGroup(b.modifierId())).isEmpty();
+        assertThat(modifierRepository.findThroughGroup(a.modifierId())).isPresent();
+    }
+
+    @Test
+    void save_stampsTheCurrentCompanyOnARowBuiltWithoutOne() {
+        Tenant a = seedCompany();
+
+        TenantContext.set(a.companyId());
+        Product saved = productRepository.save(newProduct(a, "MOC"));
+
+        assertThat(saved.getCompanyId()).isEqualTo(a.companyId());
+        UUID stored = TenantContext.runAsSystem(() -> productRepository.findById(saved.getId()).orElseThrow())
+                .getCompanyId();
+        assertThat(stored).isEqualTo(a.companyId());
+    }
+
+    @Test
+    void save_refusesARowAssignedAnotherCompany() {
+        Tenant a = seedCompany();
+        Tenant b = seedCompany();
+        Product forged = newProduct(a, "FRG");
+        ReflectionTestUtils.setField(forged, "companyId", b.companyId());
+
+        TenantContext.set(a.companyId());
+
+        assertThatThrownBy(() -> productRepository.save(forged))
+                .hasStackTraceContaining("differs from current tenant id");
+        assertThat(TenantContext.runAsSystem(() -> productRepository.findAll()))
+                .extracting(Product::getSku).doesNotContain("FRG");
+    }
+
+    @Test
+    void save_outsideACompany_isRefused() {
+        Tenant a = seedCompany();
+
+        assertThatThrownBy(() -> TenantContext.runAsSystem(() -> productRepository.save(newProduct(a, "SYS"))))
+                .hasStackTraceContaining("can only be written inside its company's tenant");
+        assertThatThrownBy(() -> productRepository.save(newProduct(a, "NONE")))
+                .hasStackTraceContaining("can only be written inside its company's tenant");
+    }
+
+    @Test
+    void runAsSystem_seesEveryCompany() {
+        Tenant a = seedCompany();
+        Tenant b = seedCompany();
+        TenantContext.set(a.companyId());
+
+        List<UUID> seen = TenantContext.runAsSystem(() -> productRepository
+                .findAllById(List.of(a.productId(), b.productId())).stream().map(Product::getCompanyId).toList());
+
+        assertThat(seen).containsExactlyInAnyOrder(a.companyId(), b.companyId());
+        assertThat(TenantContext.current()).contains(a.companyId());
+    }
+
+    @Test
+    void noTenant_seesNoTenantRows() {
+        Tenant a = seedCompany();
+
+        assertThat(TenantContext.current()).isEmpty();
+        assertThat(productRepository.findById(a.productId())).isEmpty();
     }
 
     @Test

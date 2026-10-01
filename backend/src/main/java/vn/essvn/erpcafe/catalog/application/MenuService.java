@@ -14,9 +14,9 @@ import vn.essvn.erpcafe.catalog.domain.ProductBranchAvailability;
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
@@ -34,25 +34,22 @@ public class MenuService {
     private final ProductRepository productRepository;
     private final ProductBranchAvailabilityRepository availabilityRepository;
     private final OrganizationApi organizationApi;
-    private final CurrentUser currentUser;
 
     public MenuService(ProductRepository productRepository, ProductBranchAvailabilityRepository availabilityRepository,
-            OrganizationApi organizationApi, CurrentUser currentUser) {
+            OrganizationApi organizationApi) {
         this.productRepository = productRepository;
         this.availabilityRepository = availabilityRepository;
         this.organizationApi = organizationApi;
-        this.currentUser = currentUser;
     }
 
     public List<MenuEntry> menu() {
-        UUID companyId = currentUser.require().companyId();
         UUID branchId = BranchContext.require();
-        if (!organizationApi.branchExistsInCompany(branchId, companyId)) {
+        if (!organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
             throw ResourceNotFoundException.of("Branch", branchId);
         }
         Map<UUID, ProductBranchAvailability> byProduct = availabilityRepository.findByBranchId(branchId).stream()
                 .collect(Collectors.toMap(ProductBranchAvailability::getProductId, Function.identity()));
-        return productRepository.findByCompanyIdAndActiveTrueOrderByName(companyId).stream()
+        return productRepository.findByActiveTrueOrderByName().stream()
                 .filter(p -> byProduct.get(p.getId()) == null || byProduct.get(p.getId()).isAvailable())
                 .map(p -> new MenuEntry(p, p.priceAt(byProduct.get(p.getId()))))
                 .toList();

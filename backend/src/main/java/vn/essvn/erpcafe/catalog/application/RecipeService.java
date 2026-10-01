@@ -10,9 +10,9 @@ import vn.essvn.erpcafe.catalog.domain.Recipe;
 import vn.essvn.erpcafe.catalog.domain.RecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 
@@ -27,15 +27,13 @@ public class RecipeService {
 
     private final RecipeRepository recipeRepository;
     private final ProductRepository productRepository;
-    private final CurrentUser currentUser;
     private final InventoryApi inventoryApi;
 
     public RecipeService(RecipeRepository recipeRepository, ProductRepository productRepository,
-            CurrentUser currentUser, InventoryApi inventoryApi) {
+            InventoryApi inventoryApi) {
         this.inventoryApi = inventoryApi;
         this.recipeRepository = recipeRepository;
         this.productRepository = productRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +46,7 @@ public class RecipeService {
     /** Creates or replaces the recipe for a product. */
     public Recipe setRecipe(UUID productId, List<ConsumptionLine> lines, Long expectedVersion) {
         requireProduct(productId);
-        inventoryApi.validateConsumption(currentUser.require().companyId(), lines.stream()
+        inventoryApi.validateConsumption(TenantContext.require(), lines.stream()
                 .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
         Recipe recipe = recipeRepository.findByProductId(productId).orElseGet(() -> new Recipe(productId));
         requireCurrentVersion(recipe.getVersion(), expectedVersion);
@@ -67,7 +65,7 @@ public class RecipeService {
     }
 
     private void requireProduct(UUID productId) {
-        if (!productRepository.existsByIdAndCompanyId(productId, currentUser.require().companyId())) {
+        if (!productRepository.existsById(productId)) {
             throw ResourceNotFoundException.of("Product", productId);
         }
     }

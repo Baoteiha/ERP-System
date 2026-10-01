@@ -18,8 +18,8 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * What a customer buys — a line on the menu, scoped to a company. Carries a
@@ -35,10 +35,7 @@ import vn.essvn.erpcafe.common.domain.Money;
 @Table(name = "product", uniqueConstraints = @UniqueConstraint(name = "uk_product_company_sku", columnNames = {"company_id", "sku"}))
 @SQLDelete(sql = "UPDATE product SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Product extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Product extends TenantOwnedEntity {
 
     @Column(name = "category_id", nullable = false)
     private UUID categoryId;
@@ -74,16 +71,11 @@ public class Product extends AuditableEntity {
     protected Product() {
     }
 
-    public Product(UUID companyId, UUID categoryId, String name, String sku, Money basePrice) {
-        this.companyId = companyId;
+    public Product(UUID categoryId, String name, String sku, Money basePrice) {
         this.categoryId = categoryId;
         this.name = name;
         this.sku = sku;
         this.basePrice = basePrice;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public UUID getCategoryId() {

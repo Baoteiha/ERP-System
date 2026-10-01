@@ -12,10 +12,10 @@ import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
 import vn.essvn.erpcafe.catalog.domain.ModifierRecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 
@@ -26,39 +26,36 @@ public class ModifierService {
 
     private final ModifierGroupRepository groupRepository;
     private final ProductRepository productRepository;
-    private final CurrentUser currentUser;
     private final InventoryApi inventoryApi;
 
     public ModifierService(ModifierGroupRepository groupRepository, ProductRepository productRepository,
-            CurrentUser currentUser, InventoryApi inventoryApi) {
+            InventoryApi inventoryApi) {
         this.productRepository = productRepository;
         this.inventoryApi = inventoryApi;
         this.groupRepository = groupRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<ModifierGroup> listGroups() {
-        return groupRepository.findByCompanyId(currentUser.require().companyId());
+        return groupRepository.findAll();
     }
 
     @Transactional(readOnly = true)
     public ModifierGroup getGroup(UUID id) {
-        return groupRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return groupRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("ModifierGroup", id));
     }
 
     public ModifierGroup createGroup(String name, int minSelect, int maxSelect) {
-        UUID companyId = currentUser.require().companyId();
-        if (groupRepository.existsByCompanyIdAndName(companyId, name)) {
+        if (groupRepository.existsByName(name)) {
             throw new ConflictException("Modifier group already exists: " + name);
         }
-        return groupRepository.save(new ModifierGroup(companyId, name, minSelect, maxSelect));
+        return groupRepository.save(new ModifierGroup(name, minSelect, maxSelect));
     }
 
     public ModifierGroup updateGroup(UUID id, String name, int minSelect, int maxSelect) {
         ModifierGroup group = getGroup(id);
-        if (!group.getName().equals(name) && groupRepository.existsByCompanyIdAndName(group.getCompanyId(), name)) {
+        if (!group.getName().equals(name) && groupRepository.existsByName(name)) {
             throw new ConflictException("Modifier group already exists: " + name);
         }
         group.setName(name);
@@ -108,7 +105,7 @@ public class ModifierService {
     }
 
     private void validateDeltas(List<ConsumptionLine> recipeDeltas) {
-        inventoryApi.validateConsumption(currentUser.require().companyId(), recipeDeltas.stream()
+        inventoryApi.validateConsumption(TenantContext.require(), recipeDeltas.stream()
                 .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
     }
 

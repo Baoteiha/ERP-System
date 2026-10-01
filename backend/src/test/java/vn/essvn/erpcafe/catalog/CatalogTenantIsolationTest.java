@@ -60,11 +60,11 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
         Company b = companyRepository.save(new Company("Cat Other %d".formatted(n), "CTB%d".formatted(n)));
         return TenantContext.runAs(b.getId(), () -> {
             Branch branch = branchRepository.save(new Branch("B Branch", "CTBB%d".formatted(n)));
-            Category cat = categoryRepository.save(new Category(b.getId(), "Foreign Cat %d".formatted(n), 0));
-            Product product = productRepository.save(new Product(b.getId(), cat.getId(),
+            Category cat = categoryRepository.save(new Category("Foreign Cat %d".formatted(n), 0));
+            Product product = productRepository.save(new Product(cat.getId(),
                     "Foreign Prod %d".formatted(n), "FSKU%d".formatted(n), Money.of(BigDecimal.TEN)));
             ModifierGroup group = modifierGroupRepository.save(
-                    new ModifierGroup(b.getId(), "Foreign Group %d".formatted(n), 0, 1));
+                    new ModifierGroup("Foreign Group %d".formatted(n), 0, 1));
             return new Foreign(branch.getId(), cat.getId(), product.getId(), group.getId());
         });
     }
@@ -98,7 +98,7 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
         expectNotFound(put("/api/v1/products/" + id + "/availability")
                 .content("{\"branchId\":\"%s\",\"available\":true}".formatted(f.branchId())));
 
-        Product after = productRepository.findById(f.productId()).orElseThrow();
+        Product after = TenantContext.runAsSystem(() -> productRepository.findById(f.productId())).orElseThrow();
         assertThat(after.getName()).startsWith("Foreign Prod");
         assertThat(after.isActive()).isTrue();
         assertThat(recipeRepository.findByProductId(f.productId())).isEmpty();
@@ -115,7 +115,7 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
                 .content("{\"name\":\"Hijacked\",\"displayOrder\":1,\"active\":false}"));
         expectNotFound(delete("/api/v1/categories/" + id));
 
-        Category after = categoryRepository.findById(f.categoryId()).orElseThrow();
+        Category after = TenantContext.runAsSystem(() -> categoryRepository.findById(f.categoryId())).orElseThrow();
         assertThat(after.getName()).startsWith("Foreign Cat");
         assertThat(after.isActive()).isTrue();
     }
@@ -130,7 +130,8 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
                 .content("{\"name\":\"X\",\"priceDelta\":1,\"displayOrder\":0}"));
         expectNotFound(delete("/api/v1/modifier-groups/" + id));
 
-        ModifierGroup after = modifierGroupRepository.findById(f.groupId()).orElseThrow();
+        ModifierGroup after = TenantContext.runAsSystem(() -> modifierGroupRepository.findById(f.groupId()))
+                .orElseThrow();
         assertThat(after.getModifiers()).isEmpty();
     }
 
