@@ -64,7 +64,9 @@ the body or query rather than the header, must check that branch itself
 whose role carries `report:read`; a product's availability is listed only
 where the role carries `catalog:read`, set only where it carries
 `catalog:write`, and priced at a branch only with `catalog:read` there (403;
-another company's branch stays 404).
+another company's branch stays 404). Editing or deleting a branch acts on the
+branch in the path, so it needs `branch:write` in the caller's role there; an
+owner passes.
 
 Granting a role and widening it take the role's row lock (`SELECT … FOR
 UPDATE`) before reading it, so the two serialize: a widening sees the grant

@@ -15,6 +15,7 @@ import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BadRequestException;
+import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -34,6 +35,8 @@ import vn.essvn.erpcafe.staff.api.StaffApi;
 @Service
 @Transactional
 public class BranchService implements OrganizationApi {
+
+    private static final String BRANCH_WRITE = "branch:write";
 
     private final BranchRepository branchRepository;
     private final BranchMapper branchMapper;
@@ -93,6 +96,7 @@ public class BranchService implements OrganizationApi {
      */
     public Branch update(UUID id, BranchRequest request) {
         Branch branch = get(id);
+        requireBranchWriteAt(id);
         if (!branch.getCode().equals(request.code())
                 && branchRepository.existsByCompanyIdAndCode(branch.getCompanyId(), request.code())) {
             throw new ConflictException("Branch code already exists in company: " + request.code());
@@ -110,9 +114,22 @@ public class BranchService implements OrganizationApi {
     /** A branch with live work (open orders, clocked-in shifts, stock) cannot be deleted or deactivated. */
     public void delete(UUID id) {
         Branch branch = get(id);
+        requireBranchWriteAt(id);
         requireNoLiveWork(id);
         branchRepository.delete(branch);
         events.publishEvent(new BranchDeleted(id, branch.getCompanyId()));
+    }
+
+    /**
+     * Changing or deleting a branch acts on that branch, not on the one the request names, so the caller's
+     * own role there must carry branch:write; an owner passes (ADR-0007).
+     */
+    private void requireBranchWriteAt(UUID id) {
+        AuthPrincipal actor = currentUser.require();
+        boolean owner = actor.roles().contains(DefaultRole.OWNER.roleName());
+        if (!owner && !actor.permissionsAt(id).contains(BRANCH_WRITE)) {
+            throw new ForbiddenException("You need branch:write at branch " + id);
+        }
     }
 
     private void requireNoLiveWork(UUID id) {

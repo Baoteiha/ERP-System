@@ -494,4 +494,39 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
+
+    private String branchCode(String branchId) {
+        return branchRepository.findById(UUID.fromString(branchId)).orElseThrow().getCode();
+    }
+
+    @Test
+    void branchEdits_needBranchWriteAtTheBranchEdited() throws Exception {
+        String keeper = customRole("branch:read", "branch:write");
+        NewUser editor = newUser();
+        grant(editor, branchA, keeper);
+        grant(editor, branchB, roleId("CASHIER"));
+        String token = accessToken(editor.email(), "password123");
+        String nameOfB = branchRepository.findById(UUID.fromString(branchB)).orElseThrow().getName();
+        int grantsAtB = grants.findByBranchId(UUID.fromString(branchB)).size();
+
+        send(put("/api/v1/branches/" + branchB), token, branchA,
+                "{\"name\":\"Renamed\",\"code\":\"%s\",\"active\":false}".formatted(branchCode(branchB)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        send(delete("/api/v1/branches/" + branchB), token, branchA, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        Branch b = branchRepository.findById(UUID.fromString(branchB)).orElseThrow();
+        assertThat(b.getName()).isEqualTo(nameOfB);
+        assertThat(b.isActive()).isTrue();
+        assertThat(grants.findByBranchId(UUID.fromString(branchB))).hasSize(grantsAtB);
+
+        send(put("/api/v1/branches/" + branchA), token, branchA,
+                "{\"name\":\"Renamed A\",\"code\":\"%s\"}".formatted(branchCode(branchA)))
+                .andExpect(status().isOk());
+        send(put("/api/v1/branches/" + foreignBranch()), token, branchA,
+                "{\"name\":\"x\",\"code\":\"X%d\"}".formatted(SEQ.incrementAndGet()))
+                .andExpect(status().isNotFound());
+    }
 }
