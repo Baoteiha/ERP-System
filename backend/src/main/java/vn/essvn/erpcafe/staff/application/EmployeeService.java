@@ -2,8 +2,11 @@ package vn.essvn.erpcafe.staff.application;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +42,16 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<Employee> list() {
         return employeeRepository.findByCompanyIdOrderByFullName(currentUser.require().companyId());
+    }
+
+    /** Names of just these employees, so a shift list does not load the whole company roster. */
+    @Transactional(readOnly = true)
+    public Map<UUID, String> namesByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return employeeRepository.findByCompanyIdAndIdIn(currentUser.require().companyId(), ids).stream()
+                .collect(Collectors.toMap(Employee::getId, Employee::getFullName));
     }
 
     @Transactional(readOnly = true)

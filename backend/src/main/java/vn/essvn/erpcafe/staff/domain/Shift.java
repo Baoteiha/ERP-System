@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.staff.domain;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -99,15 +98,40 @@ public class Shift extends BranchScopedEntity {
     }
 
     /** Ends the shift and captures its labor cost from the snapshotted rate. */
-    public void clockOut(Instant at) {
+    public void clockOut(Instant at, Duration maxLength) {
         requireStatus(ShiftStatus.IN_PROGRESS, "clock out");
-        if (!at.isAfter(clockInAt)) {
+        close(clockInAt, at, maxLength,
+                "Shift is longer than %d hours; ask a manager to adjust it".formatted(maxLength.toHours()));
+    }
+
+    /**
+     * Manager correction of a forgotten or wrong punch: sets the clock-out (and the clock-in when
+     * given) of an open or completed shift and re-captures its labor cost at the snapshotted rate.
+     */
+    public void adjust(Instant newClockIn, Instant newClockOut, Duration maxLength) {
+        if (status != ShiftStatus.IN_PROGRESS && status != ShiftStatus.COMPLETED) {
+            throw new BusinessRuleException(
+                    "Only an open or completed shift can be adjusted (was %s)".formatted(status));
+        }
+        close(newClockIn != null ? newClockIn : clockInAt, newClockOut, maxLength,
+                "Shift cannot be longer than %d hours".formatted(maxLength.toHours()));
+    }
+
+    private void close(Instant in, Instant out, Duration maxLength, String tooLongMessage) {
+        if (out == null || !out.isAfter(in)) {
             throw new BusinessRuleException("Clock-out must be after clock-in");
         }
-        this.clockOutAt = at;
-        BigDecimal hours = BigDecimal.valueOf(Duration.between(clockInAt, at).toSeconds())
-                .divide(BigDecimal.valueOf(3600), 6, RoundingMode.HALF_EVEN);
-        this.laborCost = hourlyRate.multiply(hours);
+        Duration worked = Duration.between(in, out);
+        if (worked.compareTo(maxLength) > 0) {
+            throw new BusinessRuleException(tooLongMessage);
+        }
+        this.clockInAt = in;
+        this.clockOutAt = out;
+        // Round once, at the Money scale: hours x rate would otherwise round twice.
+        this.laborCost = Money.of(
+                hourlyRate.getAmount().multiply(BigDecimal.valueOf(worked.toSeconds()))
+                        .divide(BigDecimal.valueOf(3600), Money.SCALE, Money.ROUNDING),
+                hourlyRate.getCurrency());
         this.status = ShiftStatus.COMPLETED;
     }
 

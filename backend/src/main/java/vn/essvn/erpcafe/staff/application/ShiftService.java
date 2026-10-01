@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,14 +27,17 @@ import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
  */
 @Service
 @Transactional
+@EnableConfigurationProperties(StaffProperties.class)
 public class ShiftService implements StaffApi {
 
     private final ShiftRepository shiftRepository;
     private final EmployeeRepository employeeRepository;
     private final CurrentUser currentUser;
+    private final StaffProperties properties;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
-            CurrentUser currentUser) {
+            CurrentUser currentUser, StaffProperties properties) {
+        this.properties = properties;
         this.shiftRepository = shiftRepository;
         this.employeeRepository = employeeRepository;
         this.currentUser = currentUser;
@@ -89,8 +93,21 @@ public class ShiftService implements StaffApi {
 
     public Shift clockOut(UUID id) {
         Shift shift = get(id);
-        shift.clockOut(Instant.now());
+        shift.clockOut(Instant.now(), properties.maxShiftLength());
         return shift;
+    }
+
+    /** Manager correction of a punch; see {@link Shift#adjust}. */
+    public Shift adjust(UUID id, Instant clockIn, Instant clockOut) {
+        Shift shift = get(id);
+        shift.adjust(clockIn, clockOut, properties.maxShiftLength());
+        return shift;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Shift> listOpen() {
+        return shiftRepository.findByBranchIdAndStatusOrderByScheduledStart(
+                BranchContext.require(), ShiftStatus.IN_PROGRESS);
     }
 
     public Shift cancel(UUID id) {

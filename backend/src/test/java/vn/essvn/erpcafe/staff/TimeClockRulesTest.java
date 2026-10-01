@@ -133,6 +133,84 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
         assertThat(shiftRepository.findById(inProgress).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
     }
 
+    /** A shift already running for {@code hours}, saved straight through the repository. */
+    private UUID openShift(UUID emp, String rate, long hours) throws Exception {
+        UUID id = shift(emp, Instant.now().minus(hours + 1, ChronoUnit.HOURS));
+        Shift s = shiftRepository.findById(id).orElseThrow();
+        s.clockIn(Instant.now().minus(hours, ChronoUnit.HOURS), Money.of(new BigDecimal(rate)));
+        shiftRepository.save(s);
+        return id;
+    }
+
+    @Test
+    void clockOut_refusedAfterMoreThanSixteenHours() throws Exception {
+        login();
+        UUID emp = employee("Forgot " + unique(), "30000");
+        UUID id = openShift(emp, "30000", 17);
+
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/clock-out")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"))
+                .andExpect(jsonPath("$.detail").value("Shift is longer than 16 hours; ask a manager to adjust it"));
+
+        assertThat(shiftRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void adjust_setsClockOutCompletesTheShiftAndCostsItFromTheSnapshotRate() throws Exception {
+        login();
+        UUID emp = employee("Adjusted " + unique(), "30000");
+        UUID id = openShift(emp, "30001", 17);
+        Instant in = shiftRepository.findById(id).orElseThrow().getClockInAt();
+        Instant out = in.plus(8 * 60 + 20, ChronoUnit.MINUTES);
+
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(out)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.clockOutAt").exists());
+
+        Shift saved = shiftRepository.findById(id).orElseThrow();
+        // 30001 x 8h20m = 250008.3333... rounded once at the Money scale
+        assertThat(saved.getLaborCost().getAmount()).isEqualByComparingTo("250008.3333");
+        assertThat(saved.getClockOutAt()).isEqualTo(out);
+        assertThat(saved.getClockInAt()).isEqualTo(in);
+    }
+
+    @Test
+    void adjust_refusedWhenTheShiftIsStillScheduled() throws Exception {
+        login();
+        UUID emp = employee("Sched " + unique(), "30000");
+        UUID id = shift(emp, Instant.now().plus(1, ChronoUnit.DAYS));
+
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(Instant.now())))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
+    void list_rejectsAWindowThatEndsBeforeItStarts() throws Exception {
+        login();
+        mockMvc.perform(authed(get("/api/v1/staff/shifts"))
+                        .param("from", "2026-02-02T00:00:00Z").param("to", "2026-02-01T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+    }
+
+    @Test
+    void openShifts_listsTheActiveBranchsRunningShiftsOnly() throws Exception {
+        login();
+        UUID emp = employee("Running " + unique(), "30000");
+        UUID running = openShift(emp, "30000", 2);
+        UUID scheduled = shift(employee("Waiting " + unique(), "30000"), Instant.now().plus(1, ChronoUnit.DAYS));
+
+        mockMvc.perform(authed(get("/api/v1/staff/shifts/open")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(running)).exists())
+                .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(scheduled)).doesNotExist());
+    }
+
     private void deactivate(UUID emp, String name) throws Exception {
         mockMvc.perform(authed(put("/api/v1/staff/employees/" + emp))
                         .content("{\"fullName\":\"%s\",\"active\":false}".formatted(name)))

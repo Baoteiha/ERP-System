@@ -197,6 +197,7 @@ export interface ShiftResponse {
   scheduledStart: string; scheduledEnd: string; clockInAt?: string; clockOutAt?: string;
   hourlyRate?: Money; laborCost?: Money; note?: string;
 }
+export interface AdjustShiftRequest { clockIn?: string; clockOut: string; }
 export interface ShiftRequest { employeeId: UUID; scheduledStart: string; scheduledEnd: string; note?: string; }
 
 /* ---- reporting (phase 6) ------------------------------------------------ */

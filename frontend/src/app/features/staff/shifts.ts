@@ -21,6 +21,25 @@ import { IconComponent } from '../../shared/icon';
         @if (auth.can('staff:write')) { <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> Schedule shift</button> }
       </div>
 
+      @if (openShifts().length > 0) {
+        <section class="card open-panel" aria-label="Open shifts">
+          <h2 class="day-head">Open shifts</h2>
+          @for (s of openShifts(); track s.id) {
+            <div class="shift-row">
+              <div class="shift-main">
+                <b>{{ s.employeeName }}</b>
+                <span class="badge dot badge-amber">In progress</span>
+                @if (s.clockInAt) { <span class="soft">in since {{ s.clockInAt | date:'EEE d MMM HH:mm' }}</span> }
+              </div>
+              <div class="shift-actions">
+                @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="clockOut(s)" [disabled]="saving()">Clock out</button> }
+                @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
+              </div>
+            </div>
+          }
+        </section>
+      }
+
       <div class="week-bar">
         <div class="week-nav">
           <button class="btn btn-sm btn-outline" (click)="moveWeek(-1)">‹ Prev</button>
@@ -68,6 +87,9 @@ import { IconComponent } from '../../shared/icon';
                       @if (s.status === 'IN_PROGRESS') {
                         @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="clockOut(s)" [disabled]="saving()">Clock out</button> }
                       }
+                      @if (s.status === 'IN_PROGRESS' || s.status === 'COMPLETED') {
+                        @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
+                      }
                     </div>
                   </div>
                 }
@@ -103,8 +125,23 @@ import { IconComponent } from '../../shared/icon';
         </div>
       </app-modal>
     }
+
+    @if (adjusting(); as target) {
+      <app-modal [title]="'Adjust shift'" (close)="adjusting.set(null)">
+        <p class="soft">Correct {{ target.employeeName }}'s punch times. Labour cost is recalculated at the rate captured when they clocked in.</p>
+        <div class="field"><label for="adj-in">Clock in</label><input id="adj-in" class="input" type="datetime-local" [(ngModel)]="adjustForm.clockIn" /></div>
+        <div class="field"><label for="adj-out">Clock out <span class="req" aria-hidden="true">*</span></label><input id="adj-out" class="input" type="datetime-local" [(ngModel)]="adjustForm.clockOut" required /></div>
+        <div footer>
+          <button class="btn btn-outline" (click)="adjusting.set(null)">Cancel</button>
+          <button class="btn btn-primary" (click)="saveAdjust()" [disabled]="saving()">
+            @if (saving()) { <span class="spinner"></span> } Save
+          </button>
+        </div>
+      </app-modal>
+    }
   `,
   styles: [`
+    .open-panel { margin-bottom: 1rem; padding: .75rem 1rem; }
     .week-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
     .week-nav { display: flex; gap: .4rem; }
     .week-label { font-weight: 600; color: var(--text-soft); }
@@ -127,6 +164,9 @@ export class ShiftsComponent {
   private confirm = inject(ConfirmService);
 
   shifts = signal<ShiftResponse[]>([]);
+  openShifts = signal<ShiftResponse[]>([]);
+  adjusting = signal<ShiftResponse | null>(null);
+  adjustForm = { clockIn: '', clockOut: '' };
   employees = signal<EmployeeResponse[]>([]);
   loading = signal(true);
   saving = signal(false);
@@ -151,6 +191,7 @@ export class ShiftsComponent {
 
   constructor() {
     this.load();
+    this.loadOpen();
     this.staff.listEmployees().subscribe({ next: (items) => this.employees.set(items) });
   }
 
@@ -175,6 +216,10 @@ export class ShiftsComponent {
       next: (items) => { this.shifts.set(items); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
+  }
+
+  loadOpen() {
+    this.staff.openShifts().subscribe({ next: (items) => this.openShifts.set(items) });
   }
 
   moveWeek(delta: number) { this.weekStart.set(this.addDays(this.weekStart(), delta * 7)); this.load(); }
@@ -222,8 +267,10 @@ export class ShiftsComponent {
     if (!editing && !this.form.employeeId) { this.toast.error('Pick an employee'); return; }
     if (!this.form.date || !this.form.start || !this.form.end) { this.toast.error('Date, start and end time are required'); return; }
     const start = new Date(`${this.form.date}T${this.form.start}`);
-    const end = new Date(`${this.form.date}T${this.form.end}`);
-    if (end <= start) { this.toast.error('End time must be after start time'); return; }
+    let end = new Date(`${this.form.date}T${this.form.end}`);
+    if (end.getTime() === start.getTime()) { this.toast.error('End time must differ from start time'); return; }
+    // An end time earlier than the start is an overnight shift ending the next day.
+    if (end < start) end = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1, end.getHours(), end.getMinutes());
     const body = { scheduledStart: start.toISOString(), scheduledEnd: end.toISOString(), note: this.form.note || undefined };
     this.saving.set(true);
     const req = editing
@@ -235,7 +282,33 @@ export class ShiftsComponent {
         this.modalOpen.set(false);
         this.toast.success(editing ? 'Shift rescheduled' : 'Shift scheduled');
         this.load();
+        this.loadOpen();
       },
+      error: () => this.saving.set(false),
+    });
+  }
+
+  openAdjust(s: ShiftResponse) {
+    this.adjusting.set(s);
+    this.adjustForm = {
+      clockIn: s.clockInAt ? this.toLocalInput(new Date(s.clockInAt)) : '',
+      clockOut: s.clockOutAt ? this.toLocalInput(new Date(s.clockOutAt)) : '',
+    };
+  }
+
+  private toLocalInput(d: Date) { return `${this.toDateInput(d)}T${this.toTimeInput(d)}`; }
+
+  saveAdjust() {
+    const target = this.adjusting();
+    if (!target) return;
+    if (!this.adjustForm.clockOut) { this.toast.error('Clock-out time is required'); return; }
+    const body = {
+      clockIn: this.adjustForm.clockIn ? new Date(this.adjustForm.clockIn).toISOString() : undefined,
+      clockOut: new Date(this.adjustForm.clockOut).toISOString(),
+    };
+    this.saving.set(true);
+    this.staff.adjustShift(target.id, body).subscribe({
+      next: () => { this.saving.set(false); this.adjusting.set(null); this.toast.success('Shift adjusted'); this.load(); this.loadOpen(); },
       error: () => this.saving.set(false),
     });
   }
@@ -243,7 +316,7 @@ export class ShiftsComponent {
   clockIn(s: ShiftResponse) {
     this.saving.set(true);
     this.staff.clockIn(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Clocked in'); this.load(); },
+      next: () => { this.saving.set(false); this.toast.success('Clocked in'); this.load(); this.loadOpen(); },
       error: () => this.saving.set(false),
     });
   }
@@ -251,7 +324,7 @@ export class ShiftsComponent {
   clockOut(s: ShiftResponse) {
     this.saving.set(true);
     this.staff.clockOut(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Clocked out'); this.load(); },
+      next: () => { this.saving.set(false); this.toast.success('Clocked out'); this.load(); this.loadOpen(); },
       error: () => this.saving.set(false),
     });
   }
@@ -265,7 +338,7 @@ export class ShiftsComponent {
     if (!ok) return;
     this.saving.set(true);
     this.staff.cancelShift(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Shift cancelled'); this.load(); },
+      next: () => { this.saving.set(false); this.toast.success('Shift cancelled'); this.load(); this.loadOpen(); },
       error: () => this.saving.set(false),
     });
   }

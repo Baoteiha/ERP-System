@@ -20,12 +20,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
 import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.application.ShiftService;
-import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
+import vn.essvn.erpcafe.staff.web.StaffDtos.AdjustRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.RescheduleRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.ShiftRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.ShiftResponse;
@@ -54,8 +55,17 @@ public class ShiftController {
             @RequestParam(required = false) Instant to) {
         Instant start = from != null ? from : Instant.now().truncatedTo(ChronoUnit.DAYS).minus(1, ChronoUnit.DAYS);
         Instant end = to != null ? to : start.plus(8, ChronoUnit.DAYS);
-        Map<UUID, String> names = employeeNames();
-        return shiftService.list(start, end).stream().map(s -> toResponse(s, names)).toList();
+        if (!start.isBefore(end)) {
+            throw new BadRequestException("'from' must be before 'to'");
+        }
+        return responses(shiftService.list(start, end));
+    }
+
+    /** Shifts running right now at the branch, whenever they were scheduled. */
+    @GetMapping("/open")
+    @PreAuthorize("hasAuthority('staff:read')")
+    public List<ShiftResponse> open() {
+        return responses(shiftService.listOpen());
     }
 
     @PostMapping
@@ -63,38 +73,54 @@ public class ShiftController {
     public ResponseEntity<ShiftResponse> schedule(@Valid @RequestBody ShiftRequest request) {
         Shift shift = shiftService.schedule(request.employeeId(),
                 request.scheduledStart(), request.scheduledEnd(), request.note());
-        ShiftResponse body = toResponse(shift, employeeNames());
+        ShiftResponse body = toResponse(shift, employeeNames(shift));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/staff/shifts/" + body.id())).body(body);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('staff:write')")
     public ShiftResponse reschedule(@PathVariable UUID id, @Valid @RequestBody RescheduleRequest request) {
-        return toResponse(shiftService.reschedule(id, request.scheduledStart(), request.scheduledEnd(),
-                request.note()), employeeNames());
+        Shift shift = shiftService.reschedule(id, request.scheduledStart(), request.scheduledEnd(),
+                request.note());
+        return toResponse(shift, employeeNames(shift));
     }
 
     @PostMapping("/{id}/clock-in")
     @PreAuthorize("hasAuthority('staff:clock')")
     public ShiftResponse clockIn(@PathVariable UUID id) {
-        return toResponse(shiftService.clockIn(id), employeeNames());
+        Shift shift = shiftService.clockIn(id);
+        return toResponse(shift, employeeNames(shift));
     }
 
     @PostMapping("/{id}/clock-out")
     @PreAuthorize("hasAuthority('staff:clock')")
     public ShiftResponse clockOut(@PathVariable UUID id) {
-        return toResponse(shiftService.clockOut(id), employeeNames());
+        Shift shift = shiftService.clockOut(id);
+        return toResponse(shift, employeeNames(shift));
+    }
+
+    @PostMapping("/{id}/adjust")
+    @PreAuthorize("hasAuthority('staff:write')")
+    public ShiftResponse adjust(@PathVariable UUID id, @Valid @RequestBody AdjustRequest request) {
+        Shift shift = shiftService.adjust(id, request.clockIn(), request.clockOut());
+        return toResponse(shift, employeeNames(shift));
     }
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('staff:write')")
     public ShiftResponse cancel(@PathVariable UUID id) {
-        return toResponse(shiftService.cancel(id), employeeNames());
+        Shift shift = shiftService.cancel(id);
+        return toResponse(shift, employeeNames(shift));
     }
 
-    private Map<UUID, String> employeeNames() {
-        return employeeService.list().stream()
-                .collect(Collectors.toMap(Employee::getId, Employee::getFullName, (a, b) -> a));
+    private List<ShiftResponse> responses(List<Shift> shifts) {
+        Map<UUID, String> names = employeeService.namesByIds(
+                shifts.stream().map(Shift::getEmployeeId).collect(Collectors.toSet()));
+        return shifts.stream().map(s -> toResponse(s, names)).toList();
+    }
+
+    private Map<UUID, String> employeeNames(Shift shift) {
+        return employeeService.namesByIds(List.of(shift.getEmployeeId()));
     }
 
     private static ShiftResponse toResponse(Shift s, Map<UUID, String> names) {

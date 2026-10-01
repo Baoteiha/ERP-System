@@ -171,6 +171,8 @@ export class StaffService {
   }
   scheduleShift(b: M.ShiftRequest) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts`, b); }
   rescheduleShift(id: string, b: Omit<M.ShiftRequest, 'employeeId'>) { return this.http.put<M.ShiftResponse>(`${V1}/staff/shifts/${id}`, b); }
+  openShifts() { return this.http.get<M.ShiftResponse[]>(`${V1}/staff/shifts/open`); }
+  adjustShift(id: string, b: M.AdjustShiftRequest) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/adjust`, b); }
   clockIn(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-in`, {}); }
   clockOut(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-out`, {}); }
   cancelShift(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/cancel`, {}); }

@@ -42,6 +42,10 @@ public final class StaffDtos {
             @Size(max = 500) String note) {
     }
 
+    /** Manager correction of a punch; the clock-in is optional and keeps its value when absent. */
+    public record AdjustRequest(Instant clockIn, @NotNull Instant clockOut) {
+    }
+
     public record ShiftResponse(UUID id, UUID branchId, UUID employeeId, String employeeName,
             String status, Instant scheduledStart, Instant scheduledEnd,
             Instant clockInAt, Instant clockOutAt,
