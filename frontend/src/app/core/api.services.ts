@@ -181,6 +181,8 @@ export class StaffService {
   createEmployee(b: M.EmployeeRequest) { return this.http.post<M.EmployeeResponse>(`${V1}/staff/employees`, b); }
   updateEmployee(id: string, b: M.EmployeeRequest) { return this.http.put<M.EmployeeResponse>(`${V1}/staff/employees/${id}`, b); }
 
+  setEmployeePin(id: string, pin: string) { return this.http.put<void>(`${V1}/staff/employees/${id}/pin`, { pin }); }
+
   listShifts(from: string, to: string) {
     return this.http.get<M.ShiftResponse[]>(`${V1}/staff/shifts`, { params: new HttpParams().set('from', from).set('to', to) });
   }
@@ -188,8 +190,8 @@ export class StaffService {
   rescheduleShift(id: string, b: Omit<M.ShiftRequest, 'employeeId'>) { return this.http.put<M.ShiftResponse>(`${V1}/staff/shifts/${id}`, b); }
   openShifts() { return this.http.get<M.ShiftResponse[]>(`${V1}/staff/shifts/open`); }
   adjustShift(id: string, b: M.AdjustShiftRequest) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/adjust`, b); }
-  clockIn(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-in`, {}); }
-  clockOut(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-out`, {}); }
+  clockIn(id: string, pin?: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-in`, pin ? { pin } : {}); }
+  clockOut(id: string, pin?: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/clock-out`, pin ? { pin } : {}); }
   cancelShift(id: string) { return this.http.post<M.ShiftResponse>(`${V1}/staff/shifts/${id}/cancel`, {}); }
 }
 

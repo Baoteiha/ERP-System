@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
@@ -21,6 +23,7 @@ import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.web.StaffDtos.EmployeeRequest;
+import vn.essvn.erpcafe.staff.web.StaffDtos.PinRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.EmployeeResponse;
 
 /**
@@ -66,6 +69,14 @@ public class EmployeeController {
         return toResponse(employeeService.update(id, request.fullName(), request.position(),
                 request.hourlyRate(), request.phone(), request.email(),
                 request.active()));
+    }
+
+    /** Sets or replaces the clocking PIN; it is stored hashed and never returned. */
+    @PutMapping("/{id}/pin")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('staff:write')")
+    public void setPin(@PathVariable UUID id, @Valid @RequestBody PinRequest request) {
+        employeeService.setPin(id, request.pin());
     }
 
     /** Pay and contact details are for managers: readers without staff:write get them as null. */

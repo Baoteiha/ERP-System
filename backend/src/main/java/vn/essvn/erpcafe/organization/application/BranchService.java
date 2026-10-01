@@ -105,7 +105,7 @@ public class BranchService implements OrganizationApi {
         branch.setCode(request.code());
         apply(branch, request);
         if (wasActive && !branch.isActive()) {
-            requireNoLiveWork(id);
+            requireNoLiveWork(branch);
             events.publishEvent(new BranchDeactivated(branch.getId(), branch.getCompanyId()));
         }
         return branch;
@@ -115,7 +115,7 @@ public class BranchService implements OrganizationApi {
     public void delete(UUID id) {
         Branch branch = get(id);
         requireBranchWriteAt(id);
-        requireNoLiveWork(id);
+        requireNoLiveWork(branch);
         branchRepository.delete(branch);
         events.publishEvent(new BranchDeleted(id, branch.getCompanyId()));
     }
@@ -132,11 +132,12 @@ public class BranchService implements OrganizationApi {
         }
     }
 
-    private void requireNoLiveWork(UUID id) {
+    private void requireNoLiveWork(Branch branch) {
+        UUID id = branch.getId();
         if (salesApi.hasOpenOrders(id)) {
             throw new ConflictException("Branch has open orders; settle or cancel them first");
         }
-        if (staffApi.hasOpenShifts(id)) {
+        if (staffApi.hasOpenShifts(branch.getCompanyId(), id)) {
             throw new ConflictException("Branch has shifts in progress; clock everyone out first");
         }
         if (inventoryApi.getObject().hasStockOnHand(id)) {

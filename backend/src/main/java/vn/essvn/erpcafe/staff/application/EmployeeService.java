@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,9 +33,12 @@ public class EmployeeService {
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
     private final CurrentUser currentUser;
+    // Lazy: the encoder lives in SecurityConfig, whose filter chain reaches back here via organization.
+    private final ObjectProvider<PasswordEncoder> passwordEncoder;
 
     public EmployeeService(EmployeeRepository employeeRepository, ShiftRepository shiftRepository,
-            CurrentUser currentUser) {
+            CurrentUser currentUser, ObjectProvider<PasswordEncoder> passwordEncoder) {
+        this.passwordEncoder = passwordEncoder;
         this.employeeRepository = employeeRepository;
         this.shiftRepository = shiftRepository;
         this.currentUser = currentUser;
@@ -84,6 +89,10 @@ public class EmployeeService {
             employee.setActive(active);
         }
         return employee;
+    }
+
+    public void setPin(UUID id, String rawPin) {
+        get(id).setPin(rawPin, passwordEncoder.getObject());
     }
 
     /** A deactivated employee must not stay on the rota; past and open shifts are history and stay. */

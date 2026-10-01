@@ -7,6 +7,7 @@ import java.util.UUID;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import vn.essvn.erpcafe.common.web.MoneyDto;
 
@@ -27,6 +28,13 @@ public final class StaffDtos {
 
     public record EmployeeResponse(UUID id, String fullName, String position,
             MoneyDto hourlyRate, String phone, String email, boolean active) {
+    }
+
+    /** The PIN is optional on a punch: employees who have none set clock without one. */
+    public record ClockRequest(String pin) {
+    }
+
+    public record PinRequest(@NotNull @Pattern(regexp = "\\d{4,6}", message = "PIN must be 4 to 6 digits") String pin) {
     }
 
     public record ShiftRequest(

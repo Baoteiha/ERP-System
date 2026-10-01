@@ -56,7 +56,7 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
         Branch branchB = branchRepository.save(new Branch(b.getId(), "B Branch", "SFB%d".formatted(n)));
         Employee empB = employeeRepository.save(
                 new Employee(b.getId(), "Foreign Emp %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
-        Shift shiftB = shiftRepository.save(new Shift(branchB.getId(), empB.getId(), START, END, "b shift"));
+        Shift shiftB = shiftRepository.save(new Shift(b.getId(), branchB.getId(), empB.getId(), START, END, "b shift"));
         return new Foreign(empB.getId(), shiftB.getId());
     }
 

@@ -41,6 +41,7 @@ import { IconComponent } from '../../shared/icon';
                     <td><span class="badge dot" [class]="e.active ? 'badge-green' : 'badge-gray'">{{ e.active ? 'Active' : 'Inactive' }}</span></td>
                     <td class="row-actions">
                       @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openEdit(e)">Edit</button> }
+                      @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openPin(e)">Set PIN</button> }
                     </td>
                   </tr>
                 } @empty { <tr><td [attr.colspan]="showPay() ? 6 : 4"><div class="empty"><div class="big"><app-icon name="users" [size]="30" /></div>No employees yet — add your team.</div></td></tr> }
@@ -50,6 +51,23 @@ import { IconComponent } from '../../shared/icon';
         }
       </div>
     </div>
+
+    @if (pinTarget(); as target) {
+      <app-modal [title]="'Set PIN'" (close)="pinTarget.set(null)">
+        <p class="soft">{{ target.fullName }} uses this PIN to clock in and out. Setting a new one replaces the old.</p>
+        <div class="field">
+          <label for="emp-pin">PIN <span class="req" aria-hidden="true">*</span></label>
+          <input id="emp-pin" class="input" type="password" inputmode="numeric" autocomplete="off" maxlength="6" [(ngModel)]="pin" (keydown.enter)="savePin()" />
+          <div class="hint">4 to 6 digits</div>
+        </div>
+        <div footer>
+          <button class="btn btn-outline" (click)="pinTarget.set(null)">Cancel</button>
+          <button class="btn btn-primary" (click)="savePin()" [disabled]="saving()">
+            @if (saving()) { <span class="spinner"></span> } Save PIN
+          </button>
+        </div>
+      </app-modal>
+    }
 
     @if (modalOpen()) {
       <app-modal [title]="editing() ? 'Edit employee' : 'New employee'" (close)="modalOpen.set(false)">
@@ -95,6 +113,8 @@ export class TeamComponent {
   saving = signal(false);
   modalOpen = signal(false);
   editing = signal<EmployeeResponse | null>(null);
+  pinTarget = signal<EmployeeResponse | null>(null);
+  pin = '';
 
   form = { fullName: '', position: '', hourlyRate: 0, phone: '', email: '', active: true };
 
@@ -127,6 +147,22 @@ export class TeamComponent {
       active: e.active,
     };
     this.modalOpen.set(true);
+  }
+
+  openPin(e: EmployeeResponse) {
+    this.pin = '';
+    this.pinTarget.set(e);
+  }
+
+  savePin() {
+    const target = this.pinTarget();
+    if (!target) return;
+    if (!/^\d{4,6}$/.test(this.pin)) { this.toast.error('PIN must be 4 to 6 digits'); return; }
+    this.saving.set(true);
+    this.staff.setEmployeePin(target.id, this.pin).subscribe({
+      next: () => { this.saving.set(false); this.pinTarget.set(null); this.toast.success('PIN saved'); },
+      error: () => this.saving.set(false),
+    });
   }
 
   save() {

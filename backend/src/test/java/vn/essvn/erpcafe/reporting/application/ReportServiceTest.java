@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.reporting.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,17 +44,23 @@ class ReportServiceTest {
     private final Instant from = Instant.parse("2026-03-01T00:00:00Z");
     private final Instant to = Instant.parse("2026-03-02T00:00:00Z");
 
+    private final UUID companyId = UUID.randomUUID();
+
     private void stub(UUID branch, String net, String cogs, String labor) {
         when(salesApi.summary(branch, from, to)).thenReturn(new SalesSummary(1, new BigDecimal("50000"),
                 new BigDecimal("8000"), new BigDecimal(net), new BigDecimal("4200"), new BigDecimal("46200")));
         when(inventoryApi.depletionCost(branch, from, to)).thenReturn(new BigDecimal(cogs));
-        when(staffApi.laborCost(branch, from, to)).thenReturn(new BigDecimal(labor));
+        when(staffApi.laborCost(companyId, branch, from, to)).thenReturn(new BigDecimal(labor));
+        when(staffApi.laborCostByBranch(eq(companyId), anyCollection(), eq(from), eq(to)))
+                .thenReturn(Map.of(branch, new BigDecimal(labor)));
     }
 
     @Test
     void grossMarginIsNetSalesMinusCogs_netMarginSubtractsLabour() {
         stub(branchId, "42000", "10000", "7000");
         BranchContext.set(branchId);
+        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", companyId,
+                Map.of(), Set.of(), Set.of()));
         try {
             PeriodSummary summary = service.branchSummary(from, to);
             assertThat(summary.grossMargin()).isEqualByComparingTo("32000");
@@ -67,7 +75,6 @@ class ReportServiceTest {
     void outletsAreFilteredToTheBranchesWhereTheCallerReadsReports() {
         UUID other = UUID.randomUUID();
         UUID cashierAt = UUID.randomUUID();
-        UUID companyId = UUID.randomUUID();
         stub(branchId, "42000", "10000", "0");
         when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", companyId,
                 Map.of(branchId, Set.of("report:read"), cashierAt, Set.of("sales:write")), Set.of(), Set.of()));

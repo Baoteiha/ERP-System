@@ -27,6 +27,9 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 @Table(name = "shift")
 public class Shift extends BranchScopedEntity {
 
+    @Column(name = "company_id", nullable = false)
+    private UUID companyId;
+
     @Column(name = "employee_id", nullable = false)
     private UUID employeeId;
 
@@ -66,10 +69,11 @@ public class Shift extends BranchScopedEntity {
     protected Shift() {
     }
 
-    public Shift(UUID branchId, UUID employeeId, Instant scheduledStart, Instant scheduledEnd, String note) {
+    public Shift(UUID companyId, UUID branchId, UUID employeeId, Instant scheduledStart, Instant scheduledEnd, String note) {
         if (scheduledStart == null || scheduledEnd == null || !scheduledEnd.isAfter(scheduledStart)) {
             throw new BusinessRuleException("Shift end must be after its start");
         }
+        this.companyId = companyId;
         setBranchId(branchId);
         this.employeeId = employeeId;
         this.scheduledStart = scheduledStart;
@@ -152,6 +156,10 @@ public class Shift extends BranchScopedEntity {
     }
 
     // --- getters ---
+
+    public UUID getCompanyId() {
+        return companyId;
+    }
 
     public UUID getEmployeeId() {
         return employeeId;

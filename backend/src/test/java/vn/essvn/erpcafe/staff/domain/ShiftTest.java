@@ -26,7 +26,7 @@ class ShiftTest {
     private static final Money RATE = Money.of(new BigDecimal("30000"));
 
     private static Shift scheduled() {
-        return new Shift(UUID.randomUUID(), UUID.randomUUID(), START, START.plus(Duration.ofHours(8)), null);
+        return new Shift(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), START, START.plus(Duration.ofHours(8)), null);
     }
 
     private static Shift inProgress() {
@@ -109,12 +109,12 @@ class ShiftTest {
 
     @Test
     void laborCost_roundsHalfEvenAtTheMoneyScale() {
-        Shift oneSecond = new Shift(UUID.randomUUID(), UUID.randomUUID(), START, START.plusSeconds(3600), null);
+        Shift oneSecond = new Shift(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), START, START.plusSeconds(3600), null);
         oneSecond.clockIn(START, Money.of(new BigDecimal("0.18")));
         oneSecond.clockOut(START.plusSeconds(1), MAX); // 0.18 / 3600 = 0.00005 exactly: tie goes to even
         assertThat(oneSecond.getLaborCost().getAmount()).isEqualByComparingTo("0.0000");
 
-        Shift threeSeconds = new Shift(UUID.randomUUID(), UUID.randomUUID(), START, START.plusSeconds(3600), null);
+        Shift threeSeconds = new Shift(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), START, START.plusSeconds(3600), null);
         threeSeconds.clockIn(START, Money.of(new BigDecimal("0.18")));
         threeSeconds.clockOut(START.plusSeconds(3), MAX); // 0.00015: tie goes to 0.0002
         assertThat(threeSeconds.getLaborCost().getAmount()).isEqualByComparingTo("0.0002");

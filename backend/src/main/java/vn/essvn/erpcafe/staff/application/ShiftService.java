@@ -2,17 +2,24 @@ package vn.essvn.erpcafe.staff.application;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
+import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -34,9 +41,16 @@ public class ShiftService implements StaffApi {
     private final EmployeeRepository employeeRepository;
     private final CurrentUser currentUser;
     private final StaffProperties properties;
+    // Lazy: the encoder lives in SecurityConfig, whose filter chain reaches back here via organization.
+    private final ObjectProvider<PasswordEncoder> passwordEncoder;
+    // Lazy: organization already depends on this module (BranchService calls hasOpenShifts).
+    private final ObjectProvider<OrganizationApi> organizationApi;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
-            CurrentUser currentUser, StaffProperties properties) {
+            CurrentUser currentUser, StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
+            ObjectProvider<OrganizationApi> organizationApi) {
+        this.passwordEncoder = passwordEncoder;
+        this.organizationApi = organizationApi;
         this.properties = properties;
         this.shiftRepository = shiftRepository;
         this.employeeRepository = employeeRepository;
@@ -66,7 +80,7 @@ public class ShiftService implements StaffApi {
         if (!employee.isActive()) {
             throw new BusinessRuleException("Cannot schedule an inactive employee");
         }
-        return shiftRepository.save(new Shift(BranchContext.require(), employeeId, start, end, note));
+        return shiftRepository.save(new Shift(employee.getCompanyId(), BranchContext.require(), employeeId, start, end, note));
     }
 
     public Shift reschedule(UUID id, Instant start, Instant end, String note) {
@@ -75,10 +89,9 @@ public class ShiftService implements StaffApi {
         return shift;
     }
 
-    public Shift clockIn(UUID id) {
+    public Shift clockIn(UUID id, String pin) {
         Shift shift = get(id);
-        Employee employee = employeeRepository.findById(shift.getEmployeeId())
-                .orElseThrow(() -> ResourceNotFoundException.of("Employee", shift.getEmployeeId()));
+        Employee employee = employeeOf(shift, pin);
         if (!employee.isActive()) {
             throw new BusinessRuleException("Cannot clock in a deactivated employee");
         }
@@ -91,10 +104,21 @@ public class ShiftService implements StaffApi {
         return shift;
     }
 
-    public Shift clockOut(UUID id) {
+    public Shift clockOut(UUID id, String pin) {
         Shift shift = get(id);
+        employeeOf(shift, pin);
         shift.clockOut(Instant.now(), properties.maxShiftLength());
         return shift;
+    }
+
+    /** The shift's employee, once the PIN is proven — before any state rule can leak anything. */
+    private Employee employeeOf(Shift shift, String pin) {
+        Employee employee = employeeRepository.findByIdAndCompanyId(shift.getEmployeeId(), shift.getCompanyId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Employee", shift.getEmployeeId()));
+        if (!employee.pinMatches(pin, passwordEncoder.getObject())) {
+            throw new ForbiddenException("Wrong PIN");
+        }
+        return employee;
     }
 
     /** Manager correction of a punch; see {@link Shift#adjust}. */
@@ -120,13 +144,31 @@ public class ShiftService implements StaffApi {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean hasOpenShifts(UUID branchId) {
-        return shiftRepository.existsByBranchIdAndStatus(branchId, ShiftStatus.IN_PROGRESS);
+    public boolean hasOpenShifts(UUID companyId, UUID branchId) {
+        return shiftRepository.existsByCompanyIdAndBranchIdAndStatus(companyId, branchId, ShiftStatus.IN_PROGRESS);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public BigDecimal laborCost(UUID branchId, Instant from, Instant to) {
-        return shiftRepository.laborCostBetween(branchId, from, to);
+    public BigDecimal laborCost(UUID companyId, UUID branchId, Instant from, Instant to) {
+        return laborCostByBranch(companyId, List.of(branchId), from, to).get(branchId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, BigDecimal> laborCostByBranch(UUID companyId, Collection<UUID> branchIds,
+            Instant from, Instant to) {
+        OrganizationApi organization = organizationApi.getObject();
+        Map<UUID, BigDecimal> result = new HashMap<>();
+        for (UUID branchId : branchIds) {
+            organization.findBranch(companyId, branchId)
+                    .orElseThrow(() -> ResourceNotFoundException.of("Branch", branchId));
+            result.put(branchId, BigDecimal.ZERO);
+        }
+        if (!result.isEmpty()) {
+            shiftRepository.laborCostByBranch(companyId, result.keySet(), from, to)
+                    .forEach(row -> result.put(row.getBranchId(), row.getTotal()));
+        }
+        return result;
     }
 }

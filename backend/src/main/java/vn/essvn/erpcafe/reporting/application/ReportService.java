@@ -3,6 +3,7 @@ package vn.essvn.erpcafe.reporting.application;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -54,7 +55,9 @@ public class ReportService {
 
     /** Performance of the active branch over [from, to). */
     public PeriodSummary branchSummary(Instant from, Instant to) {
-        return performance(BranchContext.require(), from, to);
+        UUID branchId = BranchContext.require();
+        UUID companyId = currentUser.require().companyId();
+        return performance(branchId, from, to, staffApi.laborCost(companyId, branchId, from, to));
     }
 
     /** Daily net sales series for the active branch, days cut in the reporting zone. */
@@ -65,16 +68,20 @@ public class ReportService {
     /** Side-by-side performance of the caller's active branches where their role lets them read reports. */
     public List<BranchPerformance> outletComparison(Instant from, Instant to) {
         AuthPrincipal caller = currentUser.require();
-        return organizationApi.listActiveBranches(caller.companyId()).stream()
+        List<BranchDto> branches = organizationApi.listActiveBranches(caller.companyId()).stream()
                 .filter(b -> caller.permissionsAt(b.id()).contains(REPORT_READ))
-                .map(b -> new BranchPerformance(b.id(), b.name(), b.code(), performance(b.id(), from, to)))
+                .toList();
+        Map<UUID, BigDecimal> labor = staffApi.laborCostByBranch(caller.companyId(),
+                branches.stream().map(BranchDto::id).toList(), from, to);
+        return branches.stream()
+                .map(b -> new BranchPerformance(b.id(), b.name(), b.code(),
+                        performance(b.id(), from, to, labor.get(b.id()))))
                 .toList();
     }
 
-    private PeriodSummary performance(UUID branchId, Instant from, Instant to) {
+    private PeriodSummary performance(UUID branchId, Instant from, Instant to, BigDecimal labor) {
         SalesSummary sales = salesApi.summary(branchId, from, to);
         BigDecimal cogs = inventoryApi.depletionCost(branchId, from, to);
-        BigDecimal labor = staffApi.laborCost(branchId, from, to);
         BigDecimal grossMargin = sales.netSales().subtract(cogs);
         BigDecimal netMargin = grossMargin.subtract(labor);
         return new PeriodSummary(sales.orderCount(), sales.grossSales(), sales.discountTotal(),

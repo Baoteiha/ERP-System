@@ -2,6 +2,8 @@ package vn.essvn.erpcafe.staff.domain;
 
 import java.util.UUID;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
@@ -45,6 +47,9 @@ public class Employee extends AuditableEntity {
 
     @Column(name = "active", nullable = false)
     private boolean active = true;
+
+    @Column(name = "pin_hash", length = 100)
+    private String pinHash;
 
     protected Employee() {
     }
@@ -98,6 +103,23 @@ public class Employee extends AuditableEntity {
 
     public void setHourlyRate(Money hourlyRate) {
         this.hourlyRate = hourlyRate;
+    }
+
+    public boolean hasPin() {
+        return pinHash != null;
+    }
+
+    public String getPinHash() {
+        return pinHash;
+    }
+
+    public void setPin(String rawPin, PasswordEncoder encoder) {
+        this.pinHash = encoder.encode(rawPin);
+    }
+
+    /** An employee without a PIN accepts any (or no) PIN, so existing teams keep clocking until one is set. */
+    public boolean pinMatches(String rawPin, PasswordEncoder encoder) {
+        return pinHash == null || (rawPin != null && encoder.matches(rawPin, pinHash));
     }
 
     public boolean isActive() {

@@ -25,6 +25,7 @@ import com.jayway.jsonpath.JsonPath;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
+import vn.essvn.erpcafe.staff.persistence.EmployeeRepository;
 import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
@@ -37,6 +38,7 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
     private static final AtomicInteger SEQ = new AtomicInteger();
 
     @Autowired private ShiftRepository shiftRepository;
+    @Autowired private EmployeeRepository employeeRepository;
 
     private String adminToken;
     private String branchId;
@@ -76,7 +78,7 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
                 "{\"fullName\":\"%s\",\"hourlyRate\":45000,\"phone\":\"0901234567\",\"email\":\"p@x.vn\"}".formatted(name));
         UUID emp = UUID.fromString(JsonPath.read(created, "$.id"));
         Instant in = Instant.now().minus(5, ChronoUnit.HOURS);
-        Shift shift = new Shift(UUID.fromString(branchId), emp, in, in.plus(4, ChronoUnit.HOURS), null);
+        Shift shift = new Shift(companyOf(emp), UUID.fromString(branchId), emp, in, in.plus(4, ChronoUnit.HOURS), null);
         shift.clockIn(in, Money.of(new BigDecimal("45000")));
         shift.clockOut(in.plus(4, ChronoUnit.HOURS), Duration.ofHours(16));
         shift = shiftRepository.save(shift);
@@ -119,7 +121,7 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
                 "{\"fullName\":\"Clock %d\",\"hourlyRate\":45000}".formatted(System.nanoTime())), "$.id"));
         Instant start = Instant.now().minus(1, ChronoUnit.HOURS);
         Shift shift = shiftRepository.save(
-                new Shift(UUID.fromString(branchId), emp, start, start.plus(8, ChronoUnit.HOURS), null));
+                new Shift(companyOf(emp), UUID.fromString(branchId), emp, start, start.plus(8, ChronoUnit.HOURS), null));
         String base = "/api/v1/staff/shifts/" + shift.getId();
 
         mockMvc.perform(post(base + "/clock-in")
@@ -147,7 +149,7 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
         UUID emp = UUID.fromString(JsonPath.read(admin(post("/api/v1/staff/employees"),
                 "{\"fullName\":\"Adj %d\"}".formatted(System.nanoTime())), "$.id"));
         Instant in = Instant.now().minus(3, ChronoUnit.HOURS);
-        Shift open = new Shift(UUID.fromString(branchId), emp, in, in.plus(8, ChronoUnit.HOURS), null);
+        Shift open = new Shift(companyOf(emp), UUID.fromString(branchId), emp, in, in.plus(8, ChronoUnit.HOURS), null);
         open.clockIn(in, Money.zero());
         open = shiftRepository.save(open);
 
@@ -158,5 +160,9 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
         assertThat(shiftRepository.findById(open.getId()).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+    }
+
+    private UUID companyOf(UUID employeeId) {
+        return employeeRepository.findById(employeeId).orElseThrow().getCompanyId();
     }
 }

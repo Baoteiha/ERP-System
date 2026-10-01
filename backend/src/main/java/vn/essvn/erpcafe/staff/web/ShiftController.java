@@ -28,6 +28,7 @@ import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.application.ShiftService;
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.web.StaffDtos.AdjustRequest;
+import vn.essvn.erpcafe.staff.web.StaffDtos.ClockRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.RescheduleRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.ShiftRequest;
 import vn.essvn.erpcafe.staff.web.StaffDtos.ShiftResponse;
@@ -91,15 +92,15 @@ public class ShiftController {
 
     @PostMapping("/{id}/clock-in")
     @PreAuthorize("hasAuthority('staff:clock')")
-    public ShiftResponse clockIn(@PathVariable UUID id) {
-        Shift shift = shiftService.clockIn(id);
+    public ShiftResponse clockIn(@PathVariable UUID id, @RequestBody(required = false) ClockRequest request) {
+        Shift shift = shiftService.clockIn(id, pinOf(request));
         return toResponse(shift, employeeNames(shift));
     }
 
     @PostMapping("/{id}/clock-out")
     @PreAuthorize("hasAuthority('staff:clock')")
-    public ShiftResponse clockOut(@PathVariable UUID id) {
-        Shift shift = shiftService.clockOut(id);
+    public ShiftResponse clockOut(@PathVariable UUID id, @RequestBody(required = false) ClockRequest request) {
+        Shift shift = shiftService.clockOut(id, pinOf(request));
         return toResponse(shift, employeeNames(shift));
     }
 
@@ -115,6 +116,10 @@ public class ShiftController {
     public ShiftResponse cancel(@PathVariable UUID id) {
         Shift shift = shiftService.cancel(id);
         return toResponse(shift, employeeNames(shift));
+    }
+
+    private static String pinOf(ClockRequest request) {
+        return request == null ? null : request.pin();
     }
 
     private List<ShiftResponse> responses(List<Shift> shifts) {

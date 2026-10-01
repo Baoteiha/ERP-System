@@ -32,7 +32,7 @@ import { IconComponent } from '../../shared/icon';
                 @if (s.clockInAt) { <span class="soft">in since {{ s.clockInAt | date:'EEE d MMM HH:mm' }}</span> }
               </div>
               <div class="shift-actions">
-                @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="clockOut(s)" [disabled]="saving()">Clock out</button> }
+                @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [disabled]="saving()">Clock out</button> }
                 @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
               </div>
             </div>
@@ -78,14 +78,14 @@ import { IconComponent } from '../../shared/icon';
                     </div>
                     <div class="shift-actions">
                       @if (s.status === 'SCHEDULED') {
-                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-tinted" (click)="clockIn(s)" [disabled]="saving()">Clock in</button> }
+                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-tinted" (click)="askPin(s, 'in')" [disabled]="saving()">Clock in</button> }
                         @if (auth.can('staff:write')) {
                           <button class="btn btn-sm btn-ghost" (click)="openReschedule(s)" [disabled]="saving()">Edit</button>
                           <button class="btn btn-sm btn-ghost" (click)="cancel(s)" [disabled]="saving()">Cancel</button>
                         }
                       }
                       @if (s.status === 'IN_PROGRESS') {
-                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="clockOut(s)" [disabled]="saving()">Clock out</button> }
+                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [disabled]="saving()">Clock out</button> }
                       }
                       @if (s.status === 'IN_PROGRESS' || s.status === 'COMPLETED') {
                         @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
@@ -121,6 +121,22 @@ import { IconComponent } from '../../shared/icon';
           <button class="btn btn-outline" (click)="modalOpen.set(false)">Cancel</button>
           <button class="btn btn-primary" (click)="save()" [disabled]="saving()">
             @if (saving()) { <span class="spinner"></span> } {{ editing() ? 'Save' : 'Schedule' }}
+          </button>
+        </div>
+      </app-modal>
+    }
+
+    @if (punching(); as p) {
+      <app-modal [title]="p.action === 'in' ? 'Clock in' : 'Clock out'" (close)="punching.set(null)">
+        <p class="soft">{{ p.shift.employeeName }}: enter your PIN. Leave it empty if you have not set one.</p>
+        <div class="field">
+          <label for="punch-pin">PIN</label>
+          <input id="punch-pin" class="input" type="password" inputmode="numeric" autocomplete="off" maxlength="6" [(ngModel)]="pin" (keydown.enter)="confirmPunch()" />
+        </div>
+        <div footer>
+          <button class="btn btn-outline" (click)="punching.set(null)">Cancel</button>
+          <button class="btn btn-primary" (click)="confirmPunch()" [disabled]="saving()">
+            @if (saving()) { <span class="spinner"></span> } {{ p.action === 'in' ? 'Clock in' : 'Clock out' }}
           </button>
         </div>
       </app-modal>
@@ -166,6 +182,8 @@ export class ShiftsComponent {
   shifts = signal<ShiftResponse[]>([]);
   openShifts = signal<ShiftResponse[]>([]);
   adjusting = signal<ShiftResponse | null>(null);
+  punching = signal<{ shift: ShiftResponse; action: 'in' | 'out' } | null>(null);
+  pin = '';
   adjustForm = { clockIn: '', clockOut: '' };
   employees = signal<EmployeeResponse[]>([]);
   loading = signal(true);
@@ -313,18 +331,26 @@ export class ShiftsComponent {
     });
   }
 
-  clockIn(s: ShiftResponse) {
-    this.saving.set(true);
-    this.staff.clockIn(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Clocked in'); this.load(); this.loadOpen(); },
-      error: () => this.saving.set(false),
-    });
+  askPin(shift: ShiftResponse, action: 'in' | 'out') {
+    this.pin = '';
+    this.punching.set({ shift, action });
   }
 
-  clockOut(s: ShiftResponse) {
+  confirmPunch() {
+    const target = this.punching();
+    if (!target) return;
+    const pin = this.pin.trim() || undefined;
+    const req = target.action === 'in' ? this.staff.clockIn(target.shift.id, pin) : this.staff.clockOut(target.shift.id, pin);
     this.saving.set(true);
-    this.staff.clockOut(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Clocked out'); this.load(); this.loadOpen(); },
+    req.subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.punching.set(null);
+        this.toast.success(target.action === 'in' ? 'Clocked in' : 'Clocked out');
+        this.load();
+        this.loadOpen();
+      },
+      // The modal stays open so a mistyped PIN can be corrected; the error toast explains.
       error: () => this.saving.set(false),
     });
   }

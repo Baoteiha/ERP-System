@@ -86,7 +86,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
         UUID emp = employee("Open " + unique(), "30000");
         Employee employee = employeeRepository.findById(emp).orElseThrow();
         Branch other = branchRepository.save(new Branch(employee.getCompanyId(), "Other", unique()));
-        Shift open = new Shift(other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
+        Shift open = new Shift(employee.getCompanyId(), other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
         open.clockIn(Instant.now(), Money.of(new BigDecimal("30000")));
         shiftRepository.save(open);
         UUID mine = shift(emp, Instant.now().plus(1, ChronoUnit.DAYS));
