@@ -7,9 +7,11 @@ import java.util.UUID;
 
 /**
  * Published facade of the sales module: sales aggregates for reporting.
- * Amounts come from COMPLETED orders (and legacy PAID ones); cancelled, void
- * and refunded orders are excluded. Net sales exclude tax. Days are cut in the
- * zone the caller passes.
+ * Sales are booked when they complete (legacy PAID orders at creation); voids
+ * and refunds are subtracted in the period of the reversal, so a period's
+ * figures can be negative. Cancelled orders never count. {@code orderCount} is
+ * the sales made, not netted of reversals. Net sales exclude tax. Days are cut
+ * in the zone the caller passes.
  */
 public interface SalesApi {
 
