@@ -11,6 +11,7 @@ import vn.essvn.erpcafe.catalog.domain.Modifier;
 import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
 import vn.essvn.erpcafe.catalog.domain.ModifierRecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
+import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
@@ -24,11 +25,13 @@ import vn.essvn.erpcafe.inventory.api.StockLine;
 public class ModifierService {
 
     private final ModifierGroupRepository groupRepository;
+    private final ProductRepository productRepository;
     private final CurrentUser currentUser;
     private final InventoryApi inventoryApi;
 
-    public ModifierService(ModifierGroupRepository groupRepository, CurrentUser currentUser,
-            InventoryApi inventoryApi) {
+    public ModifierService(ModifierGroupRepository groupRepository, ProductRepository productRepository,
+            CurrentUser currentUser, InventoryApi inventoryApi) {
+        this.productRepository = productRepository;
         this.inventoryApi = inventoryApi;
         this.groupRepository = groupRepository;
         this.currentUser = currentUser;
@@ -53,8 +56,66 @@ public class ModifierService {
         return groupRepository.save(new ModifierGroup(companyId, name, minSelect, maxSelect));
     }
 
+    public ModifierGroup updateGroup(UUID id, String name, int minSelect, int maxSelect) {
+        ModifierGroup group = getGroup(id);
+        if (!group.getName().equals(name) && groupRepository.existsByCompanyIdAndName(group.getCompanyId(), name)) {
+            throw new ConflictException("Modifier group already exists: " + name);
+        }
+        group.setName(name);
+        group.setMinSelect(minSelect);
+        group.setMaxSelect(maxSelect);
+        return group;
+    }
+
     public void deleteGroup(UUID id) {
-        groupRepository.delete(getGroup(id));
+        ModifierGroup group = getGroup(id);
+        if (productRepository.existsByModifierGroupId(id)) {
+            throw new ConflictException("Modifier group is attached to a product; detach it first");
+        }
+        groupRepository.delete(group);
+    }
+
+    /** Edits a modifier; {@code recipeDeltas == null} leaves its ingredient deltas untouched. */
+    public Modifier updateModifier(UUID groupId, UUID modifierId, String name, BigDecimal priceDelta,
+            boolean active, Integer displayOrder, List<ConsumptionLine> recipeDeltas) {
+        Modifier modifier = requireModifier(getGroup(groupId), modifierId);
+        if (recipeDeltas != null) {
+            validateDeltas(recipeDeltas);
+        }
+        modifier.setName(name);
+        modifier.setPriceDelta(Money.of(priceDelta));
+        modifier.setActive(active);
+        if (displayOrder != null) {
+            modifier.setDisplayOrder(displayOrder);
+        }
+        if (recipeDeltas != null) {
+            modifier.getRecipeLines().clear();
+            addDeltas(modifier, recipeDeltas);
+        }
+        return modifier;
+    }
+
+    // Removed from the group, so the till no longer finds it among the product's offered
+    // modifiers (priceLine answers 422); past order lines keep their own name/price snapshot.
+    public void removeModifier(UUID groupId, UUID modifierId) {
+        ModifierGroup group = getGroup(groupId);
+        group.getModifiers().remove(requireModifier(group, modifierId));
+    }
+
+    private Modifier requireModifier(ModifierGroup group, UUID modifierId) {
+        return group.getModifiers().stream().filter(m -> m.getId().equals(modifierId)).findFirst()
+                .orElseThrow(() -> ResourceNotFoundException.of("Modifier", modifierId));
+    }
+
+    private void validateDeltas(List<ConsumptionLine> recipeDeltas) {
+        inventoryApi.validateConsumption(currentUser.require().companyId(), recipeDeltas.stream()
+                .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
+    }
+
+    private static void addDeltas(Modifier modifier, List<ConsumptionLine> recipeDeltas) {
+        for (ConsumptionLine line : recipeDeltas) {
+            modifier.getRecipeLines().add(new ModifierRecipeLine(line.ingredientId(), line.quantity(), line.unit()));
+        }
     }
 
     /** Adds a modifier (with optional ingredient-consumption deltas) to a group. */
@@ -62,15 +123,11 @@ public class ModifierService {
             List<ConsumptionLine> recipeDeltas) {
         ModifierGroup group = getGroup(groupId);
         if (recipeDeltas != null) {
-            inventoryApi.validateConsumption(currentUser.require().companyId(), recipeDeltas.stream()
-                    .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
+            validateDeltas(recipeDeltas);
         }
         Modifier modifier = new Modifier(name, Money.of(priceDelta), displayOrder);
         if (recipeDeltas != null) {
-            for (ConsumptionLine line : recipeDeltas) {
-                modifier.getRecipeLines().add(
-                        new ModifierRecipeLine(line.ingredientId(), line.quantity(), line.unit()));
-            }
+            addDeltas(modifier, recipeDeltas);
         }
         group.getModifiers().add(modifier);
         // cascade persists the new modifier when the group flushes

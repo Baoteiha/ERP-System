@@ -91,6 +91,9 @@ export class CatalogService {
   listModifierGroups() { return this.http.get<M.ModifierGroupResponse[]>(`${V1}/modifier-groups`); }
   createModifierGroup(b: M.CreateModifierGroupRequest) { return this.http.post<M.ModifierGroupResponse>(`${V1}/modifier-groups`, b); }
   addModifier(groupId: string, b: M.AddModifierRequest) { return this.http.post<M.ModifierResponse>(`${V1}/modifier-groups/${groupId}/modifiers`, b); }
+  updateModifierGroup(id: string, b: M.UpdateModifierGroupRequest) { return this.http.put<M.ModifierGroupResponse>(`${V1}/modifier-groups/${id}`, b); }
+  updateModifier(groupId: string, id: string, b: M.UpdateModifierRequest) { return this.http.put<M.ModifierResponse>(`${V1}/modifier-groups/${groupId}/modifiers/${id}`, b); }
+  removeModifier(groupId: string, id: string) { return this.http.delete<void>(`${V1}/modifier-groups/${groupId}/modifiers/${id}`); }
   deleteModifierGroup(id: string) { return this.http.delete<void>(`${V1}/modifier-groups/${id}`); }
 }
 

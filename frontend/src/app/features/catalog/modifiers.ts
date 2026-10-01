@@ -7,7 +7,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 import { MoneyPipe } from '../../core/util';
-import { ConsumptionLine, IngredientResponse, ModifierGroupResponse } from '../../core/models';
+import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierResponse } from '../../core/models';
 
 @Component({
   selector: 'app-modifiers',
@@ -38,6 +38,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse } from '../.
                 @if (auth.can('catalog:write')) {
                   <span class="mg-actions">
                     <button class="btn btn-sm btn-tinted" (click)="openAddModifier(g)"><app-icon name="plus" [size]="15" /> Option</button>
+                    <button class="btn btn-sm btn-ghost btn-icon" (click)="openEditGroup(g)" [attr.aria-label]="'Edit group ' + g.name"><app-icon name="edit" [size]="16" /></button>
                     <button class="btn btn-sm btn-ghost btn-icon" (click)="removeGroup(g)" [attr.aria-label]="'Delete group ' + g.name"><app-icon name="trash" [size]="16" /></button>
                   </span>
                 }
@@ -51,6 +52,13 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse } from '../.
                       <span class="opt-price mono" [class.free]="isFree(m.priceDelta.amount)">
                         {{ isFree(m.priceDelta.amount) ? 'Free' : ('+' + (m.priceDelta | money)) }}
                       </span>
+                      @if (!m.active) { <span class="badge badge-gray">inactive</span> }
+                      @if (auth.can('catalog:write')) {
+                        <span class="opt-actions">
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="openEditModifier(g, m)" [attr.aria-label]="'Edit option ' + m.name"><app-icon name="edit" [size]="15" /></button>
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="removeModifier(g, m)" [attr.aria-label]="'Remove option ' + m.name"><app-icon name="trash" [size]="15" /></button>
+                        </span>
+                      }
                     </li>
                   } @empty {
                     <li class="opt-empty">
@@ -84,6 +92,37 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse } from '../.
         <div footer>
           <button class="btn btn-outline" (click)="newGroup.set(false)">Cancel</button>
           <button class="btn btn-primary" (click)="createGroup()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Create</button>
+        </div>
+      </app-modal>
+    }
+
+    @if (editGroup(); as g) {
+      <app-modal [title]="'Edit ' + g.name" (close)="editGroup.set(null)">
+        <div class="field"><label for="mod-edit-group-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-edit-group-name" class="input" [(ngModel)]="eg.name" required /></div>
+        <div class="two-col">
+          <div class="field"><label for="mod-edit-min">Min select</label><input id="mod-edit-min" class="input" type="number" min="0" [(ngModel)]="eg.minSelect" /></div>
+          <div class="field"><label for="mod-edit-max">Max select</label><input id="mod-edit-max" class="input" type="number" min="0" [(ngModel)]="eg.maxSelect" /></div>
+        </div>
+        <div footer>
+          <button class="btn btn-outline" (click)="editGroup.set(null)">Cancel</button>
+          <button class="btn btn-primary" (click)="saveGroup()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Save</button>
+        </div>
+      </app-modal>
+    }
+
+    @if (editMod(); as e) {
+      <app-modal [title]="'Edit option ' + e.modifier.name" (close)="editMod.set(null)">
+        <div class="two-col">
+          <div class="field"><label for="mod-edit-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-edit-name" class="input" [(ngModel)]="em.name" required /></div>
+          <div class="field"><label for="mod-edit-delta">Price delta</label><input id="mod-edit-delta" class="input" type="number" min="0" [(ngModel)]="em.priceDelta" /></div>
+        </div>
+        <div class="two-col">
+          <div class="field"><label for="mod-edit-order">Display order</label><input id="mod-edit-order" class="input" type="number" [(ngModel)]="em.displayOrder" /></div>
+          <div class="field"><label for="mod-edit-active">Active</label><input id="mod-edit-active" type="checkbox" [(ngModel)]="em.active" /></div>
+        </div>
+        <div footer>
+          <button class="btn btn-outline" (click)="editMod.set(null)">Cancel</button>
+          <button class="btn btn-primary" (click)="saveModifier()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Save</button>
         </div>
       </app-modal>
     }
@@ -144,6 +183,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse } from '../.
     .opt-name { font-weight: 500; color: var(--paper-ink); }
     .opt-price { color: var(--paper-accent); font-weight: 600; }
     .opt-price.free { color: var(--paper-ink-soft); font-weight: 500; }
+    .opt-actions { display: inline-flex; gap: .15rem; margin-left: .5rem; }
     .opt-empty { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 1rem .8rem 1.1rem; }
     .opt-empty .muted { color: var(--paper-ink-soft); }
     .pg-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; margin: 1.2rem 0 .7rem; }
@@ -169,9 +209,13 @@ export class ModifiersComponent {
   newGroup = signal(false);
   addTo = signal<ModifierGroupResponse | null>(null);
   deltas = signal<ConsumptionLine[]>([]);
+  editGroup = signal<ModifierGroupResponse | null>(null);
+  editMod = signal<{ group: ModifierGroupResponse; modifier: ModifierResponse } | null>(null);
   private collapsed = signal<Set<string>>(new Set());
 
   ng = { name: '', minSelect: 0, maxSelect: 1 };
+  eg = { name: '', minSelect: 0, maxSelect: 1 };
+  em = { name: '', priceDelta: '0', displayOrder: 0, active: true };
   nm = { name: '', priceDelta: '0', displayOrder: 0 };
 
   isOpen = (id: string) => !this.collapsed().has(id);
@@ -236,6 +280,40 @@ export class ModifiersComponent {
       next: () => { this.saving.set(false); this.addTo.set(null); this.toast.success('Option added'); this.load(); },
       error: () => this.saving.set(false),
     });
+  }
+
+  openEditGroup(g: ModifierGroupResponse) {
+    this.eg = { name: g.name, minSelect: g.minSelect, maxSelect: g.maxSelect };
+    this.editGroup.set(g);
+  }
+  saveGroup() {
+    const g = this.editGroup();
+    if (!g || !this.eg.name) { this.toast.error('Name is required'); return; }
+    this.saving.set(true);
+    this.api.updateModifierGroup(g.id, this.eg).subscribe({
+      next: () => { this.saving.set(false); this.editGroup.set(null); this.toast.success('Group updated'); this.load(); },
+      error: () => this.saving.set(false),
+    });
+  }
+
+  openEditModifier(group: ModifierGroupResponse, modifier: ModifierResponse) {
+    this.em = { name: modifier.name, priceDelta: modifier.priceDelta.amount, displayOrder: modifier.displayOrder, active: modifier.active };
+    this.editMod.set({ group, modifier });
+  }
+  saveModifier() {
+    const e = this.editMod();
+    if (!e || !this.em.name) { this.toast.error('Name is required'); return; }
+    this.saving.set(true);
+    // recipeDeltas omitted: the server keeps the option's existing ingredient deltas.
+    this.api.updateModifier(e.group.id, e.modifier.id, { ...this.em, priceDelta: String(this.em.priceDelta || '0') }).subscribe({
+      next: () => { this.saving.set(false); this.editMod.set(null); this.toast.success('Option updated'); this.load(); },
+      error: () => this.saving.set(false),
+    });
+  }
+  async removeModifier(g: ModifierGroupResponse, m: ModifierResponse) {
+    const ok = await this.confirm.ask({ title: `Remove ${m.name}?`, message: 'The option can no longer be picked at the till.', danger: true, confirmText: 'Remove' });
+    if (!ok) return;
+    this.api.removeModifier(g.id, m.id).subscribe({ next: () => { this.toast.success('Option removed'); this.load(); } });
   }
 
   async removeGroup(g: ModifierGroupResponse) {

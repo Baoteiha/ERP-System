@@ -91,8 +91,9 @@ export interface BranchAvailabilityResponse { branchId: UUID; available: boolean
 export interface PriceResponse { productId: UUID; branchId: UUID; price: Money; }
 
 export interface ConsumptionLine { ingredientId: UUID; quantity: string; unit: string; }
-export interface RecipeResponse { productId: UUID; lines: ConsumptionLine[]; }
-export interface SetRecipeRequest { lines: ConsumptionLine[]; }
+export interface RecipeResponse { productId: UUID; lines: ConsumptionLine[]; version: number; }
+// version echoes the loaded recipe so a stale save is rejected (409); absent on the first save.
+export interface SetRecipeRequest { lines: ConsumptionLine[]; version?: number; }
 
 export interface ModifierResponse {
   id: UUID; name: string; priceDelta: Money; displayOrder: number; active: boolean;
@@ -102,6 +103,10 @@ export interface ModifierGroupResponse {
   required: boolean; modifiers: ModifierResponse[];
 }
 export interface CreateModifierGroupRequest { name: string; minSelect: number; maxSelect: number; }
+export interface UpdateModifierGroupRequest { name: string; minSelect: number; maxSelect: number; }
+export interface UpdateModifierRequest {
+  name: string; priceDelta: string; active: boolean; displayOrder: number; recipeDeltas?: ConsumptionLine[];
+}
 export interface AddModifierRequest {
   name: string; priceDelta: string; displayOrder: number; recipeDeltas?: ConsumptionLine[];
 }

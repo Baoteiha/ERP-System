@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,6 +23,8 @@ import vn.essvn.erpcafe.catalog.web.ModifierDtos.AddModifierRequest;
 import vn.essvn.erpcafe.catalog.web.ModifierDtos.CreateModifierGroupRequest;
 import vn.essvn.erpcafe.catalog.web.ModifierDtos.ModifierGroupResponse;
 import vn.essvn.erpcafe.catalog.web.ModifierDtos.ModifierResponse;
+import vn.essvn.erpcafe.catalog.web.ModifierDtos.UpdateModifierGroupRequest;
+import vn.essvn.erpcafe.catalog.web.ModifierDtos.UpdateModifierRequest;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 
 @RestController
@@ -65,6 +68,33 @@ public class ModifierGroupController {
                         .toList();
         return modifierMapper.toResponse(
                 modifierService.addModifier(id, request.name(), request.priceDelta(), request.displayOrder(), deltas));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('catalog:write')")
+    public ModifierGroupResponse update(@PathVariable UUID id,
+            @Valid @RequestBody UpdateModifierGroupRequest request) {
+        return modifierMapper.toResponse(
+                modifierService.updateGroup(id, request.name(), request.minSelect(), request.maxSelect()));
+    }
+
+    @PutMapping("/{id}/modifiers/{modifierId}")
+    @PreAuthorize("hasAuthority('catalog:write')")
+    public ModifierResponse updateModifier(@PathVariable UUID id, @PathVariable UUID modifierId,
+            @Valid @RequestBody UpdateModifierRequest request) {
+        List<ConsumptionLine> deltas = request.recipeDeltas() == null ? null
+                : request.recipeDeltas().stream()
+                        .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), l.unit()))
+                        .toList();
+        return modifierMapper.toResponse(modifierService.updateModifier(id, modifierId, request.name(),
+                request.priceDelta(), request.active(), request.displayOrder(), deltas));
+    }
+
+    @DeleteMapping("/{id}/modifiers/{modifierId}")
+    @PreAuthorize("hasAuthority('catalog:write')")
+    public ResponseEntity<Void> removeModifier(@PathVariable UUID id, @PathVariable UUID modifierId) {
+        modifierService.removeModifier(id, modifierId);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

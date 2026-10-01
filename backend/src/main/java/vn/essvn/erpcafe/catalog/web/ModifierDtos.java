@@ -27,6 +27,26 @@ public final class ModifierDtos {
         }
     }
 
+    public record UpdateModifierGroupRequest(
+            @NotBlank String name,
+            @PositiveOrZero int minSelect,
+            @PositiveOrZero int maxSelect) {
+
+        @JsonIgnore
+        @AssertTrue(message = "minSelect must not exceed maxSelect")
+        public boolean isSelectRangeValid() {
+            return minSelect <= maxSelect;
+        }
+    }
+
+    public record UpdateModifierRequest(
+            @NotBlank String name,
+            @NotNull @PositiveOrZero BigDecimal priceDelta,
+            boolean active,
+            Integer displayOrder,
+            @Valid List<ConsumptionLineDto> recipeDeltas) {
+    }
+
     public record AddModifierRequest(
             @NotBlank String name,
             @NotNull @PositiveOrZero BigDecimal priceDelta,
