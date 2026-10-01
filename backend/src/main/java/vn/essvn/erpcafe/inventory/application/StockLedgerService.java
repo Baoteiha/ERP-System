@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -117,20 +118,36 @@ public class StockLedgerService {
     }
 
     /**
-     * Returns stock (compensating a void/refund): raises quantity and records a
-     * SALE_REVERSAL. Idempotent per {@code (refType, refId)}. Cost is unchanged —
-     * a return isn't a purchase, so it doesn't re-blend the moving average.
+     * Undoes what a sale actually took: for each SALE_DEPLETION recorded under
+     * {@code (refType, refId)} it returns the same quantity at the same unit cost and
+     * writes a SALE_REVERSAL under {@code (reversalRefType, refId)}. The recipe is never
+     * consulted — it may have changed since the sale. The returned stock is treated as a
+     * receipt at the original cost, so it re-blends the moving average. A repeat call for
+     * the same reversal reference is a no-op returning zero cost.
      */
-    public void returnStock(UUID branchId, List<StockLine> lines, String refType, UUID refId) {
-        if (refId != null && movementRepository.existsByRefTypeAndRefId(refType, refId)) {
-            return; // already returned → no-op
+    public CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType) {
+        if (movementRepository.existsByRefTypeAndRefId(reversalRefType, refId)) {
+            return new CogsResult(Money.zero());
         }
-        for (StockLine line : normalize(branchId, lines)) {
-            StockItem item = getOrCreate(branchId, line.ingredientId());
-            item.setQuantityOnHand(item.getQuantityOnHand().add(line.quantity()));
-            record(line.ingredientId(), branchId, MovementType.SALE_REVERSAL,
-                    line.quantity(), item.getAvgUnitCost(), refType, refId, null);
+        List<StockMovement> depletions = movementRepository.findByRefTypeAndRefId(refType, refId).stream()
+                .filter(m -> m.getType() == MovementType.SALE_DEPLETION && branchId.equals(m.getBranchId()))
+                // Same global lock order as normalize(): ingredient id ascending.
+                .sorted(Comparator.comparing(StockMovement::getIngredientId))
+                .toList();
+        Money total = Money.zero();
+        for (StockMovement depletion : depletions) {
+            BigDecimal quantity = depletion.getQuantity().abs();
+            Money unitCost = depletion.getUnitCost();
+            StockItem item = getOrCreate(branchId, depletion.getIngredientId());
+            BigDecimal newQty = item.getQuantityOnHand().add(quantity);
+            item.setAvgUnitCost(newMovingAverage(item.getQuantityOnHand(), item.getAvgUnitCost(), quantity,
+                    unitCost, newQty));
+            item.setQuantityOnHand(newQty);
+            record(depletion.getIngredientId(), branchId, MovementType.SALE_REVERSAL, quantity, unitCost,
+                    reversalRefType, refId, null);
+            total = total.add(unitCost.multiply(quantity));
         }
+        return new CogsResult(total);
     }
 
     private Money cogsOfExisting(String refType, UUID refId) {

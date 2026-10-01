@@ -44,8 +44,8 @@ public class InventoryApiImpl implements InventoryApi {
 
     @Override
     @Transactional
-    public void returnForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId) {
-        ledger.returnStock(branchId, lines, refType, refId);
+    public CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType) {
+        return ledger.reverseDeduction(branchId, refType, refId, reversalRefType);
     }
 
     @Override

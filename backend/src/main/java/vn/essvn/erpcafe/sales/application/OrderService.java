@@ -126,7 +126,7 @@ public class OrderService {
         Order order = get(orderId);
         boolean stockWasDeducted = order.voidOrder(refundMethod);
         if (stockWasDeducted) {
-            inventoryApi.returnForOrder(order.getBranchId(), stockLinesFor(order), REF_VOID, orderId);
+            inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_VOID);
         }
         return order;
     }
@@ -135,7 +135,7 @@ public class OrderService {
         Order order = get(orderId);
         boolean stockWasDeducted = order.refund(refundMethod);
         if (stockWasDeducted) {
-            inventoryApi.returnForOrder(order.getBranchId(), stockLinesFor(order), REF_REFUND, orderId);
+            inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_REFUND);
         }
         return order;
     }

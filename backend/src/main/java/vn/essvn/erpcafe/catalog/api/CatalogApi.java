@@ -25,7 +25,9 @@ public interface CatalogApi {
     /**
      * Explodes {@code quantity} units of a product plus its selected modifiers
      * into net ingredient consumption (recipe lines × quantity, adjusted by
-     * modifier deltas). Empty if the product has no recipe yet.
+     * modifier deltas). Empty if the product has no recipe yet. The result reflects the
+     * recipe <em>now</em>; never use it to reverse a past sale — the recipe may have changed
+     * since, so reversals read the recorded stock movements instead.
      */
     List<IngredientConsumption> explode(UUID productId, int quantity, Set<UUID> modifierIds);
 

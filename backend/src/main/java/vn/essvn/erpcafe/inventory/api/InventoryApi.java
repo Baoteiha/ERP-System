@@ -24,11 +24,12 @@ public interface InventoryApi {
     CogsResult deductForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId);
 
     /**
-     * Returns ingredient quantities to stock — the compensating movement when an
-     * order is voided or refunded after its stock was already deducted. Idempotent
-     * per {@code (refType, refId)}.
+     * Reverses what a past deduction recorded: one reversal per SALE_DEPLETION movement of
+     * {@code (refType, refId)}, same ingredient, same quantity, same unit cost, written under
+     * {@code (reversalRefType, refId)}. Returns the reversed cost. Idempotent per reversal
+     * reference — a repeat call is a no-op returning zero cost.
      */
-    void returnForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId);
+    CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType);
 
     /**
      * COGS measured from the stock ledger for {@code [from, to)} at a branch:
