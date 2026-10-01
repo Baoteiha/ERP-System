@@ -4,6 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { firstValueFrom } from 'rxjs';
+import { Router, provideRouter } from '@angular/router';
 import { AuthService } from './auth.service';
 import { MeResponse } from './models';
 
@@ -12,7 +13,7 @@ describe('AuthService', () => {
 
   const setup = () => {
     TestBed.configureTestingModule({
-      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideZonelessChangeDetection(), provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     });
     ctrl = TestBed.inject(HttpTestingController);
     return TestBed.inject(AuthService);
@@ -74,15 +75,44 @@ describe('AuthService', () => {
       expect(auth.refreshToken()).toBe('r2');
     });
 
-    it('treats a token removed by another tab as a logout', () => {
+    it('treats a token removed by another tab as a logout and leaves for /login', () => {
       localStorage.setItem('erpcafe.access', 'old');
       localStorage.setItem('erpcafe.refresh', 'r1');
+      localStorage.setItem('erpcafe.branch', 'b1');
       const auth = setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
 
       storageEvent('erpcafe.access', null);
 
       expect(auth.accessToken()).toBeNull();
       expect(auth.isAuthenticated()).toBe(false);
+      expect(auth.activeBranchId()).toBeNull();
+      expect(navigate).toHaveBeenCalledWith(['/login']);
+    });
+
+    it('leaves for /login when another tab clears all storage', () => {
+      localStorage.setItem('erpcafe.access', 'old');
+      localStorage.setItem('erpcafe.branch', 'b1');
+      const auth = setup();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      localStorage.clear();
+
+      storageEvent(null, null);
+
+      expect(auth.accessToken()).toBeNull();
+      expect(auth.activeBranchId()).toBeNull();
+      expect(navigate).toHaveBeenCalledWith(['/login']);
+    });
+
+    it('follows a branch change made in another tab', () => {
+      localStorage.setItem('erpcafe.access', 'old');
+      localStorage.setItem('erpcafe.branch', 'b1');
+      const auth = setup();
+
+      storageEvent('erpcafe.branch', 'b2');
+      expect(auth.activeBranchId()).toBe('b2');
+      storageEvent('erpcafe.branch', null);
+      expect(auth.activeBranchId()).toBeNull();
     });
 
     describe('refresh lock', () => {

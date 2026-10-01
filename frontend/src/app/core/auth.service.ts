@@ -1,4 +1,5 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, Injector, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, defer, firstValueFrom, from, of, tap, timeout } from 'rxjs';
 import { LoginRequest, MeResponse, TokenResponse } from './models';
@@ -13,6 +14,7 @@ const REFRESH_LOCK = 'erpcafe-refresh';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private http = inject(HttpClient);
+  private injector = inject(Injector);
   private base = '/api/v1/auth';
 
   readonly accessToken = signal<string | null>(localStorage.getItem(ACCESS_KEY));
@@ -27,15 +29,19 @@ export class AuthService {
 
   constructor() {
     // another tab refreshed or logged out: follow its tokens instead of using (and burning) stale ones
+    // signals only, never storage writes, so tabs cannot echo each other
     window.addEventListener('storage', (e) => {
       if (e.key === null) {
         this.syncTokensFromStorage();
+        this.activeBranchId.set(localStorage.getItem(BRANCH_KEY));
       } else if (e.key === ACCESS_KEY) {
         this.accessToken.set(e.newValue);
-        if (!e.newValue) this.me.set(null);
       } else if (e.key === REFRESH_KEY) {
         this.refreshToken.set(e.newValue);
+      } else if (e.key === BRANCH_KEY) {
+        this.activeBranchId.set(e.newValue);
       }
+      if (!this.accessToken()) this.dropIdentity();
     });
   }
 
@@ -99,7 +105,15 @@ export class AuthService {
   private syncTokensFromStorage() {
     this.accessToken.set(localStorage.getItem(ACCESS_KEY));
     this.refreshToken.set(localStorage.getItem(REFRESH_KEY));
-    if (!this.accessToken()) this.me.set(null);
+    if (!this.accessToken()) this.dropIdentity();
+  }
+
+  /** Logged out elsewhere: forget the user and leave their pages, so nothing of theirs stays on screen. */
+  private dropIdentity() {
+    this.me.set(null);
+    this.activeBranchId.set(null);
+    const router = this.injector.get(Router);
+    if (!router.url.startsWith('/login')) void router.navigate(['/login']);
   }
 
   setActiveBranch(branchId: string) {
