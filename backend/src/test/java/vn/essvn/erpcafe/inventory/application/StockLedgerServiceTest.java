@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.domain.StockMovement;
@@ -84,5 +85,25 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
                 new StockLine(ingredientId, new BigDecimal("100"), "ml")),
                 "TEST_DEDUCT", UUID.randomUUID()))
                 .isInstanceOf(BusinessRuleException.class);
+    }
+
+    @Test
+    void deduct_repeatReturnsTheSameCostWhenAModifierMadeOneLineNetNegative() throws Exception {
+        UUID beans = seedGramIngredient();
+        UUID syrup = seedGramIngredient();
+        ledger.receive(branchId, beans, new BigDecimal("1000"), Money.of(new BigDecimal("0.20")), "TEST_PO", null);
+        ledger.receive(branchId, syrup, new BigDecimal("1000"), Money.of(new BigDecimal("0.10")), "TEST_PO", null);
+        UUID refId = UUID.randomUUID();
+        // 100 g beans taken, 50 g syrup given back (a modifier removing more than the recipe uses):
+        // 100 x 0.20 - 50 x 0.10 = 15.
+        List<StockLine> lines = List.of(
+                new StockLine(beans, new BigDecimal("100"), "g"),
+                new StockLine(syrup, new BigDecimal("-50"), "g"));
+
+        Money first = ledger.deduct(branchId, lines, "TEST_DEDUCT", refId).totalCost();
+        Money repeat = ledger.deduct(branchId, lines, "TEST_DEDUCT", refId).totalCost();
+
+        assertThat(first.getAmount()).isEqualByComparingTo("15");
+        assertThat(repeat.getAmount()).isEqualByComparingTo(first.getAmount());
     }
 }

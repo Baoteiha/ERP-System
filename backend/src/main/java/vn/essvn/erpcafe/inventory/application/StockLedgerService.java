@@ -180,7 +180,9 @@ public class StockLedgerService {
     private Money cogsOfExisting(String refType, UUID refId) {
         Money total = Money.zero();
         for (StockMovement m : movementRepository.findByRefTypeAndRefId(refType, refId)) {
-            total = total.add(m.getUnitCost().multiply(m.getQuantity().abs()));
+            // Same sign as deduct(): cost = -quantity x unit cost, so a positive-quantity depletion
+            // (net-negative modifier consumption) is a negative cost.
+            total = total.add(m.getUnitCost().multiply(m.getQuantity().negate()));
         }
         return total;
     }
