@@ -31,7 +31,10 @@ export interface MeResponse {
   companyId: UUID;
   branchIds: UUID[];
   roles: string[];
+  /** held at any branch */
   permissions: string[];
+  /** what the user's role at each branch allows */
+  permissionsByBranch: Record<UUID, string[]>;
 }
 
 export type UserStatus = 'ACTIVE' | 'DISABLED';

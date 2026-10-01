@@ -29,6 +29,7 @@ describe('ProductsComponent', () => {
     TestBed.inject(AuthService).me.set({
       userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1'], roles: [],
       permissions: ['catalog:write', 'inventory:read', 'branch:read'],
+      permissionsByBranch: { b1: ['catalog:write', 'inventory:read', 'branch:read'] },
     });
     ctrl = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(ProductsComponent);

@@ -3,6 +3,7 @@ package vn.essvn.erpcafe.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -48,7 +49,7 @@ class TenantRlsHookTest extends AbstractIntegrationTest {
 
     private void authenticateWithCompany(UUID companyId) {
         AuthPrincipal principal = new AuthPrincipal(UUID.randomUUID(), "probe@test.local", companyId,
-                Set.of(UUID.randomUUID()), Set.of(), Set.of());
+                Map.of(UUID.randomUUID(), Set.of()), Set.of(), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, List.of()));
     }

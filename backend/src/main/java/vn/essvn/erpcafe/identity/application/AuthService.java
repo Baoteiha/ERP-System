@@ -5,7 +5,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -18,14 +18,12 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.UnauthorizedException;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
-import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
-import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
+import vn.essvn.erpcafe.identity.security.AccessClaims;
 import vn.essvn.erpcafe.identity.security.JwtService;
 import vn.essvn.erpcafe.identity.security.LoginAttemptService;
 import vn.essvn.erpcafe.organization.api.BranchDto;
@@ -46,7 +44,6 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final UserBranchAccessRepository accessRepository;
-    private final RoleRepository roleRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -56,13 +53,11 @@ public class AuthService {
     private final OrganizationApi organizationApi;
 
     public AuthService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
-            RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder, JwtService jwtService,
+            RefreshTokenRepository refreshTokenRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
             LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
             SecurityProperties securityProperties, OrganizationApi organizationApi) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
-        this.roleRepository = roleRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -131,28 +126,15 @@ public class AuthService {
                 .ifPresent(RefreshToken::revoke);
     }
 
-    /** Builds the security principal for a user from their per-branch role grants. */
-    @Transactional(readOnly = true)
-    public AuthPrincipal buildPrincipal(User user) {
+    /** What a user's access token asserts: the role they hold at each live branch. */
+    private AccessClaims accessClaimsFor(User user) {
         // a grant on a deleted or deactivated branch grants nothing: not the branch, not its role's permissions
         Set<UUID> liveBranchIds = organizationApi.listActiveBranches(user.getCompanyId()).stream()
                 .map(BranchDto::id).collect(Collectors.toSet());
-        List<UserBranchAccess> accesses = accessRepository.findByUserId(user.getId()).stream()
+        Map<UUID, UUID> roleByBranch = accessRepository.findByUserId(user.getId()).stream()
                 .filter(a -> liveBranchIds.contains(a.getBranchId()))
-                .toList();
-        Set<UUID> branchIds = accesses.stream()
-                .map(UserBranchAccess::getBranchId)
-                .collect(Collectors.toSet());
-        List<UUID> roleIds = accesses.stream()
-                .map(UserBranchAccess::getRoleId).distinct().toList();
-        List<Role> roles = roleRepository.findAllById(roleIds);
-        Set<String> roleNames = roles.stream().map(Role::getName).collect(Collectors.toSet());
-        Set<String> permissions = roles.stream()
-                .flatMap(r -> r.getPermissions().stream())
-                .map(p -> p.getName())
-                .collect(Collectors.toSet());
-        return new AuthPrincipal(user.getId(), user.getEmail(), user.getCompanyId(),
-                branchIds, permissions, roleNames);
+                .collect(Collectors.toMap(UserBranchAccess::getBranchId, UserBranchAccess::getRoleId));
+        return new AccessClaims(user.getId(), user.getEmail(), user.getCompanyId(), roleByBranch);
     }
 
     /** A login starts a brand-new token family. */
@@ -161,9 +143,8 @@ public class AuthService {
     }
 
     private TokenPair issueTokens(User user, UUID familyId) {
-        AuthPrincipal principal = buildPrincipal(user);
-        // Access token: stateless JWT, short-lived, carries permissions/branches (no DB lookup per request).
-        String accessToken = jwtService.generateAccessToken(principal);
+        // Access token: stateless JWT, short-lived, carries the role held at each branch.
+        String accessToken = jwtService.generateAccessToken(accessClaimsFor(user));
         // Refresh token: opaque random string returned to the client; only its hash is persisted.
         String rawRefresh = randomToken();
         Instant expiry = Instant.now().plus(securityProperties.jwt().refreshTokenTtl());

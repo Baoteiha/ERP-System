@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, defer, firstValueFrom, from, of, tap, timeout } from 'rxjs';
 import { LoginRequest, MeResponse, TokenResponse } from './models';
+import { COMPANY_LEVEL_PERMISSIONS } from './permissions';
 
 const ACCESS_KEY = 'erpcafe.access';
 const REFRESH_KEY = 'erpcafe.refresh';
@@ -25,7 +26,15 @@ export class AuthService {
   readonly activeBranchId = signal<string | null>(localStorage.getItem(BRANCH_KEY));
 
   readonly isAuthenticated = computed(() => !!this.accessToken());
-  readonly permissions = computed(() => new Set(this.me()?.permissions ?? []));
+  /** In force for the active branch, weighed as the server weighs a request carrying X-Branch-Id (ADR-0007). */
+  readonly permissions = computed(() => {
+    const me = this.me();
+    if (!me) return new Set<string>();
+    const branch = this.activeBranchId();
+    // a request naming no branch is weighed against every branch the user holds
+    const atBranch = branch ? (me.permissionsByBranch[branch] ?? []) : me.permissions;
+    return new Set([...atBranch, ...me.permissions.filter((p) => COMPANY_LEVEL_PERMISSIONS.has(p))]);
+  });
 
   constructor() {
     // another tab refreshed or logged out: follow its tokens instead of using (and burning) stale ones

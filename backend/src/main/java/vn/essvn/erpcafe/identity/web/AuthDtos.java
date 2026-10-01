@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.identity.web;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,13 +29,15 @@ public final class AuthDtos {
         }
     }
 
+    /** {@code permissions}: held at any branch; {@code permissionsByBranch}: what each branch's role allows. */
     public record MeResponse(
             UUID userId,
             String email,
             UUID companyId,
             Set<UUID> branchIds,
             Set<String> roles,
-            Set<String> permissions) {
+            Set<String> permissions,
+            Map<UUID, Set<String>> permissionsByBranch) {
     }
 
     private AuthDtos() {

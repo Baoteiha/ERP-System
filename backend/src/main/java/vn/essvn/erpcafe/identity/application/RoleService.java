@@ -19,6 +19,7 @@ import vn.essvn.erpcafe.identity.persistence.PermissionRepository;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.security.RolePermissionCache;
 
 /**
  * Role management within the acting user's company: listing/creating roles and
@@ -32,13 +33,15 @@ public class RoleService {
     private final PermissionRepository permissionRepository;
     private final UserBranchAccessRepository accessRepository;
     private final CurrentUser currentUser;
+    private final RolePermissionCache roleCache;
 
     public RoleService(RoleRepository roleRepository, PermissionRepository permissionRepository,
-            UserBranchAccessRepository accessRepository, CurrentUser currentUser) {
+            UserBranchAccessRepository accessRepository, CurrentUser currentUser, RolePermissionCache roleCache) {
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.accessRepository = accessRepository;
         this.currentUser = currentUser;
+        this.roleCache = roleCache;
     }
 
     @Transactional(readOnly = true)
@@ -70,6 +73,7 @@ public class RoleService {
         Set<Permission> permissions = resolvePermissions(permissionNames);
         requireCanEdit(role, permissionNames);
         role.setPermissions(permissions);
+        roleCache.evictAfterCommit(roleId);
         return role;
     }
 
@@ -79,6 +83,7 @@ public class RoleService {
         Set<Permission> permissions = resolvePermissions(permissionNames);
         requireCanEdit(role, permissionNames);
         role.getPermissions().addAll(permissions);
+        roleCache.evictAfterCommit(roleId);
         return role;
     }
 
@@ -91,6 +96,7 @@ public class RoleService {
             throw new ResourceNotFoundException(
                     "Role does not have permission: " + permissionName);
         }
+        roleCache.evictAfterCommit(roleId);
         return role;
     }
 
@@ -103,6 +109,7 @@ public class RoleService {
         }
         role.setName(name);
         role.setDescription(description);
+        roleCache.evictAfterCommit(roleId);
         return role;
     }
 
@@ -114,6 +121,7 @@ public class RoleService {
                     "Cannot delete a role that is still granted to a user; revoke those grants first");
         }
         roleRepository.delete(role);
+        roleCache.evictAfterCommit(roleId);
     }
 
     /**

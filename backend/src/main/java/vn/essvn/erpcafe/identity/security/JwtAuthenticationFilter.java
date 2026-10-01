@@ -1,7 +1,13 @@
 package vn.essvn.erpcafe.identity.security;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
@@ -18,6 +24,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.identity.domain.Permissions;
+import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
 
 /**
  * Authenticates each request from its Bearer access token and establishes the
@@ -28,6 +36,11 @@ import vn.essvn.erpcafe.common.context.BranchContext;
  *   <li>Valid token but {@code X-Branch-Id} not in the user's accessible set → 403.</li>
  *   <li>No token → request continues unauthenticated (protected routes then 401).</li>
  * </ul>
+ *
+ * <p>Authorities are what the user's role at the active branch permits, plus the
+ * company-level permissions they hold at any branch; a request naming no branch
+ * gets every branch's (ADR-0007). It can reach no branch's data that way: every
+ * branch-scoped operation requires the header.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -36,9 +49,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER = "Bearer ";
 
     private final JwtService jwtService;
+    private final RolePermissionCache roleCache;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService, RolePermissionCache roleCache) {
         this.jwtService = jwtService;
+        this.roleCache = roleCache;
     }
 
     @Override
@@ -50,9 +65,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        AuthPrincipal principal;
+        AccessClaims claims;
         try {
-            principal = jwtService.parseAccessToken(header.substring(BEARER.length()));
+            claims = jwtService.parseAccessToken(header.substring(BEARER.length()));
         } catch (Exception ex) {
             writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
             return;
@@ -60,25 +75,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             // Resolve the active branch, if one was requested.
+            UUID activeBranch = null;
             String branchHeader = request.getHeader(BRANCH_HEADER);
             if (branchHeader != null && !branchHeader.isBlank()) {
-                UUID branchId;
                 try {
-                    branchId = UUID.fromString(branchHeader.trim());
+                    activeBranch = UUID.fromString(branchHeader.trim());
                 } catch (IllegalArgumentException ex) {
                     writeError(response, HttpStatus.BAD_REQUEST, "Malformed " + BRANCH_HEADER);
                     return;
                 }
-                if (!principal.canAccessBranch(branchId)) {
-                    writeError(response, HttpStatus.FORBIDDEN, "No access to branch " + branchId);
+                if (!claims.roleByBranch().containsKey(activeBranch)) {
+                    writeError(response, HttpStatus.FORBIDDEN, "No access to branch " + activeBranch);
                     return;
                 }
-                BranchContext.set(branchId);
+                BranchContext.set(activeBranch);
             }
 
-            List<SimpleGrantedAuthority> authorities = buildAuthorities(principal);
-            var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            SecurityContextHolder.getContext().setAuthentication(authenticate(claims, activeBranch));
 
             filterChain.doFilter(request, response);
         } finally {
@@ -87,11 +100,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private List<SimpleGrantedAuthority> buildAuthorities(AuthPrincipal principal) {
-        var authorities = new java.util.ArrayList<SimpleGrantedAuthority>();
-        principal.permissions().forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
-        principal.roles().forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
-        return authorities;
+    /** Resolves the token's branch roles, and the authorities in force at {@code activeBranch} (null: none named). */
+    private UsernamePasswordAuthenticationToken authenticate(AccessClaims claims, UUID activeBranch) {
+        Map<UUID, Set<String>> permissionsByBranch = new HashMap<>();
+        Set<String> roles = new HashSet<>();
+        Set<String> rolesInForce = new HashSet<>();
+        claims.roleByBranch().forEach((branchId, roleId) -> {
+            Optional<RoleGrant> role = roleCache.get(roleId);
+            permissionsByBranch.put(branchId, role.map(RoleGrant::permissions).orElse(Set.of()));
+            role.ifPresent(r -> {
+                roles.add(r.name());
+                if (activeBranch == null || activeBranch.equals(branchId)) {
+                    rolesInForce.add(r.name());
+                }
+            });
+        });
+        Set<String> held = new HashSet<>();
+        permissionsByBranch.values().forEach(held::addAll);
+        Set<String> inForce = new HashSet<>(activeBranch == null ? held : permissionsByBranch.get(activeBranch));
+        held.stream().filter(Permissions.COMPANY_LEVEL::contains).forEach(inForce::add);
+        AuthPrincipal principal = new AuthPrincipal(claims.userId(), claims.email(), claims.companyId(),
+                Map.copyOf(permissionsByBranch), Set.copyOf(inForce), Set.copyOf(roles));
+
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        inForce.forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
+        rolesInForce.forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
+        return new UsernamePasswordAuthenticationToken(principal, null, authorities);
     }
 
     private void writeError(HttpServletResponse response, HttpStatus status, String detail) throws IOException {

@@ -176,7 +176,12 @@ export class ShellComponent {
 
   onBranchChange(e: Event) {
     const id = (e.target as HTMLSelectElement).value;
-    if (id) this.auth.setActiveBranch(id);
+    if (!id) return;
+    this.auth.setActiveBranch(id);
+    // permissions follow the branch, but route guards run only on navigation: leave a page this branch closes
+    const path = this.router.url.split(/[?#]/)[0];
+    const page = this.sections.flatMap((s) => s.items).find((i) => i.path === path);
+    if (page?.perms && !this.auth.canAny(...page.perms)) void this.router.navigateByUrl('/');
   }
 
   async logout() { await this.auth.logout(); location.href = '/login'; }

@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.identity.domain;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The permission catalog — the single source of truth for authority strings.
@@ -57,6 +58,14 @@ public final class Permissions {
             Map.entry(REPORT_READ, "View reports and analytics"));
 
     public static final List<String> ALL = List.copyOf(CATALOG.keySet());
+
+    /**
+     * Company-level administration. Companies, users and roles belong to no one branch, so these
+     * are weighed against every branch a user holds; every other permission is weighed at the
+     * branch the request acts in (ADR-0007).
+     */
+    public static final Set<String> COMPANY_LEVEL =
+            Set.of(COMPANY_READ, COMPANY_WRITE, USER_READ, USER_WRITE, ROLE_READ, ROLE_WRITE);
 
     /**
      * Raised by the release that adds permissions to the catalog. On startup each default role

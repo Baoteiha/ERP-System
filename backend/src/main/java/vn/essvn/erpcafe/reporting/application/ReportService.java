@@ -32,6 +32,8 @@ import vn.essvn.erpcafe.staff.api.StaffApi;
 @Transactional(readOnly = true)
 public class ReportService {
 
+    private static final String REPORT_READ = "report:read";
+
     private final SalesApi salesApi;
     private final InventoryApi inventoryApi;
     private final StaffApi staffApi;
@@ -60,11 +62,11 @@ public class ReportService {
         return salesApi.salesByDay(BranchContext.require(), from, to, properties.zone());
     }
 
-    /** Side-by-side performance of the caller's active branches (outlet comparison). */
+    /** Side-by-side performance of the caller's active branches where their role lets them read reports. */
     public List<BranchPerformance> outletComparison(Instant from, Instant to) {
         AuthPrincipal caller = currentUser.require();
         return organizationApi.listActiveBranches(caller.companyId()).stream()
-                .filter(b -> caller.canAccessBranch(b.id()))
+                .filter(b -> caller.permissionsAt(b.id()).contains(REPORT_READ))
                 .map(b -> new BranchPerformance(b.id(), b.name(), b.code(), performance(b.id(), from, to)))
                 .toList();
     }

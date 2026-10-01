@@ -13,6 +13,9 @@ import vn.essvn.erpcafe.identity.security.AuthPrincipal;
  */
 public final class AccessPolicy {
 
+    // company-level administration: every rule weighs the actor's full grants, at every branch they
+    // hold, never only the branch the request acts in (ADR-0007)
+
     private AccessPolicy() {
     }
 
@@ -33,7 +36,7 @@ public final class AccessPolicy {
         Set<String> rolePermissions = role.getPermissions().stream()
                 .map(Permission::getName)
                 .collect(Collectors.toSet());
-        if (!actor.permissions().containsAll(rolePermissions)) {
+        if (!actor.allPermissions().containsAll(rolePermissions)) {
             throw new ForbiddenException("You can only grant roles whose permissions you hold");
         }
     }
@@ -53,14 +56,14 @@ public final class AccessPolicy {
         if (!actor.branchIds().containsAll(target.branchIds())) {
             throw new ForbiddenException("You can only manage users at branches you hold");
         }
-        if (!actor.permissions().containsAll(target.permissions())) {
+        if (!actor.allPermissions().containsAll(target.permissions())) {
             throw new ForbiddenException("You can only manage users whose permissions you hold");
         }
     }
 
     /** A role may be given only permissions the actor holds. */
     public static void requireCanEditRole(AuthPrincipal actor, Set<String> newPermissions) {
-        if (!isOwner(actor) && !actor.permissions().containsAll(newPermissions)) {
+        if (!isOwner(actor) && !actor.allPermissions().containsAll(newPermissions)) {
             throw new ForbiddenException("You can only give a role permissions you hold");
         }
     }

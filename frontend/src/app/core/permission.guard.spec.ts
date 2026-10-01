@@ -27,7 +27,8 @@ describe('permissionGuard', () => {
       permissionGuard(...perms)({} as Route, [] as UrlSegment[], {} as PartialMatchRouteSnapshot),
     ) as Observable<boolean | UrlTree> | boolean | UrlTree;
 
-  const me = (permissions: string[]) => ({ branchIds: [], permissions }) as unknown as MeResponse;
+  const me = (permissions: string[]) =>
+    ({ branchIds: [], permissions, permissionsByBranch: {} }) as unknown as MeResponse;
 
   it('redirects a cashier asking for /users to /', () => {
     auth.me.set(me(['sales:write']));
@@ -37,6 +38,21 @@ describe('permissionGuard', () => {
 
   it('lets an owner through', () => {
     auth.me.set(me(['user:read']));
+    expect(run('user:read')).toBe(true);
+  });
+
+  it('redirects at a branch whose role lacks the permission', () => {
+    auth.me.set({ ...me(['report:read']), branchIds: ['b1', 'b2'],
+      permissionsByBranch: { b1: ['report:read'], b2: [] } });
+    auth.setActiveBranch('b2');
+    const result = run('report:read') as UrlTree;
+    expect(TestBed.inject(Router).serializeUrl(result)).toBe('/');
+  });
+
+  it('opens company-level pages from any branch the user holds', () => {
+    auth.me.set({ ...me(['user:read']), branchIds: ['b1', 'b2'],
+      permissionsByBranch: { b1: ['user:read'], b2: [] } });
+    auth.setActiveBranch('b2');
     expect(run('user:read')).toBe(true);
   });
 

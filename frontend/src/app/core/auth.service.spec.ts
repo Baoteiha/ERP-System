@@ -42,7 +42,8 @@ describe('AuthService', () => {
     const auth = setup();
 
     auth.loadMe().subscribe();
-    ctrl.expectOne('/api/v1/auth/me').flush({ branchIds: ['b2'], permissions: [] } as unknown as MeResponse);
+    ctrl.expectOne('/api/v1/auth/me')
+      .flush({ branchIds: ['b2'], permissions: [], permissionsByBranch: {} } as unknown as MeResponse);
 
     expect(auth.activeBranchId()).toBe('b2');
     expect(localStorage.getItem('erpcafe.branch')).toBe('b2');
@@ -53,10 +54,48 @@ describe('AuthService', () => {
     const auth = setup();
 
     auth.loadMe().subscribe();
-    ctrl.expectOne('/api/v1/auth/me').flush({ branchIds: [], permissions: [] } as unknown as MeResponse);
+    ctrl.expectOne('/api/v1/auth/me')
+      .flush({ branchIds: [], permissions: [], permissionsByBranch: {} } as unknown as MeResponse);
 
     expect(auth.activeBranchId()).toBeNull();
     expect(localStorage.getItem('erpcafe.branch')).toBeNull();
+  });
+
+  describe('permissions per branch', () => {
+    // manager at b1, cashier at b2: the server weighs each request at the branch it names
+    const me = {
+      userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1', 'b2'], roles: ['MANAGER', 'CASHIER'],
+      permissions: ['sales:write', 'sales:refund', 'user:write'],
+      permissionsByBranch: { b1: ['sales:write', 'sales:refund', 'user:write'], b2: ['sales:write'] },
+    } satisfies MeResponse;
+
+    it('weighs a permission at the active branch', () => {
+      const auth = setup();
+      auth.me.set(me);
+
+      auth.setActiveBranch('b2');
+      expect(auth.can('sales:refund')).toBe(false);
+      expect(auth.can('sales:write')).toBe(true);
+
+      auth.setActiveBranch('b1');
+      expect(auth.can('sales:refund')).toBe(true);
+    });
+
+    it('weighs company-level administration against every branch held', () => {
+      const auth = setup();
+      auth.me.set(me);
+      auth.setActiveBranch('b2');
+
+      expect(auth.can('user:write')).toBe(true);
+    });
+
+    it('weighs every branch when none is active', () => {
+      const auth = setup();
+      auth.me.set(me);
+
+      expect(auth.activeBranchId()).toBeNull();
+      expect(auth.can('sales:refund')).toBe(true);
+    });
   });
 
   describe('across tabs', () => {

@@ -41,6 +41,14 @@ export const PERMISSION_GROUPS: PermGroup[] = [
 
 export const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap((g) => g.perms.map((p) => p.key));
 
+/**
+ * Mirror of backend Permissions.COMPANY_LEVEL. Companies, users and roles belong to no one branch, so the
+ * server weighs these against every branch the user holds; every other permission at the active branch.
+ */
+export const COMPANY_LEVEL_PERMISSIONS: ReadonlySet<string> = new Set([
+  'company:read', 'company:write', 'user:read', 'user:write', 'role:read', 'role:write',
+]);
+
 /** Plain-language names for permission domains, for non-technical readers. */
 export const DOMAIN_LABELS: Record<string, string> = {
   company: 'Companies',

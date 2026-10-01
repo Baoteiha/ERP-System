@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -63,14 +64,16 @@ class ReportServiceTest {
     }
 
     @Test
-    void outletsAreFilteredToTheCallersBranches() {
+    void outletsAreFilteredToTheBranchesWhereTheCallerReadsReports() {
         UUID other = UUID.randomUUID();
+        UUID cashierAt = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
         stub(branchId, "42000", "10000", "0");
         when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", companyId,
-                Set.of(branchId), Set.of(), Set.of()));
+                Map.of(branchId, Set.of("report:read"), cashierAt, Set.of("sales:write")), Set.of(), Set.of()));
         when(organizationApi.listActiveBranches(companyId)).thenReturn(java.util.List.of(
                 new BranchDto(branchId, companyId, "Mine", "M", true, BigDecimal.ZERO),
+                new BranchDto(cashierAt, companyId, "Till only", "C", true, BigDecimal.ZERO),
                 new BranchDto(other, companyId, "Theirs", "T", true, BigDecimal.ZERO)));
 
         assertThat(service.outletComparison(from, to)).extracting(b -> b.branchId()).containsExactly(branchId);

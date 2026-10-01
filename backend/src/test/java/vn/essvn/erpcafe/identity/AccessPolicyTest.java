@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -29,7 +30,7 @@ class AccessPolicyTest {
 
     private static AuthPrincipal actor(String roleName, String... permissions) {
         return new AuthPrincipal(UUID.randomUUID(), "actor@test", UUID.randomUUID(),
-                Set.of(HELD_BRANCH), Set.of(permissions), Set.of(roleName));
+                Map.of(HELD_BRANCH, Set.of(permissions)), Set.of(permissions), Set.of(roleName));
     }
 
     private static AuthPrincipal manager() {

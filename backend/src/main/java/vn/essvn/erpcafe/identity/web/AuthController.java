@@ -53,6 +53,6 @@ public class AuthController {
     public MeResponse me() {
         AuthPrincipal p = currentUser.require();
         return new MeResponse(p.userId(), p.email(), p.companyId(),
-                p.branchIds(), p.roles(), p.permissions());
+                p.branchIds(), p.roles(), p.allPermissions(), p.permissionsByBranch());
     }
 }

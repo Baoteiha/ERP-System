@@ -3,10 +3,9 @@ package vn.essvn.erpcafe.identity.security;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
-import java.util.List;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import javax.crypto.SecretKey;
 
@@ -14,16 +13,20 @@ import org.springframework.stereotype.Service;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import vn.essvn.erpcafe.config.SecurityProperties;
 
 /**
  * Issues and parses signed (HS256) JWT access tokens. The token embeds the
- * user's identity, granted permissions, roles, and accessible branch ids, so
- * request authorization needs no database lookup during the token's lifetime.
+ * user's identity and the role they hold at each accessible branch; what those
+ * roles permit is resolved per request ({@link RolePermissionCache}), so a role
+ * edit applies without waiting for the token to expire.
  */
 @Service
 public class JwtService {
+
+    private static final String BRANCH_ROLES = "branchRoles";
 
     private final SecretKey key;
     private final SecurityProperties.Jwt jwtProps;
@@ -33,46 +36,40 @@ public class JwtService {
         this.key = Keys.hmacShaKeyFor(jwtProps.secret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateAccessToken(AuthPrincipal principal) {
+    public String generateAccessToken(AccessClaims claims) {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtProps.accessTokenTtl());
+        Map<String, String> branchRoles = new HashMap<>();
+        claims.roleByBranch().forEach((branchId, roleId) -> branchRoles.put(branchId.toString(), roleId.toString()));
         return Jwts.builder()
-                .subject(principal.userId().toString())
-                .claim("email", principal.email())
-                .claim("companyId", principal.companyId().toString())
-                .claim("perms", List.copyOf(principal.permissions()))
-                .claim("roles", List.copyOf(principal.roles()))
-                .claim("branches", principal.branchIds().stream().map(UUID::toString).toList())
+                .subject(claims.userId().toString())
+                .claim("email", claims.email())
+                .claim("companyId", claims.companyId().toString())
+                .claim(BRANCH_ROLES, branchRoles)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
                 .signWith(key)
                 .compact();
     }
 
-    /** Parses and verifies an access token, reconstructing the principal. Throws on invalid/expired tokens. */
-    public AuthPrincipal parseAccessToken(String token) {
+    /**
+     * Parses and verifies an access token. Throws on invalid/expired tokens, and on tokens
+     * without branch roles: those predate per-branch permissions, and a refresh replaces them.
+     */
+    public AccessClaims parseAccessToken(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
 
-        UUID userId = UUID.fromString(claims.getSubject());
-        String email = claims.get("email", String.class);
-        UUID companyId = UUID.fromString(claims.get("companyId", String.class));
-        Set<String> perms = toStringSet(claims.get("perms", List.class));
-        Set<String> roles = toStringSet(claims.get("roles", List.class));
-        Set<UUID> branches = toStringSet(claims.get("branches", List.class)).stream()
-                .map(UUID::fromString).collect(Collectors.toSet());
-
-        return new AuthPrincipal(userId, email, companyId, branches, perms, roles);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Set<String> toStringSet(List<?> raw) {
-        if (raw == null) {
-            return Set.of();
+        if (!(claims.get(BRANCH_ROLES) instanceof Map<?, ?> raw)) {
+            throw new MalformedJwtException("Access token carries no branch roles");
         }
-        return ((List<Object>) raw).stream().map(String::valueOf).collect(Collectors.toSet());
+        Map<UUID, UUID> roleByBranch = new HashMap<>();
+        raw.forEach((branchId, roleId) ->
+                roleByBranch.put(UUID.fromString(String.valueOf(branchId)), UUID.fromString(String.valueOf(roleId))));
+        return new AccessClaims(UUID.fromString(claims.getSubject()), claims.get("email", String.class),
+                UUID.fromString(claims.get("companyId", String.class)), roleByBranch);
     }
 }
