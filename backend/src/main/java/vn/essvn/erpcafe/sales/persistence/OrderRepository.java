@@ -19,6 +19,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     /** Branch-scoped lookup: empty (→ 404) for an order at any other branch. */
     Optional<Order> findByIdAndBranchId(UUID id, UUID branchId);
 
+    Optional<Order> findByBranchIdAndClientRequestId(UUID branchId, UUID clientRequestId);
+
     Page<Order> findByBranchIdOrderByCreatedAtDesc(UUID branchId, Pageable pageable);
 
     /**

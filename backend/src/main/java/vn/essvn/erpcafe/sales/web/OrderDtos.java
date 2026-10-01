@@ -29,7 +29,8 @@ public final class OrderDtos {
     public record CreateOrderRequest(
             @NotNull OrderType orderType,
             @PositiveOrZero BigDecimal orderDiscount,
-            @NotEmpty @Valid List<LineRequest> lines) {
+            @NotEmpty @Valid List<LineRequest> lines,
+            UUID clientRequestId) {
     }
 
     public record PaymentRequest(

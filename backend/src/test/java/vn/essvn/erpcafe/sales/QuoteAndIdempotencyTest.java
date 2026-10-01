@@ -8,8 +8,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -164,5 +171,66 @@ class QuoteAndIdempotencyTest extends AbstractIntegrationTest {
         setAvailability(productId, false, "null");
         send(post("/api/v1/orders/quote"), orderBody(productId, null))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
+    void repeatedCreate_withOneClientRequestId_returnsTheSameOrder() throws Exception {
+        String productId = newProduct(uniq(), 25000);
+        String requestId = UUID.randomUUID().toString();
+
+        String first = mockMvc.perform(authed(post("/api/v1/orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(productId, requestId)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String second = mockMvc.perform(authed(post("/api/v1/orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content(orderBody(productId, requestId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+        assertThat((String) JsonPath.read(second, "$.id")).isEqualTo(JsonPath.read(first, "$.id"));
+        assertThat(orders.findAll().stream()
+                .filter(o -> requestId.equals(String.valueOf(o.getClientRequestId())))).hasSize(1);
+    }
+
+    @Test
+    void twoCreatesAtOnce_withOneClientRequestId_makeOneOrder() throws Exception {
+        String productId = newProduct(uniq(), 25000);
+        String requestId = UUID.randomUUID().toString();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch go = new CountDownLatch(1);
+        try {
+            List<Future<int[]>> results = new ArrayList<>();
+            List<String> ids = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                Callable<int[]> call = () -> {
+                    go.await();
+                    var response = mockMvc.perform(authed(post("/api/v1/orders"))
+                                    .contentType(MediaType.APPLICATION_JSON).content(orderBody(productId, requestId)))
+                            .andReturn().getResponse();
+                    synchronized (ids) {
+                        ids.add(response.getStatus() < 300 ? JsonPath.read(response.getContentAsString(), "$.id") : "none");
+                    }
+                    return new int[] { response.getStatus() };
+                };
+                results.add(pool.submit(call));
+            }
+            go.countDown();
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<int[]> f : results) {
+                statuses.add(f.get(30, TimeUnit.SECONDS)[0]);
+            }
+            assertThat(statuses).containsExactlyInAnyOrder(200, 201);
+            assertThat(ids).hasSize(2).doesNotContain("none").containsOnly(ids.get(0));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(orders.findAll().stream()
+                .filter(o -> requestId.equals(String.valueOf(o.getClientRequestId())))).hasSize(1);
+    }
+
+    @Test
+    void createWithoutAClientRequestId_stillMakesADistinctOrderEachTime() throws Exception {
+        String productId = newProduct(uniq(), 25000);
+        String a = create("/api/v1/orders", orderBody(productId, null));
+        String b = create("/api/v1/orders", orderBody(productId, null));
+        assertThat((String) JsonPath.read(a, "$.id")).isNotEqualTo(JsonPath.read(b, "$.id"));
     }
 }

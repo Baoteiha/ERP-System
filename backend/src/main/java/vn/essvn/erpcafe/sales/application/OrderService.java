@@ -3,11 +3,16 @@ package vn.essvn.erpcafe.sales.application;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.catalog.api.CatalogApi;
 import vn.essvn.erpcafe.catalog.api.IngredientConsumption;
@@ -25,6 +30,7 @@ import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
+import vn.essvn.erpcafe.sales.application.SalesInputs.PlacedOrder;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
@@ -51,15 +57,17 @@ public class OrderService {
     private final InventoryApi inventoryApi;
     private final IdentityApi identityApi;
     private final OrganizationApi organizationApi;
+    private final TransactionTemplate transactions;
 
     public OrderService(OrderRepository orderRepository, CatalogApi catalogApi,
             InventoryApi inventoryApi, IdentityApi identityApi,
-            OrganizationApi organizationApi) {
+            OrganizationApi organizationApi, PlatformTransactionManager transactionManager) {
         this.orderRepository = orderRepository;
         this.catalogApi = catalogApi;
         this.inventoryApi = inventoryApi;
         this.identityApi = identityApi;
         this.organizationApi = organizationApi;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @Transactional(readOnly = true)
@@ -73,8 +81,44 @@ public class OrderService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Order", id));
     }
 
-    public Order create(CreateOrderInput input) {
-        Order saved = orderRepository.save(build(input));
+    /**
+     * Creates the order, or returns the one this {@code clientRequestId} already made at the branch.
+     * Runs outside any caller transaction: the loser of two simultaneous creates hits the unique index, its
+     * transaction is rolled back whole (stock included), and it then reads the winner's committed order.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PlacedOrder place(CreateOrderInput input) {
+        UUID requestId = input.clientRequestId();
+        if (requestId == null) {
+            return new PlacedOrder(inTransaction(() -> create(input)), true);
+        }
+        UUID branchId = activeBranch();
+        Order existing = inTransaction(() -> orderRepository.findByBranchIdAndClientRequestId(branchId, requestId)
+                .orElse(null));
+        if (existing != null) {
+            return new PlacedOrder(existing, false);
+        }
+        try {
+            return new PlacedOrder(inTransaction(() -> create(input)), true);
+        } catch (DataIntegrityViolationException raced) {
+            Order winner = inTransaction(() -> orderRepository.findByBranchIdAndClientRequestId(branchId, requestId)
+                    .orElse(null));
+            if (winner == null) {
+                throw raced; // not our index: a genuine integrity failure
+            }
+            return new PlacedOrder(winner, false);
+        }
+    }
+
+    private <T> T inTransaction(Supplier<T> work) {
+        return transactions.execute(status -> work.get());
+    }
+
+    Order create(CreateOrderInput input) {
+        Order built = build(input);
+        built.setClientRequestId(input.clientRequestId());
+        // flush now so a duplicate request id fails before any stock moves
+        Order saved = orderRepository.saveAndFlush(built);
         saved.markPaidIfSettled(); // a zero-total ticket has nothing to collect
         return finishIfPaid(saved);
     }

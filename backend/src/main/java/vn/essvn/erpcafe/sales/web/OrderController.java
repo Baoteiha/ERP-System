@@ -23,6 +23,7 @@ import vn.essvn.erpcafe.sales.application.OrderService;
 import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
+import vn.essvn.erpcafe.sales.application.SalesInputs.PlacedOrder;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.Payment;
@@ -64,8 +65,12 @@ public class OrderController {
     @PostMapping
     @PreAuthorize("hasAuthority('sales:write')")
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request) {
-        OrderResponse body = toResponse(orderService.create(toInput(request)));
-        return ResponseEntity.created(URI.create(ApiVersions.V1 + "/orders/" + body.id())).body(body);
+        PlacedOrder placed = orderService.place(toInput(request));
+        OrderResponse body = toResponse(placed.order());
+        // a retry that found the first attempt's order is a plain 200, never a second create
+        return placed.created()
+                ? ResponseEntity.created(URI.create(ApiVersions.V1 + "/orders/" + body.id())).body(body)
+                : ResponseEntity.ok(body);
     }
 
     /** The order the same body would create, priced and totalled but not saved. */
@@ -80,7 +85,7 @@ public class OrderController {
                 .map(l -> new LineInput(l.productId(), l.quantity(),
                         l.modifierIds() == null ? Set.of() : l.modifierIds(), l.lineDiscount()))
                 .toList();
-        return new CreateOrderInput(request.orderType(), request.orderDiscount(), lines);
+        return new CreateOrderInput(request.orderType(), request.orderDiscount(), lines, request.clientRequestId());
     }
 
     @PostMapping("/{id}/payments")

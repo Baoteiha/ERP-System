@@ -73,6 +73,10 @@ public class Order extends BranchScopedEntity {
     @Column(name = "reversed_at")
     private Instant reversedAt;
 
+    /** The till's id for this create, unique per branch, so a retried request finds this order instead of making another. */
+    @Column(name = "client_request_id")
+    private UUID clientRequestId;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JoinColumn(name = "order_id")
     private List<OrderLine> lines = new ArrayList<>();
@@ -291,6 +295,14 @@ public class Order extends BranchScopedEntity {
 
     public Instant getCompletedAt() {
         return completedAt;
+    }
+
+    public UUID getClientRequestId() {
+        return clientRequestId;
+    }
+
+    public void setClientRequestId(UUID clientRequestId) {
+        this.clientRequestId = clientRequestId;
     }
 
     public Instant getReversedAt() {
