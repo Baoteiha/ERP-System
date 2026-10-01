@@ -34,8 +34,7 @@ public abstract class TenantOwnedEntity extends AuditableEntity {
     @PrePersist
     void takeCompanyFromTenant() {
         if (companyId == null) {
-            companyId = TenantContext.current().orElseThrow(() -> new IllegalStateException(
-                    "A tenant-owned row can only be written inside its company's tenant"));
+            companyId = TenantContext.companyForNewRow();
         }
     }
 }

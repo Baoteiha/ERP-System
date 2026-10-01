@@ -37,6 +37,16 @@ public final class TenantContext {
         return current().orElseThrow(() -> new UnauthorizedException("No tenant for this request"));
     }
 
+    /**
+     * The company a new tenant-owned row belongs to: the one in force. Outside a company (the
+     * system scope, or no tenant at all) there is none, and the row is refused rather than
+     * written under an identifier that is no company's.
+     */
+    public static UUID companyForNewRow() {
+        return current().orElseThrow(() -> new IllegalStateException(
+                "A tenant-owned row can only be written inside its company's tenant"));
+    }
+
     public static boolean isSystem() {
         return CURRENT.get() == SYSTEM;
     }
