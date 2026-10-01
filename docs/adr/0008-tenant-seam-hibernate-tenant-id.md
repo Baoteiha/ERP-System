@@ -71,7 +71,8 @@ explicitly scoped, and row-level security (Task 31) is their backstop:
   `stock_item`, both branch-scoped tables, keyed by the branch.
 - `OrderRepository.netSalesByDay` — reads `sales_order` (branch-scoped) by the
   active branch.
-- `TenantRlsAspect` — `set_config('app.company_id', …)`.
+- `TenantTransactionManager` — `set_config('app.company_id', …)` as each
+  transaction begins.
 
 One native query must see every company and has no backstop:
 `UserRepository.existsByEmailInAnyCompany`. Login finds a user by email alone,
