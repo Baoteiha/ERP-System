@@ -71,7 +71,8 @@ public class UserService {
     }
 
     /** A new account holds no permissions until {@link #grantAccess}, which is where the policy applies. */
-    public User create(String email, String rawPassword, String fullName) {
+    public User create(String rawEmail, String rawPassword, String fullName) {
+        String email = User.normalizeEmail(rawEmail);
         UUID companyId = currentUser.require().companyId();
         if (userRepository.existsByEmail(email)) {
             throw new ConflictException("Email already exists: " + email);
@@ -129,7 +130,8 @@ public class UserService {
     // --- account lifecycle ---
 
     /** Updates a user's display name and login email. */
-    public User updateProfile(UUID id, String email, String fullName) {
+    public User updateProfile(UUID id, String rawEmail, String fullName) {
+        String email = User.normalizeEmail(rawEmail);
         User user = get(id);
         requireCanManage(id);
         if (!user.getEmail().equals(email) && userRepository.existsByEmail(email)) {

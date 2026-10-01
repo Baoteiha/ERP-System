@@ -139,7 +139,7 @@ public class DataInitializer implements ApplicationRunner {
         Role ownerRole = roleRepository.findByCompanyIdAndName(company.getId(), DefaultRole.OWNER.roleName())
                 .orElseThrow();
 
-        String email = securityProperties.bootstrap().adminEmail();
+        String email = User.normalizeEmail(securityProperties.bootstrap().adminEmail());
         String password = securityProperties.bootstrap().adminPassword();
         if (password == null || password.isBlank()) {
             throw new IllegalStateException(

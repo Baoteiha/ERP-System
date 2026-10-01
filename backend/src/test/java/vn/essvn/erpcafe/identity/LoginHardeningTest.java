@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.JwtAuthenticationFilter;
 import vn.essvn.erpcafe.identity.security.JwtService;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -36,6 +38,8 @@ class LoginHardeningTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
+    @Autowired
+    private UserRepository userRepository;
     @Autowired
     private ObjectProvider<FilterRegistrationBean<?>> filterRegistrations;
 
@@ -57,6 +61,35 @@ class LoginHardeningTest extends AbstractIntegrationTest {
 
     private String uniqueAddress() {
         return "10.25.%d.%d".formatted(SEQ.incrementAndGet() / 250, SEQ.get() % 250 + 1);
+    }
+
+    @Test
+    void login_withDifferentlyCasedEmail_works() throws Exception {
+        assertThat(attempt("Admin@EssCafe.VN", "admin1234", uniqueAddress())).isEqualTo(200);
+    }
+
+    @Test
+    void create_withEmailDifferingOnlyByCase_isRejectedAsDuplicate() throws Exception {
+        mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"ADMIN@esscafe.vn\",\"password\":\"whatever123\",\"fullName\":\"Dup\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+        assertThat(userRepository.findByEmail("admin@esscafe.vn")).isPresent();
+        assertThat(userRepository.findByEmail("ADMIN@esscafe.vn")).isEmpty();
+    }
+
+    @Test
+    void create_storesTheEmailLowerCased() throws Exception {
+        String email = "Mixed.Case%d@EssCafe.vn".formatted(SEQ.incrementAndGet());
+        mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"whatever123\",\"fullName\":\"Mixed\"}"
+                                .formatted(email)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value(email.toLowerCase()));
     }
 
     @Test
