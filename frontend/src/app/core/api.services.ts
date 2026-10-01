@@ -44,6 +44,12 @@ export class IdentityService {
     return this.http.get<M.PageResponse<M.UserResponse>>(`${V1}/users`, { params: pageParams(page, size) });
   }
   createUser(body: M.CreateUserRequest) { return this.http.post<M.UserResponse>(`${V1}/users`, body); }
+  getUser(id: string) { return this.http.get<M.UserResponse>(`${V1}/users/${id}`); }
+  updateUser(id: string, body: M.UpdateUserRequest) { return this.http.put<M.UserResponse>(`${V1}/users/${id}`, body); }
+  /** Disabling an account also revokes its refresh tokens. */
+  changeUserStatus(id: string, body: M.UpdateStatusRequest) { return this.http.put<M.UserResponse>(`${V1}/users/${id}/status`, body); }
+  changeOwnPassword(body: M.ChangePasswordRequest) { return this.http.post<void>(`${V1}/users/me/password`, body); }
+  resetUserPassword(id: string, body: M.ResetPasswordRequest) { return this.http.put<void>(`${V1}/users/${id}/password`, body); }
   userAccess(id: string) { return this.http.get<M.BranchAccessResponse[]>(`${V1}/users/${id}/access`); }
   grantAccess(id: string, body: M.GrantAccessRequest) { return this.http.post<M.BranchAccessResponse>(`${V1}/users/${id}/access`, body); }
   revokeAccess(id: string, branchId: string) { return this.http.delete<void>(`${V1}/users/${id}/access/${branchId}`); }

@@ -34,12 +34,16 @@ export interface MeResponse {
   permissions: string[];
 }
 
-export type UserStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED';
+export type UserStatus = 'ACTIVE' | 'DISABLED';
 export interface UserResponse {
   id: UUID; companyId: UUID; email: string; fullName: string;
   status: UserStatus; createdAt: string; createdBy: string;
 }
 export interface CreateUserRequest { email: string; password: string; fullName?: string; }
+export interface UpdateUserRequest { email: string; fullName?: string; }
+export interface UpdateStatusRequest { status: UserStatus; }
+export interface ChangePasswordRequest { currentPassword: string; newPassword: string; }
+export interface ResetPasswordRequest { newPassword: string; }
 export interface BranchAccessResponse { branchId: UUID; roleId: UUID; }
 export interface GrantAccessRequest { branchId: UUID; roleId: UUID; }
 
