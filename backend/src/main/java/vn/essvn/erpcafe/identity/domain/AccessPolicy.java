@@ -13,15 +13,16 @@ import vn.essvn.erpcafe.identity.security.AuthPrincipal;
  */
 public final class AccessPolicy {
 
-    // company-level administration: every rule weighs the actor's full grants, at every branch they
-    // hold, never only the branch the request acts in (ADR-0007)
+    // every rule weighs the actor's full grants, never the branch the request acts in: grants and
+    // account changes are judged at the target's branches, role edits (no branch) against the union (ADR-0007)
 
     private AccessPolicy() {
     }
 
     /**
-     * The role may carry only permissions the actor holds, granted only at a branch the actor holds.
-     * Only an owner grants or revokes OWNER, even to an actor whose permissions cover all of OWNER's.
+     * The role may be granted only at a branch the actor holds, and carry only permissions the actor's
+     * own role has at that branch. Only an owner grants or revokes OWNER, even to an actor whose
+     * permissions cover all of OWNER's.
      */
     public static void requireCanGrant(AuthPrincipal actor, Role role, UUID branchId) {
         if (isOwner(actor)) {
@@ -36,15 +37,15 @@ public final class AccessPolicy {
         Set<String> rolePermissions = role.getPermissions().stream()
                 .map(Permission::getName)
                 .collect(Collectors.toSet());
-        if (!actor.allPermissions().containsAll(rolePermissions)) {
-            throw new ForbiddenException("You can only grant roles whose permissions you hold");
+        if (!actor.permissionsAt(branchId).containsAll(rolePermissions)) {
+            throw new ForbiddenException("You can only grant roles whose permissions you hold at that branch");
         }
     }
 
     /**
-     * Editing, resetting, disabling or re-granting a user needs every branch and permission that
-     * user holds, so nobody can take over an account to act where they could not. Only an owner
-     * manages an owner.
+     * Editing, resetting, disabling or re-granting a user needs every branch that user holds and, at
+     * each, every permission they have there, so nobody can take over an account to act where they
+     * could not. Only an owner manages an owner.
      */
     public static void requireCanManage(AuthPrincipal actor, HeldAccess target) {
         if (isOwner(actor)) {
@@ -56,12 +57,15 @@ public final class AccessPolicy {
         if (!actor.branchIds().containsAll(target.branchIds())) {
             throw new ForbiddenException("You can only manage users at branches you hold");
         }
-        if (!actor.allPermissions().containsAll(target.permissions())) {
-            throw new ForbiddenException("You can only manage users whose permissions you hold");
-        }
+        target.permissionsByBranch().forEach((branchId, permissions) -> {
+            if (!actor.permissionsAt(branchId).containsAll(permissions)) {
+                throw new ForbiddenException(
+                        "You can only manage users whose permissions you hold at each of their branches");
+            }
+        });
     }
 
-    /** A role may be given only permissions the actor holds. */
+    /** A role may be given only permissions the actor holds; a role has no branch, so at any of theirs. */
     public static void requireCanEditRole(AuthPrincipal actor, Set<String> newPermissions) {
         if (!isOwner(actor) && !actor.allPermissions().containsAll(newPermissions)) {
             throw new ForbiddenException("You can only give a role permissions you hold");

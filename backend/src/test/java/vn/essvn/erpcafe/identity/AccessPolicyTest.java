@@ -33,6 +33,18 @@ class AccessPolicyTest {
                 Map.of(HELD_BRANCH, Set.of(permissions)), Set.of(permissions), Set.of(roleName));
     }
 
+    /** A manager at the held branch who is only a cashier at the other one. */
+    private static AuthPrincipal managerHereCashierThere() {
+        return new AuthPrincipal(UUID.randomUUID(), "actor@test", UUID.randomUUID(),
+                Map.of(HELD_BRANCH, Set.of(Permissions.USER_WRITE, Permissions.SALES_WRITE, Permissions.SALES_REFUND),
+                        OTHER_BRANCH, Set.of(Permissions.SALES_WRITE)),
+                Set.of(Permissions.SALES_WRITE), Set.of("MANAGER", "CASHIER"));
+    }
+
+    private static HeldAccess held(UUID branchId, String roleName, String... permissions) {
+        return new HeldAccess(Map.of(branchId, Set.of(permissions)), Set.of(roleName));
+    }
+
     private static AuthPrincipal manager() {
         return actor("MANAGER", Permissions.USER_WRITE, Permissions.SALES_READ, Permissions.SALES_WRITE);
     }
@@ -84,8 +96,8 @@ class AccessPolicyTest {
 
     @Test
     void manage_allowsATargetWithinTheActorsBranchesAndPermissions() {
-        HeldAccess cashier = new HeldAccess(Set.of(HELD_BRANCH), Set.of("CASHIER"), Set.of(Permissions.SALES_READ));
-        HeldAccess noGrants = new HeldAccess(Set.of(), Set.of(), Set.of());
+        HeldAccess cashier = held(HELD_BRANCH, "CASHIER", Permissions.SALES_READ);
+        HeldAccess noGrants = new HeldAccess(Map.of(), Set.of());
 
         assertThatCode(() -> AccessPolicy.requireCanManage(manager(), cashier)).doesNotThrowAnyException();
         assertThatCode(() -> AccessPolicy.requireCanManage(manager(), noGrants)).doesNotThrowAnyException();
@@ -94,15 +106,14 @@ class AccessPolicyTest {
     @Test
     void manage_allowsAPeerWithEqualAccess() {
         AuthPrincipal manager = manager();
-        HeldAccess peer = new HeldAccess(manager.branchIds(), manager.roles(), manager.permissions());
+        HeldAccess peer = new HeldAccess(manager.permissionsByBranch(), manager.roles());
 
         assertThatCode(() -> AccessPolicy.requireCanManage(manager, peer)).doesNotThrowAnyException();
     }
 
     @Test
     void manage_refusesATargetHoldingMoreThanTheActor() {
-        HeldAccess target = new HeldAccess(Set.of(HELD_BRANCH), Set.of("SOME_ROLE"),
-                Set.of(Permissions.SALES_READ, Permissions.ROLE_WRITE));
+        HeldAccess target = held(HELD_BRANCH, "SOME_ROLE", Permissions.SALES_READ, Permissions.ROLE_WRITE);
 
         assertThatThrownBy(() -> AccessPolicy.requireCanManage(manager(), target))
                 .isInstanceOf(ForbiddenException.class);
@@ -110,7 +121,7 @@ class AccessPolicyTest {
 
     @Test
     void manage_refusesATargetAtABranchTheActorDoesNotHold() {
-        HeldAccess elsewhere = new HeldAccess(Set.of(OTHER_BRANCH), Set.of("CASHIER"), Set.of(Permissions.SALES_READ));
+        HeldAccess elsewhere = held(OTHER_BRANCH, "CASHIER", Permissions.SALES_READ);
 
         assertThatThrownBy(() -> AccessPolicy.requireCanManage(manager(), elsewhere))
                 .isInstanceOf(ForbiddenException.class);
@@ -119,9 +130,33 @@ class AccessPolicyTest {
     @Test
     void manage_refusesAnOwnerToANonOwnerHoldingEveryPermission() {
         AuthPrincipal almostOwner = actor("EVERYTHING", Permissions.ALL.toArray(String[]::new));
-        HeldAccess owner = new HeldAccess(Set.of(HELD_BRANCH), Set.of("OWNER"), Set.copyOf(Permissions.ALL));
+        HeldAccess owner = new HeldAccess(Map.of(HELD_BRANCH, Set.copyOf(Permissions.ALL)), Set.of("OWNER"));
 
         assertThatThrownBy(() -> AccessPolicy.requireCanManage(almostOwner, owner))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void grant_isJudgedByTheActorsRoleAtTheTargetBranch() {
+        AuthPrincipal actor = managerHereCashierThere();
+
+        assertThatCode(() -> AccessPolicy.requireCanGrant(actor, role(Permissions.SALES_REFUND), HELD_BRANCH))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> AccessPolicy.requireCanGrant(actor, role(Permissions.SALES_REFUND), OTHER_BRANCH))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatCode(() -> AccessPolicy.requireCanGrant(actor, role(Permissions.SALES_WRITE), OTHER_BRANCH))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void manage_isJudgedAtEveryBranchTheTargetHolds() {
+        AuthPrincipal actor = managerHereCashierThere();
+        HeldAccess peerThere = held(OTHER_BRANCH, "CASHIER", Permissions.SALES_WRITE);
+        HeldAccess managerThere = new HeldAccess(Map.of(HELD_BRANCH, Set.of(Permissions.SALES_WRITE),
+                OTHER_BRANCH, Set.of(Permissions.SALES_WRITE, Permissions.SALES_REFUND)), Set.of("CASHIER", "MANAGER"));
+
+        assertThatCode(() -> AccessPolicy.requireCanManage(actor, peerThere)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> AccessPolicy.requireCanManage(actor, managerThere))
                 .isInstanceOf(ForbiddenException.class);
     }
 
@@ -137,7 +172,7 @@ class AccessPolicyTest {
     void owner_passesEveryRule() {
         Set<String> everything = Set.copyOf(Permissions.ALL);
 
-        HeldAccess otherOwner = new HeldAccess(Set.of(OTHER_BRANCH), Set.of("OWNER"), everything);
+        HeldAccess otherOwner = new HeldAccess(Map.of(OTHER_BRANCH, everything), Set.of("OWNER"));
 
         assertThatCode(() -> {
             AccessPolicy.requireCanGrant(owner(), named("OWNER", Permissions.ALL.toArray(String[]::new)), OTHER_BRANCH);

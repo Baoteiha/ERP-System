@@ -25,10 +25,22 @@ dropped after a role edit commits) and sets the authorities in force:
 
 `AuthPrincipal` keeps both views: `permissions()` is what is in force for the
 request; `branchIds()`, `permissionsByBranch()` and `allPermissions()` are the
-full grants. `AccessPolicy` (grant, manage, edit-role) weighs the full grants,
-never just the active branch. `/auth/me` returns `permissions` (held at any
-branch) and `permissionsByBranch`, and the frontend mirrors the same rule in
+full grants. `/auth/me` returns `permissions` (held at any branch) and
+`permissionsByBranch`, and the frontend mirrors the same rule in
 `AuthService.permissions` with `COMPANY_LEVEL_PERMISSIONS`.
+
+`AccessPolicy` weighs the actor's full grants, never the branch the request
+acts in, and judges each rule **at the branch it affects** — otherwise a
+cashier at B who manages A could grant themselves MANAGER at B:
+
+- **Grant or revoke role R at branch X**: the actor holds X, and R's
+  permissions are within the actor's own role at X.
+- **Manage a user** (profile, password, status, grants): the actor holds every
+  branch the user holds, and at each the user's permissions are within the
+  actor's there. Equal peers may still manage each other.
+- **Create or edit a role**: a role has no branch, so its permissions must be
+  within the union of the actor's.
+- An owner passes every rule; only an owner grants, revokes or manages OWNER.
 
 Code that reads several branches in one request must check each branch itself:
 the outlet comparison lists only branches whose role carries `report:read`.

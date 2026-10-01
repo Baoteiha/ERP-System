@@ -1,8 +1,10 @@
 package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -188,22 +190,22 @@ public class UserService {
         AccessPolicy.requireCanManage(currentUser.require(), heldAccessOf(userId));
     }
 
-    /** The branches, roles and permissions the user holds across all of their branch grants that are still on a live branch. */
+    /** The permissions of the user's role at each of their branches that is still live, and those roles' names. */
     private HeldAccess heldAccessOf(UUID userId) {
         Set<UUID> liveBranchIds = organizationApi.listActiveBranches(currentUser.require().companyId()).stream()
                 .map(BranchDto::id).collect(Collectors.toSet());
         List<UserBranchAccess> grants = accessRepository.findByUserId(userId).stream()
                 .filter(g -> liveBranchIds.contains(g.getBranchId()))
                 .toList();
-        List<Role> roles = roleRepository.findAllById(
-                grants.stream().map(UserBranchAccess::getRoleId).distinct().toList());
-        return new HeldAccess(
-                grants.stream().map(UserBranchAccess::getBranchId).collect(Collectors.toSet()),
-                roles.stream().map(Role::getName).collect(Collectors.toSet()),
-                roles.stream()
-                        .flatMap(role -> role.getPermissions().stream())
-                        .map(Permission::getName)
-                        .collect(Collectors.toSet()));
+        Map<UUID, Role> roles = roleRepository.findAllById(
+                grants.stream().map(UserBranchAccess::getRoleId).distinct().toList()).stream()
+                .collect(Collectors.toMap(Role::getId, Function.identity()));
+        Map<UUID, Set<String>> permissionsByBranch = grants.stream().collect(Collectors.toMap(
+                UserBranchAccess::getBranchId,
+                g -> roles.get(g.getRoleId()).getPermissions().stream()
+                        .map(Permission::getName).collect(Collectors.toSet())));
+        return new HeldAccess(permissionsByBranch,
+                roles.values().stream().map(Role::getName).collect(Collectors.toSet()));
     }
 
     /** Revokes every outstanding refresh token for a user. */

@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -27,6 +28,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
+import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
+import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -44,6 +47,10 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     private OrderRepository orders;
     @Autowired
     private RoleRepository roles;
+    @Autowired
+    private UserBranchAccessRepository grants;
+    @Autowired
+    private UserRepository users;
 
     private final List<String> createdBranches = new ArrayList<>();
     private final List<UUID> createdRoles = new ArrayList<>();
@@ -52,6 +59,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     private String branchB;
     /** MANAGER at branch A, CASHIER at branch B. */
     private String user;
+    private NewUser userAccount;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -59,10 +67,10 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         branchB = createBranch(adminToken());
         // the owner's grants at the new branches reach a fresh token only
         admin = adminToken();
-        NewUser created = newUser();
-        grant(created, branchA, roleId("MANAGER"));
-        grant(created, branchB, roleId("CASHIER"));
-        user = accessToken(created.email(), "password123");
+        userAccount = newUser();
+        grant(userAccount, branchA, roleId("MANAGER"));
+        grant(userAccount, branchB, roleId("CASHIER"));
+        user = accessToken(userAccount.email(), "password123");
     }
 
     /** Soft-deleting the branches lets the lifecycle listener drop every grant on them, the owner's included. */
@@ -201,5 +209,54 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                 "{\"permissions\":[\"report:read\"]}"));
 
         send(get("/api/v1/reports/summary"), token, branchA, null).andExpect(status().isOk());
+    }
+
+    private UUID roleAt(NewUser holder, String branchId) {
+        return grants.findByUserIdAndBranchId(UUID.fromString(holder.id()), UUID.fromString(branchId))
+                .orElseThrow().getRoleId();
+    }
+
+    private String passwordHashOf(NewUser account) {
+        return users.findById(UUID.fromString(account.id())).orElseThrow().getPasswordHash();
+    }
+
+    private ResultActions resetPassword(NewUser target) throws Exception {
+        // acting from A, where the user is a manager: the rules weigh the target's branches, not this one
+        return send(put("/api/v1/users/" + target.id() + "/password"), user, branchA,
+                "{\"newPassword\":\"another-password-1\"}");
+    }
+
+    @Test
+    void grantingYourselfMoreAtABranch_isJudgedAtThatBranch() throws Exception {
+        send(post("/api/v1/users/" + userAccount.id() + "/access"), user, branchA,
+                "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchB, roleId("MANAGER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(roleAt(userAccount, branchB)).isEqualTo(UUID.fromString(roleId("CASHIER")));
+    }
+
+    @Test
+    void resettingAPeerAtABranch_isAllowed() throws Exception {
+        NewUser peer = newUser();
+        grant(peer, branchB, roleId("CASHIER"));
+        String before = passwordHashOf(peer);
+
+        resetPassword(peer).andExpect(status().isNoContent());
+
+        assertThat(passwordHashOf(peer)).isNotEqualTo(before);
+    }
+
+    @Test
+    void resettingSomeoneWhoHoldsMoreAtABranch_isForbidden() throws Exception {
+        NewUser managerAtB = newUser();
+        grant(managerAtB, branchB, roleId("MANAGER"));
+        String before = passwordHashOf(managerAtB);
+
+        resetPassword(managerAtB)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(passwordHashOf(managerAtB)).isEqualTo(before);
     }
 }
