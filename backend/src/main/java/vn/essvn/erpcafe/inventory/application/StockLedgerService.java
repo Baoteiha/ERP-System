@@ -275,8 +275,10 @@ public class StockLedgerService {
     // e.g. 1000g @0.20 + 1000g @0.24 -> (200 + 240) / 2000 = 0.22 per unit.
     private Money newMovingAverage(BigDecimal existingQty, Money existingAvg, BigDecimal addedQty,
             Money addedCost, BigDecimal newQty) {
-        if (newQty.signum() <= 0) {
-            return addedCost; // degenerate (e.g. was oversold to <= 0): fall back to the incoming cost
+        if (existingQty.signum() <= 0 || newQty.signum() <= 0) {
+            // Nothing (or a deficit) on hand: the old average prices stock that does not exist, so
+            // blending it in would dilute the receipt's cost. The incoming cost is the average.
+            return addedCost;
         }
         BigDecimal existingValue = existingQty.multiply(existingAvg.getAmount());
         BigDecimal addedValue = addedQty.multiply(addedCost.getAmount());

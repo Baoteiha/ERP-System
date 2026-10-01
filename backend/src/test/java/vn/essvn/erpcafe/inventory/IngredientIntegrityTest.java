@@ -1,0 +1,102 @@
+package vn.essvn.erpcafe.inventory;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import com.jayway.jsonpath.JsonPath;
+
+import vn.essvn.erpcafe.inventory.api.StockLine;
+import vn.essvn.erpcafe.inventory.application.StockLedgerService;
+import vn.essvn.erpcafe.support.AbstractIntegrationTest;
+
+/**
+ * Class: IngredientIntegrityTest
+ * Purpose: Proves ingredient units, deletes and the moving-average cost cannot be left in a state that corrupts stock.
+ */
+class IngredientIntegrityTest extends AbstractIntegrationTest {
+
+    private static final AtomicInteger SEQ = new AtomicInteger();
+
+    @Autowired
+    private StockLedgerService ledger;
+
+    private String token;
+    private String branchId;
+
+    @BeforeEach
+    void signIn() throws Exception {
+        token = adminToken();
+        branchId = ((List<String>) JsonPath.read(
+                mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                        .andReturn().getResponse().getContentAsString(), "$.branchIds")).get(0);
+    }
+
+    private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b) {
+        return b.header(HttpHeaders.AUTHORIZATION, authHeader(token)).header("X-Branch-Id", branchId);
+    }
+
+    private String create(String url, String body) throws Exception {
+        return mockMvc.perform(authed(post(url)).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().is2xxSuccessful())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private String ingredient(String baseUnit) throws Exception {
+        return JsonPath.read(create("/api/v1/ingredients",
+                "{\"name\":\"Integrity%d\",\"baseUnit\":\"%s\"}".formatted(SEQ.incrementAndGet(), baseUnit)), "$.id");
+    }
+
+    private String supplier() throws Exception {
+        return JsonPath.read(create("/api/v1/suppliers",
+                "{\"name\":\"IntegritySupplier%d\"}".formatted(SEQ.incrementAndGet())), "$.id");
+    }
+
+    /** Creates a PO for the ingredient and sends it; returns {poId, lineId}. */
+    private String[] sentPurchaseOrder(String ingredientId, String qty, String cost) throws Exception {
+        String poJson = create("/api/v1/purchase-orders",
+                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":%s,\"unitCost\":%s}]}"
+                        .formatted(supplier(), ingredientId, qty, cost));
+        String poId = JsonPath.read(poJson, "$.id");
+        mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());
+        return new String[] {poId, JsonPath.read(poJson, "$.lines[0].id")};
+    }
+
+    private void receiveAll(String[] po, String qty) throws Exception {
+        mockMvc.perform(authed(post("/api/v1/purchase-orders/" + po[0] + "/receive"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"receipts\":[{\"lineId\":\"%s\",\"receivedQty\":%s}]}".formatted(po[1], qty)))
+                .andExpect(status().isOk());
+    }
+
+    private BigDecimal avgCost(String ingredientId) throws Exception {
+        String json = mockMvc.perform(authed(get("/api/v1/stock"))).andReturn().getResponse().getContentAsString();
+        List<Object> vals = JsonPath.read(json, "$[?(@.ingredientId=='%s')].avgUnitCost.amount".formatted(ingredientId));
+        return new BigDecimal(String.valueOf(vals.get(0)));
+    }
+
+    @Test
+    void receipt_afterOversellTakesTheReceiptCostNotABlendWithTheZeroCost() throws Exception {
+        String id = ingredient("g");
+        // Sold 100 g that were never received: on hand -100 at cost 0.
+        ledger.deduct(UUID.fromString(branchId), List.of(new StockLine(UUID.fromString(id), new BigDecimal("100"), "g")),
+                "TEST_OVERSELL", UUID.randomUUID());
+
+        receiveAll(sentPurchaseOrder(id, "1000", "0.24"), "1000");
+
+        assertThat(avgCost(id)).isEqualByComparingTo("0.24");
+    }
+}
