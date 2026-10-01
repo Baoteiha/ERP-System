@@ -44,6 +44,11 @@ import { IconComponent } from '../../shared/icon';
                 </tbody>
               </table>
             </div>
+            <div class="pager">
+              <button type="button" class="btn btn-outline" (click)="goTo(page() - 1)" [disabled]="page() === 0">Previous</button>
+              <span class="soft">Page {{ page() + 1 }} of {{ totalPages() || 1 }}</span>
+              <button type="button" class="btn btn-outline" (click)="goTo(page() + 1)" [disabled]="page() + 1 >= totalPages()">Next</button>
+            </div>
           }
         </div>
 
@@ -84,17 +89,20 @@ import { IconComponent } from '../../shared/icon';
             } @empty { <div class="soft">No payments yet</div> }
             </div>
 
-            @if (auth.can('sales:write')) {
-              <div class="action-bar">
+            <div class="action-bar">
+              @if (auth.can('sales:write')) {
                 @if (o.status === 'OPEN') {
                   <button class="btn btn-outline" (click)="openPayment(o)">Add payment</button>
                   <button class="btn btn-outline" (click)="cancel(o)">Cancel</button>
                 }
                 @if (o.status === 'PAID') { <button class="btn btn-primary" (click)="complete(o)" [disabled]="saving()">Complete</button> }
-                @if (auth.can('sales:refund') && (o.status === 'PAID' || o.status === 'COMPLETED')) { <button class="btn btn-outline" (click)="refund(o)" [disabled]="saving()">Refund</button> }
-                @if (auth.can('sales:refund') && o.status === 'PAID') { <button class="btn btn-outline" (click)="voidOrder(o)" [disabled]="saving()">Void</button> }
-              </div>
-            }
+              }
+              @if (auth.can('sales:refund') && (o.status === 'PAID' || o.status === 'COMPLETED')) {
+                <button class="btn btn-outline" (click)="refund(o)" [disabled]="saving()">Refund</button>
+                <button class="btn btn-outline" (click)="voidOrder(o)" [disabled]="saving()">Void</button>
+                <div class="soft refund-note">Void if the sale was a mistake. Refund if the customer returned it. Each payment goes back the way it came in.</div>
+              }
+            </div>
           } @else {
             <div class="empty"><div class="big"><app-icon name="receipt" [size]="30" /></div>Select an order</div>
           }
@@ -138,6 +146,8 @@ import { IconComponent } from '../../shared/icon';
     .line-list { display: grid; gap: .65rem; }
     .order-line { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(96px, auto); gap: .85rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid var(--hairline); }
     .order-line > b, .payment-row > b, .totals b { text-align: right; white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .75rem 1rem; }
+    .refund-note { flex-basis: 100%; }
     .action-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
     /* thermal slip accents */
     .o-slip { margin: 10px 6px 14px; padding: 1rem; box-shadow: 0 2px 6px rgba(40,24,10,.18); }
@@ -160,6 +170,8 @@ export class OrdersComponent {
 
   orders = signal<OrderResponse[]>([]);
   selected = signal<OrderResponse | null>(null);
+  page = signal(0);
+  totalPages = signal(0);
   loading = signal(true);
   saving = signal(false);
   paying = signal<OrderResponse | null>(null);
@@ -174,11 +186,18 @@ export class OrdersComponent {
 
   load() {
     this.loading.set(true);
-    this.api.listOrders().subscribe({
-      next: (page) => { this.orders.set(page.content); this.loading.set(false); if (!this.selected() && page.content[0]) this.selected.set(page.content[0]); },
+    this.api.listOrders(this.page()).subscribe({
+      next: (page) => {
+        this.orders.set(page.content);
+        this.totalPages.set(page.totalPages);
+        this.loading.set(false);
+        if (!this.selected() && page.content[0]) this.selected.set(page.content[0]);
+      },
       error: () => this.loading.set(false),
     });
   }
+
+  goTo(page: number) { this.page.set(Math.max(0, page)); this.load(); }
 
   select(o: OrderResponse) { this.selected.set(o); }
   statusClass(status: string) {
@@ -223,19 +242,19 @@ export class OrdersComponent {
     if (ok) this.api.cancel(o.id).subscribe({ next: (updated) => this.refresh(updated, 'Order cancelled') });
   }
   async voidOrder(o: OrderResponse) {
-    const ok = await this.confirm.ask({ title: 'Void this order?', message: `Voids ${o.id.slice(0, 8)} and reverses its payment.`, danger: true, confirmText: 'Void order' });
+    const ok = await this.confirm.ask({ title: 'Void this order?', message: `Voids ${o.id.slice(0, 8)} because the sale was a mistake, and pays each payment back the way it came in.`, danger: true, confirmText: 'Void order' });
     if (!ok) return;
     this.saving.set(true);
-    this.api.void(o.id, { method: 'CASH' }).subscribe({
+    this.api.void(o.id).subscribe({
       next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order voided'); },
       error: () => this.saving.set(false),
     });
   }
   async refund(o: OrderResponse) {
-    const ok = await this.confirm.ask({ title: 'Refund this order?', message: `Refunds ${o.id.slice(0, 8)} in full.`, danger: true, confirmText: 'Refund' });
+    const ok = await this.confirm.ask({ title: 'Refund this order?', message: `Refunds ${o.id.slice(0, 8)} because the customer returned it, paying each payment back the way it came in.`, danger: true, confirmText: 'Refund' });
     if (!ok) return;
     this.saving.set(true);
-    this.api.refund(o.id, { method: 'CASH' }).subscribe({
+    this.api.refund(o.id).subscribe({
       next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order refunded'); },
       error: () => this.saving.set(false),
     });

@@ -158,8 +158,8 @@ export class SalesService {
   addPayment(id: string, b: M.PaymentRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/payments`, b); }
   complete(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/complete`, {}); }
   cancel(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/cancel`, {}); }
-  void(id: string, b?: M.RefundRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/void`, b ?? {}); }
-  refund(id: string, b?: M.RefundRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/refund`, b ?? {}); }
+  void(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/void`, {}); }
+  refund(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/refund`, {}); }
 }
 
 /* ---- staff (employees + shifts) ---------------------------------------- */

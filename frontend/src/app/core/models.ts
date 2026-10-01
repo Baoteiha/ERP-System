@@ -182,7 +182,6 @@ export interface MenuProduct {
 }
 
 export interface PaymentRequest { method: PaymentMethod; amount: string; }
-export interface RefundRequest { method?: PaymentMethod; }
 
 export interface OrderModifierResponse { modifierId: UUID; name: string; priceDelta: Money; }
 export interface LineResponse {
