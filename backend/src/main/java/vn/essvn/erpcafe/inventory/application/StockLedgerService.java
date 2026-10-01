@@ -136,12 +136,19 @@ public class StockLedgerService {
                 .toList();
         Money total = Money.zero();
         for (StockMovement depletion : depletions) {
-            BigDecimal quantity = depletion.getQuantity().abs();
+            // Opposite sign of the depletion: a modifier can make net consumption negative,
+            // which deduct() records as a positive depletion — its reversal takes the stock back out.
+            BigDecimal quantity = depletion.getQuantity().negate();
+            if (quantity.signum() == 0) {
+                continue;
+            }
             Money unitCost = depletion.getUnitCost();
             StockItem item = getOrCreate(branchId, depletion.getIngredientId());
             BigDecimal newQty = item.getQuantityOnHand().add(quantity);
-            item.setAvgUnitCost(newMovingAverage(item.getQuantityOnHand(), item.getAvgUnitCost(), quantity,
-                    unitCost, newQty));
+            if (quantity.signum() > 0) {
+                item.setAvgUnitCost(newMovingAverage(item.getQuantityOnHand(), item.getAvgUnitCost(), quantity,
+                        unitCost, newQty));
+            }
             item.setQuantityOnHand(newQty);
             record(depletion.getIngredientId(), branchId, MovementType.SALE_REVERSAL, quantity, unitCost,
                     reversalRefType, refId, null);

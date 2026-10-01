@@ -7,7 +7,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -99,7 +98,6 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
                         .formatted(categoryId, s, s)), "$.id");
         setRecipe(productId, ingredientId, 18);
 
-        Instant from = Instant.now().minusSeconds(1);
         String orderId = JsonPath.read(create("/api/v1/orders",
                 "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1}]}".formatted(productId)),
                 "$.id");
@@ -118,7 +116,7 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + endpoint))).andExpect(status().isOk());
 
         assertThat(stockQty(ingredientId)).isEqualByComparingTo(beforeVoid.add(new BigDecimal("18")));
-        assertThat(inventoryApi.depletionCost(UUID.fromString(branchId), from, Instant.now().plusSeconds(60)))
+        assertThat(netDepletionCost(orderId, endpoint.equals("/void") ? "ORDER_VOID" : "ORDER_REFUND"))
                 .isEqualByComparingTo("0");
         // 18 g come back at the 0.20 they were taken at: (1982 @ avg + 18 @ 0.20) / 2000
         BigDecimal expectedAvg = beforeVoid.multiply(avgBeforeVoid).add(new BigDecimal("3.6"))
@@ -139,6 +137,20 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
         assertThat(stockQty(ingredientId)).isEqualByComparingTo(beforeVoid.add(new BigDecimal("18")));
     }
 
+    /** Σ depletion cost − Σ reversal cost for one order's own references (the branch is shared by every test). */
+    private BigDecimal netDepletionCost(String orderId, String reversalRef) {
+        UUID id = UUID.fromString(orderId);
+        BigDecimal net = BigDecimal.ZERO;
+        // Depletions are negative quantities, reversals positive: a signed cost nets them directly.
+        for (StockMovement m : movements.findByRefTypeAndRefId("ORDER", id)) {
+            net = net.subtract(m.getQuantity().multiply(m.getUnitCost().getAmount()));
+        }
+        for (StockMovement m : movements.findByRefTypeAndRefId(reversalRef, id)) {
+            net = net.subtract(m.getQuantity().multiply(m.getUnitCost().getAmount()));
+        }
+        return net;
+    }
+
     private void setRecipe(String productId, String ingredientId, int grams) throws Exception {
         mockMvc.perform(authed(put("/api/v1/products/" + productId + "/recipe"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -155,5 +167,50 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
     @Test
     void refund_returnsTheRecordedQuantityAtTheRecordedCost_notTheCurrentRecipe() throws Exception {
         soldThenRecipeAndCostChanged("/refund");
+    }
+
+    @Test
+    void void_ofANegativeNetConsumption_netsStockAndCostToZero() throws Exception {
+        String s = UUID.randomUUID().toString().substring(0, 8);
+        token = adminToken();
+        branchId = ((List<String>) JsonPath.read(
+                mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                        .andReturn().getResponse().getContentAsString(), "$.branchIds")).get(0);
+        String ingredientId = JsonPath.read(create("/api/v1/ingredients",
+                "{\"name\":\"Sugar-%s\",\"baseUnit\":\"g\"}".formatted(s)), "$.id");
+        String supplierId = JsonPath.read(create("/api/v1/suppliers", "{\"name\":\"Sugar Co-%s\"}".formatted(s)), "$.id");
+        receive(supplierId, ingredientId, "0.20");
+        String categoryId = JsonPath.read(create("/api/v1/categories",
+                "{\"name\":\"Drinks-%s\",\"displayOrder\":1}".formatted(s)), "$.id");
+        String productId = JsonPath.read(create("/api/v1/products",
+                "{\"categoryId\":\"%s\",\"name\":\"Tea-%s\",\"sku\":\"TEA-%s\",\"basePrice\":25000}"
+                        .formatted(categoryId, s, s)), "$.id");
+        setRecipe(productId, ingredientId, 8);
+        // "No sugar" removes more than the recipe uses, so the net consumption is -2 g.
+        String groupId = JsonPath.read(create("/api/v1/modifier-groups",
+                "{\"name\":\"Sugar-%s\",\"minSelect\":0,\"maxSelect\":1}".formatted(s)), "$.id");
+        String groupJson = create("/api/v1/modifier-groups/" + groupId + "/modifiers",
+                "{\"name\":\"No sugar\",\"priceDelta\":0,\"displayOrder\":1,\"recipeDeltas\":"
+                        + "[{\"ingredientId\":\"%s\",\"quantity\":-10,\"unit\":\"g\"}]}".formatted(ingredientId));
+        String modifierId = JsonPath.read(groupJson, "$.id");
+        mockMvc.perform(authed(put("/api/v1/products/" + productId + "/modifier-groups"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"modifierGroupIds\":[\"%s\"]}".formatted(groupId)))
+                .andExpect(status().isOk());
+
+        BigDecimal start = stockQty(ingredientId);
+        String orderId = JsonPath.read(create("/api/v1/orders",
+                "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1,\"modifierIds\":[\"%s\"]}]}"
+                        .formatted(productId, modifierId)), "$.id");
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/payments"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"CASH\",\"amount\":25000}"))
+                .andExpect(status().isOk());
+        assertThat(stockQty(ingredientId)).isEqualByComparingTo(start.add(new BigDecimal("2")));
+
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/void"))).andExpect(status().isOk());
+
+        assertThat(stockQty(ingredientId)).isEqualByComparingTo(start);
+        assertThat(netDepletionCost(orderId, "ORDER_VOID")).isEqualByComparingTo("0");
     }
 }
