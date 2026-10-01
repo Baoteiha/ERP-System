@@ -42,7 +42,8 @@ class OutletReportTenantIsolationTest extends AbstractIntegrationTest {
     void outlets_doesNotExposeAnotherCompanysBranch() throws Exception {
         int n = SEQ.incrementAndGet();
         // Class-specific code prefix: all integration tests share one DB, so codes must be globally unique.
-        Company other = companyRepository.save(new Company("Outlet Other %d".formatted(n), "ORPT%d".formatted(n)));
+        Company other = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Outlet Other %d".formatted(n), "ORPT%d".formatted(n))));
         String foreignCode = "FB%d".formatted(n);
         TenantContext.runAs(other.getId(), () -> branchRepository.save(new Branch("Foreign Branch", foreignCode)));
 

@@ -3,7 +3,6 @@ package vn.essvn.erpcafe.bootstrap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +14,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
@@ -40,9 +40,9 @@ import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
  * repositories directly (the one sanctioned exception to module boundaries).
  *
  * <p>Startup acts for no request, so the catalog sync runs as the system across every company
- * ({@link TenantContext#runAsSystem}); the first company's own rows are written inside that
- * company's tenant, the only way a tenant-owned row is ever written. Each step opens its own
- * transaction, because a session takes its tenant when it opens.
+ * ({@link SystemTransactions}, on the schema owner's connection); the first company's own rows are
+ * written inside that company's tenant, the only way a tenant-owned row is ever written. Each step
+ * opens its own transaction, because a session takes its tenant when it opens.
  */
 @Component
 public class DataInitializer implements ApplicationRunner {
@@ -58,12 +58,13 @@ public class DataInitializer implements ApplicationRunner {
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
     private final TransactionTemplate transactions;
+    private final SystemTransactions system;
 
     public DataInitializer(PermissionRepository permissionRepository, RoleRepository roleRepository,
             UserRepository userRepository, UserBranchAccessRepository accessRepository,
             CompanyRepository companyRepository, BranchRepository branchRepository,
             PasswordEncoder passwordEncoder, SecurityProperties securityProperties,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager, SystemTransactions system) {
         this.permissionRepository = permissionRepository;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
@@ -73,17 +74,18 @@ public class DataInitializer implements ApplicationRunner {
         this.passwordEncoder = passwordEncoder;
         this.securityProperties = securityProperties;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.system = system;
     }
 
     @Override
     public void run(ApplicationArguments args) {
-        boolean empty = asSystem(() -> {
+        boolean empty = system.run(() -> {
             syncPermissions();
             return userRepository.count() == 0;
         });
         if (empty) {
             String password = bootstrapPassword();
-            Company company = asSystem(this::findOrCreateCompany);
+            Company company = system.run(this::findOrCreateCompany);
             TenantContext.runAs(company.getId(),
                     () -> transactions.executeWithoutResult(status -> seedTenant(company, password)));
         }
@@ -104,8 +106,7 @@ public class DataInitializer implements ApplicationRunner {
      * @param sinceVersion permission name → the catalog version that introduced it ({@link Permissions#SINCE})
      */
     public void syncDefaultRolePermissions(int catalogVersion, Map<String, Integer> sinceVersion) {
-        TenantContext.runAsSystem(() -> transactions.executeWithoutResult(
-                status -> syncEachDefaultRole(catalogVersion, sinceVersion)));
+        system.run(() -> syncEachDefaultRole(catalogVersion, sinceVersion));
     }
 
     private void syncEachDefaultRole(int catalogVersion, Map<String, Integer> sinceVersion) {
@@ -140,11 +141,6 @@ public class DataInitializer implements ApplicationRunner {
                 log.info("Seeded permission {}", name);
             }
         });
-    }
-
-    // the transaction opens inside the system scope, so its session takes that scope
-    private <T> T asSystem(Supplier<T> work) {
-        return TenantContext.runAsSystem(() -> transactions.execute(status -> work.get()));
     }
 
     private Company findOrCreateCompany() {

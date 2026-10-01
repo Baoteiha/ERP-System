@@ -44,7 +44,8 @@ class UserTenantIsolationIntegrationTest extends AbstractIntegrationTest {
     /** Seeds a user belonging to a brand-new company (never the caller's). Returns its id + email. */
     private User seedForeignUser() {
         int n = SEQ.incrementAndGet();
-        Company other = companyRepository.save(new Company("Other %d".formatted(n), "OTH%d".formatted(n)));
+        Company other = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Other %d".formatted(n), "OTH%d".formatted(n))));
         return TenantContext.runAs(other.getId(),
                 () -> userRepository.save(new User("foreign%d@other.test".formatted(n), "x", "Foreign User")));
     }

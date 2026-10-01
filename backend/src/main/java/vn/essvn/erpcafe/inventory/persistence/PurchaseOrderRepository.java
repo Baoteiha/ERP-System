@@ -8,10 +8,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
 
+@Transactional(readOnly = true)
 public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UUID> {
 
     Page<PurchaseOrder> findByBranchId(UUID branchId, Pageable pageable);

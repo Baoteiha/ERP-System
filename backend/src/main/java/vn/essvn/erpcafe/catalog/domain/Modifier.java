@@ -41,8 +41,9 @@ public class Modifier extends AuditableEntity {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @JoinColumn(name = "modifier_id")
+    @JoinColumn(name = "modifier_id", nullable = false)
     private List<ModifierRecipeLine> recipeLines = new ArrayList<>();
 
     protected Modifier() {

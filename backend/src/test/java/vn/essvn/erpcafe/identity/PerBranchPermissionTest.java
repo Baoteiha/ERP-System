@@ -166,7 +166,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     /** An active branch of a company of its own. */
     private UUID foreignBranch() {
         int n = SEQ.incrementAndGet();
-        Company other = companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n)));
+        Company other = TenantContext.runAsSystem(
+                () -> companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n))));
         return TenantContext.runAs(other.getId(),
                 () -> branchRepository.save(new Branch("PB Foreign", "PBF%d".formatted(n))).getId());
     }
@@ -200,7 +201,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(post("/api/v1/orders/" + atB + "/refund"), user, branchB, null)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(orders.findById(UUID.fromString(atB)).orElseThrow().getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(statusOf(atB)).isEqualTo(OrderStatus.COMPLETED);
 
         send(post("/api/v1/orders/" + atA + "/refund"), user, branchA, null)
                 .andExpect(status().isOk())
@@ -249,8 +250,17 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(get("/api/v1/reports/summary"), token, branchA, null).andExpect(status().isOk());
     }
 
+    private int grantsAt(String branchId) {
+        return TenantContext.runAsSystem(() -> grants.findByBranchId(UUID.fromString(branchId))).size();
+    }
+
+    private OrderStatus statusOf(String orderId) {
+        return TenantContext.runAsSystem(() -> orders.findById(UUID.fromString(orderId)).orElseThrow().getStatus());
+    }
+
     private UUID roleAt(NewUser holder, String branchId) {
-        return grants.findByUserIdAndBranchId(UUID.fromString(holder.id()), UUID.fromString(branchId))
+        return TenantContext.runAsSystem(
+                () -> grants.findByUserIdAndBranchId(UUID.fromString(holder.id()), UUID.fromString(branchId)))
                 .orElseThrow().getRoleId();
     }
 
@@ -306,7 +316,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     }
 
     private boolean availableAt(String productId, String branchId) {
-        return availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(branchId))
+        return TenantContext.runAsSystem(
+                () -> availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(branchId)))
                 .orElseThrow().isAvailable();
     }
 
@@ -326,14 +337,16 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         setAvailability(user, productId, unheld, false)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(unheld)))
+        assertThat(TenantContext.runAsSystem(
+                () -> availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(unheld))))
                 .isEmpty();
 
         UUID foreign = foreignBranch();
         setAvailability(user, productId, foreign.toString(), false)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
-        assertThat(availability.findByProductIdAndBranchId(UUID.fromString(productId), foreign)).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> availability.findByProductIdAndBranchId(UUID.fromString(productId),
+                foreign))).isEmpty();
 
         setAvailability(user, productId, branchA, false).andExpect(status().isOk());
         assertThat(availableAt(productId, branchA)).isFalse();
@@ -478,7 +491,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(post("/api/v1/orders/" + atB + "/refund"), old, branchB, null)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(orders.findById(UUID.fromString(atB)).orElseThrow().getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(statusOf(atB)).isEqualTo(OrderStatus.COMPLETED);
     }
 
     @Test
@@ -515,7 +528,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         grant(editor, branchB, roleId("CASHIER"));
         String token = accessToken(editor.email(), "password123");
         String nameOfB = branch(branchB).getName();
-        int grantsAtB = grants.findByBranchId(UUID.fromString(branchB)).size();
+        int grantsAtB = grantsAt(branchB);
 
         send(put("/api/v1/branches/" + branchB), token, branchA,
                 "{\"name\":\"Renamed\",\"code\":\"%s\",\"active\":false}".formatted(branchCode(branchB)))
@@ -528,7 +541,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         Branch b = branch(branchB);
         assertThat(b.getName()).isEqualTo(nameOfB);
         assertThat(b.isActive()).isTrue();
-        assertThat(grants.findByBranchId(UUID.fromString(branchB))).hasSize(grantsAtB);
+        assertThat(grantsAt(branchB)).isPositive().isEqualTo(grantsAtB);
 
         send(put("/api/v1/branches/" + branchA), token, branchA,
                 "{\"name\":\"Renamed A\",\"code\":\"%s\"}".formatted(branchCode(branchA)))

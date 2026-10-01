@@ -79,7 +79,7 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
                 new StockLine(ingredientId, new BigDecimal("1"), "kg")),
                 "TEST_DEDUCT", refId));
 
-        List<StockMovement> movements = movementRepository.findByRefTypeAndRefId("TEST_DEDUCT", refId);
+        List<StockMovement> movements = asCompany(() -> movementRepository.findByRefTypeAndRefId("TEST_DEDUCT", refId));
         assertThat(movements).hasSize(1);
         assertThat(movements.get(0).getQuantity()).isEqualByComparingTo("-1500");
     }

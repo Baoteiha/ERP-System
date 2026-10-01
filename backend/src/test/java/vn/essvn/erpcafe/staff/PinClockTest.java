@@ -326,7 +326,8 @@ class PinClockTest extends AbstractIntegrationTest {
 
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
-        Company c = companyRepository.save(new Company("Pin Other %d".formatted(n), "PIN%d".formatted(n)));
+        Company c = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Pin Other %d".formatted(n), "PIN%d".formatted(n))));
         return TenantContext.runAs(c.getId(), () -> {
             Branch b1 = branchRepository.save(new Branch("P1", "PA%d".formatted(n)));
             Branch b2 = branchRepository.save(new Branch("P2", "PB%d".formatted(n)));

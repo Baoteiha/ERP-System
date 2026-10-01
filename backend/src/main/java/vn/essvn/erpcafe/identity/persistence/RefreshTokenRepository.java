@@ -9,9 +9,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 
+@Transactional(readOnly = true)
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
 
     Optional<RefreshToken> findByTokenHash(String tokenHash);
@@ -23,6 +25,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     List<RefreshToken> findByFamilyIdAndRevokedFalse(UUID familyId);
 
     /** Bulk delete used by the daily purge; returns how many rows went. */
+    @Transactional
     @Modifying
     @Query("delete from RefreshToken t where t.expiresAt < :cutoff")
     int deleteByExpiresAtBefore(@Param("cutoff") Instant cutoff);

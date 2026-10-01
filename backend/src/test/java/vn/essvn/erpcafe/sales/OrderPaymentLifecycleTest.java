@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.inventory.domain.StockMovement;
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
@@ -68,6 +69,11 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
         if (branchId != null) {
             setBranchTaxRate("0");
         }
+    }
+
+    /** The order's stock movements, read as the system. */
+    private List<StockMovement> movementsOf(String orderId) {
+        return TenantContext.runAsSystem(() -> movements.findByRefTypeAndRefId("ORDER", UUID.fromString(orderId)));
     }
 
     private MockHttpServletRequestBuilder authed(MockHttpServletRequestBuilder b, String tok) {
@@ -220,7 +226,7 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
         String orderId = JsonPath.read(order(""), "$.id");
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/complete"), token))
                 .andExpect(status().is(422)).andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
-        assertThat(movements.findByRefTypeAndRefId("ORDER", UUID.fromString(orderId))).isEmpty();
+        assertThat(movementsOf(orderId)).isEmpty();
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("1000");
     }
 
@@ -308,7 +314,7 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
 
         assertThat(codes).containsOnlyOnce(200);
         assertThat(codes).filteredOn(c -> c != 200).allMatch(c -> c == 409 || c == 422);
-        assertThat(movements.findByRefTypeAndRefId("ORDER", UUID.fromString(orderId))).hasSize(1);
+        assertThat(movementsOf(orderId)).hasSize(1);
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("982");
         // the loser's payment was rolled back with its transaction
         mockMvc.perform(authed(get("/api/v1/orders/" + orderId), token))

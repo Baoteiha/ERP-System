@@ -57,7 +57,8 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
 
     private Seed seed() {
         int n = SEQ.incrementAndGet();
-        Company company = companies.save(new Company("Ledger Co %d".formatted(n), "LDG%d".formatted(n)));
+        Company company = TenantContext.runAsSystem(
+                () -> companies.save(new Company("Ledger Co %d".formatted(n), "LDG%d".formatted(n))));
         return TenantContext.runAs(company.getId(), () -> {
             Branch branch = branches.save(new Branch("Ledger Branch", "LDB%d".formatted(n)));
             Ingredient ingredient = ingredients.save(new Ingredient("Ledger Beans %d".formatted(n), "g", null));
@@ -98,6 +99,11 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
         }
     }
 
+    private BigDecimal onHand(Seed seed) {
+        return asCompany(seed, () -> stockItems.findByIngredientIdAndBranchId(seed.ingredientId(), seed.branchId()))
+                .orElseThrow().getQuantityOnHand();
+    }
+
     private List<StockLine> grams(Seed seed, String qty) {
         return List.of(new StockLine(seed.ingredientId(), new BigDecimal(qty), "g"));
     }
@@ -115,11 +121,10 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
                     () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId)));
 
             assertThat(results).hasSize(2);
-            List<StockMovement> depletions = movements.findByRefTypeAndRefId("ORDER", orderId);
+            List<StockMovement> depletions = asCompany(seed, () -> movements.findByRefTypeAndRefId("ORDER", orderId));
             assertThat(depletions).hasSize(1);
             assertThat(depletions.get(0).getType()).isEqualTo(MovementType.SALE_DEPLETION);
-            assertThat(stockItems.findByIngredientIdAndBranchId(seed.ingredientId(), seed.branchId()).orElseThrow()
-                    .getQuantityOnHand()).isEqualByComparingTo("970");
+            assertThat(onHand(seed)).isEqualByComparingTo("970");
         }
     }
 
@@ -132,7 +137,8 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
                     () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", UUID.randomUUID()),
                     () -> ledger.deduct(seed.branchId(), grams(seed, "50"), "ORDER", UUID.randomUUID())));
 
-            List<vn.essvn.erpcafe.inventory.domain.StockItem> rows = stockItems.findByBranchId(seed.branchId());
+            List<vn.essvn.erpcafe.inventory.domain.StockItem> rows =
+                    asCompany(seed, () -> stockItems.findByBranchId(seed.branchId()));
             assertThat(rows).hasSize(1);
             assertThat(rows.get(0).getQuantityOnHand()).isEqualByComparingTo("-80");
         }
@@ -151,11 +157,10 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
                     () -> ledger.reverseDeduction(seed.branchId(), "ORDER", orderId, "ORDER_VOID"),
                     () -> ledger.reverseDeduction(seed.branchId(), "ORDER", orderId, "ORDER_REFUND")));
 
-            long reversals = movements.findAll().stream()
+            long reversals = asCompany(seed, () -> movements.findAll()).stream()
                     .filter(m -> orderId.equals(m.getRefId()) && m.getType() == MovementType.SALE_REVERSAL).count();
             assertThat(reversals).isEqualTo(1);
-            assertThat(stockItems.findByIngredientIdAndBranchId(seed.ingredientId(), seed.branchId()).orElseThrow()
-                    .getQuantityOnHand()).isEqualByComparingTo("1000");
+            assertThat(onHand(seed)).isEqualByComparingTo("1000");
         }
     }
 }

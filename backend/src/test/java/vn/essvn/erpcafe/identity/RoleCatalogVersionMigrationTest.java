@@ -13,6 +13,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -26,7 +27,9 @@ class RoleCatalogVersionMigrationTest extends AbstractIntegrationTest {
     /** A scratch schema in the test database, so the app's own schema is never migrated backwards. */
     private static final String SCHEMA = "legacy_role_version";
 
+    // the schema owner, which may create the scratch schema
     @Autowired
+    @Qualifier("ownerDataSource")
     private DataSource dataSource;
 
     @AfterEach

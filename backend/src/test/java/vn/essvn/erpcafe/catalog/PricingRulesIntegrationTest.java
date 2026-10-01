@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.catalog.persistence.ModifierRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -175,9 +176,11 @@ class PricingRulesIntegrationTest extends AbstractIntegrationTest {
         String productId = newProduct(s);
         String[] group = newGroup(s, 0, 1);
         attach(productId, group[0]);
-        var modifier = modifiers.findById(UUID.fromString(group[1])).orElseThrow();
-        modifier.setActive(false);
-        modifiers.save(modifier);
+        TenantContext.runAsSystem(() -> {
+            var modifier = modifiers.findById(UUID.fromString(group[1])).orElseThrow();
+            modifier.setActive(false);
+            modifiers.save(modifier);
+        });
 
         order(productId, group[1]).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));

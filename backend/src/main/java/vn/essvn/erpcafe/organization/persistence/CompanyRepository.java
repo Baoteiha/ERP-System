@@ -6,9 +6,11 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.organization.domain.Company;
 
+@Transactional(readOnly = true)
 public interface CompanyRepository extends JpaRepository<Company, UUID> {
 
     boolean existsByCode(String code);

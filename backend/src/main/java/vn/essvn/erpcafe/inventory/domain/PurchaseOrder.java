@@ -34,8 +34,9 @@ public class PurchaseOrder extends BranchScopedEntity {
     @Column(name = "note")
     private String note;
 
+    // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "purchase_order_id")
+    @JoinColumn(name = "purchase_order_id", nullable = false)
     private List<PurchaseOrderLine> lines = new ArrayList<>();
 
     protected PurchaseOrder() {

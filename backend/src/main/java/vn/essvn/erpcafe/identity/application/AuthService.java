@@ -6,17 +6,14 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.UnauthorizedException;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.User;
@@ -32,9 +29,10 @@ import vn.essvn.erpcafe.identity.security.UserGrantCache;
  * Access tokens are stateless JWTs; refresh tokens are opaque, stored hashed,
  * and revocable.
  *
- * <p>Login and refresh run as the system ({@link TenantContext#runAsSystem}): the user, and so the
- * company, is unknown until the email or the token's user is looked up. Every query they make names
- * its row explicitly (email, user, token hash, company).
+ * <p>Login, refresh and logout run as the system ({@link TenantContext#runAsSystem}), on the schema
+ * owner's connection ({@link SystemTransactions}): the user, and so the company, is unknown until the
+ * email or the refresh token is looked up. Every query they make names its row explicitly (email,
+ * user, token hash, company).
  */
 @Service
 public class AuthService {
@@ -51,13 +49,12 @@ public class AuthService {
     private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
     private final UserGrantCache grantCache;
-    private final TransactionTemplate transactions;
+    private final SystemTransactions system;
 
     public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, JwtService jwtService,
             LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
-            SecurityProperties securityProperties, UserGrantCache grantCache,
-            PlatformTransactionManager transactionManager) {
+            SecurityProperties securityProperties, UserGrantCache grantCache, SystemTransactions system) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
@@ -66,7 +63,7 @@ public class AuthService {
         this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
         this.grantCache = grantCache;
-        this.transactions = new TransactionTemplate(transactionManager);
+        this.system = system;
     }
 
     /**
@@ -74,7 +71,7 @@ public class AuthService {
      * address; it only ever feeds the failed-attempt throttle.
      */
     public TokenPair login(String email, String rawPassword, String clientKey) {
-        return asSystem(() -> verifyAndIssue(email, rawPassword, clientKey));
+        return system.run(() -> verifyAndIssue(email, rawPassword, clientKey));
     }
 
     private TokenPair verifyAndIssue(String email, String rawPassword, String clientKey) {
@@ -100,7 +97,7 @@ public class AuthService {
     }
 
     public TokenPair refresh(String rawRefreshToken) {
-        return asSystem(() -> rotate(rawRefreshToken));
+        return system.run(() -> rotate(rawRefreshToken));
     }
 
     private TokenPair rotate(String rawRefreshToken) {
@@ -131,15 +128,10 @@ public class AuthService {
         return issueTokens(user, stored.getFamilyId());
     }
 
-    @Transactional
+    // the token is the credential, and a request presenting it may carry no company at all
     public void logout(String rawRefreshToken) {
-        refreshTokenRepository.findByTokenHash(sha256(rawRefreshToken))
-                .ifPresent(RefreshToken::revoke);
-    }
-
-    // the transaction opens inside the system scope, so its session takes that scope
-    private TokenPair asSystem(Supplier<TokenPair> work) {
-        return TenantContext.runAsSystem(() -> transactions.execute(status -> work.get()));
+        system.run(() -> refreshTokenRepository.findByTokenHash(sha256(rawRefreshToken))
+                .ifPresent(RefreshToken::revoke));
     }
 
     /** What a user's access token asserts: the role they hold at each live branch, read afresh. */

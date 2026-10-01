@@ -72,7 +72,8 @@ class TenantSeamTest extends AbstractIntegrationTest {
     /** A company with one category, product and modifier, written inside that company's tenant. */
     private Tenant seedCompany() {
         int n = SEQ.incrementAndGet();
-        Company company = companyRepository.save(new Company("Seam %d".formatted(n), "SEAM%d".formatted(n)));
+        Company company = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Seam %d".formatted(n), "SEAM%d".formatted(n))));
         return TenantContext.runAs(company.getId(), () -> {
             Category category = categoryRepository.save(new Category("Seam Drinks %d".formatted(n), 1));
             Product product = productRepository.save(new Product(category.getId(), "Latte",

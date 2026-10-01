@@ -11,8 +11,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,11 +31,16 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  */
 abstract class ReportFixtures extends AbstractIntegrationTest {
 
-    @Autowired
+    /** The schema owner's SQL: fixtures backdate and remove rows past row-level security. */
     protected JdbcTemplate jdbc;
 
     protected String token;
     protected List<String> branchIds;
+
+    @Autowired
+    void ownerSql(@Qualifier("ownerDataSource") DataSource ownerDataSource) {
+        jdbc = new JdbcTemplate(ownerDataSource);
+    }
 
     @AfterEach
     void removeFreshBranches() {

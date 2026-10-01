@@ -137,17 +137,20 @@ class LoginHardeningTest extends AbstractIntegrationTest {
 
         purger.purgeExpired();
 
-        assertThat(refreshTokenRepository.findById(longGone.getId())).isEmpty();
-        assertThat(refreshTokenRepository.findById(justExpired.getId())).isPresent();
-        assertThat(refreshTokenRepository.findById(live.getId())).isPresent();
-        refreshTokenRepository.delete(justExpired);
-        refreshTokenRepository.delete(live);
+        // tokens are read back as the system: the purge spans every company
+        TenantContext.runAsSystem(() -> {
+            assertThat(refreshTokenRepository.findById(longGone.getId())).isEmpty();
+            assertThat(refreshTokenRepository.findById(justExpired.getId())).isPresent();
+            assertThat(refreshTokenRepository.findById(live.getId())).isPresent();
+            refreshTokenRepository.delete(justExpired);
+            refreshTokenRepository.delete(live);
+        });
     }
 
     private RefreshToken save(UUID userId, Instant expiresAt) {
         String hash = "%064d".formatted(SEQ.incrementAndGet() + System.nanoTime());
-        return refreshTokenRepository.save(new RefreshToken(userId, hash.substring(0, 64), expiresAt,
-                UUID.randomUUID()));
+        return TenantContext.runAsSystem(() -> refreshTokenRepository.save(
+                new RefreshToken(userId, hash.substring(0, 64), expiresAt, UUID.randomUUID())));
     }
 
     @Test

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -46,9 +47,10 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
     /** A scratch schema in the test database, so the app's own schema is never migrated backwards. */
     private static final String SCHEMA = "legacy_schema_hygiene";
 
+    // the schema owner: it creates the scratch schemas, and its SQL meets the constraints before any policy
     @Autowired
+    @Qualifier("ownerDataSource")
     private DataSource dataSource;
-    @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private BranchRepository branches;
@@ -74,13 +76,14 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void dropLeftoverSchema() {
+        jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE");
     }
 
     @AfterEach
     void cleanUp() {
-        orders.deleteAll(createdOrders);
         TenantContext.runAsSystem(() -> {
+            orders.deleteAll(createdOrders);
             for (UUID id : createdBranches) {
                 grants.deleteAll(grants.findByBranchId(id));
                 branches.findById(id).ifPresent(branches::delete);
@@ -179,7 +182,8 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void paymentOfZero_failsTheCheck() {
-        Order order = orders.save(new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO));
+        Order order = TenantContext.runAsSystem(
+                () -> orders.save(new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO)));
         createdOrders.add(order);
 
         assertThatThrownBy(() -> jdbc.update("INSERT INTO payment (id, version, order_id, method, type, amount, currency,"

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -44,7 +45,8 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
 
     protected Company seedForeignCompany() {
         int n = SEQ.incrementAndGet();
-        return companyRepository.save(new Company("Foreign %d".formatted(n), "FGN%d".formatted(n)));
+        return TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Foreign %d".formatted(n), "FGN%d".formatted(n))));
     }
 
     private Branch seedForeignBranch() {
@@ -84,7 +86,34 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken())))
                 .andExpect(status().isNotFound());
 
-        assertThat(companyRepository.findById(foreign.getId())).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> companyRepository.findById(foreign.getId()))).isPresent();
+    }
+
+    @Test
+    void companyUpdate_toAnotherCompanysCode_isAConflictAndChangesNeither() throws Exception {
+        Company foreign = seedForeignCompany();
+        String token = adminToken();
+        String own = JsonPath.read(mockMvc.perform(get("/api/v1/auth/me")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(token)))
+                .andReturn().getResponse().getContentAsString(), "$.companyId");
+        Company before = TenantContext.runAsSystem(() -> companyRepository.findById(UUID.fromString(own)))
+                .orElseThrow();
+
+        // codes are unique across companies, so the check has to see the other company's
+        mockMvc.perform(put("/api/v1/companies/" + own)
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Renamed\",\"code\":\"%s\"}".formatted(foreign.getCode())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"))
+                .andExpect(jsonPath("$.detail").value("Company code already exists: " + foreign.getCode()));
+
+        Company after = TenantContext.runAsSystem(() -> companyRepository.findById(UUID.fromString(own)))
+                .orElseThrow();
+        assertThat(after.getName()).isEqualTo(before.getName());
+        assertThat(after.getCode()).isEqualTo(before.getCode());
+        assertThat(TenantContext.runAsSystem(() -> companyRepository.findById(foreign.getId())).orElseThrow()
+                .getName()).isEqualTo(foreign.getName());
     }
 
     @Test

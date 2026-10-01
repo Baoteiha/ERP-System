@@ -55,8 +55,8 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
 
     @AfterEach
     void cleanUp() {
-        orders.deleteAll(createdOrders);
         TenantContext.runAsSystem(() -> {
+            orders.deleteAll(createdOrders);
             for (UUID id : createdBranches) {
                 grants.deleteAll(grants.findByBranchId(id));
                 branches.findById(id).ifPresent(branches::delete);
@@ -160,8 +160,8 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
     void deleteBranch_withOpenOrder_isRefused() throws Exception {
         String admin = adminToken();
         String branchId = createBranch(admin);
-        createdOrders.add(orders.save(
-                new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO)));
+        createdOrders.add(TenantContext.runAsSystem(() -> orders.save(
+                new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO))));
 
         mockMvc.perform(delete("/api/v1/branches/" + branchId)
                         .header(HttpHeaders.AUTHORIZATION, authHeader(admin)))
@@ -205,8 +205,8 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
     void deactivateBranch_withOpenOrder_isRefusedAndKeepsGrants() throws Exception {
         String admin = adminToken();
         String branchId = createBranch(admin);
-        createdOrders.add(orders.save(
-                new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO)));
+        createdOrders.add(TenantContext.runAsSystem(() -> orders.save(
+                new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO))));
         Branch branch = branch(branchId);
 
         mockMvc.perform(put("/api/v1/branches/" + branchId)
@@ -217,7 +217,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
         assertThat(branch(branchId).isActive()).isTrue();
-        assertThat(grants.findByBranchId(UUID.fromString(branchId))).isNotEmpty();
+        assertThat(TenantContext.runAsSystem(() -> grants.findByBranchId(UUID.fromString(branchId)))).isNotEmpty();
     }
 
     @Test
@@ -228,8 +228,8 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String[] user = userWithRole(admin, "CASHIER", home).split("\\|");
         UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
-        grants.save(new UserBranchAccess(UUID.fromString(user[0]), UUID.fromString(dead),
-                TenantContext.runAs(companyId, () -> roles.findByName("OWNER")).orElseThrow().getId()));
+        TenantContext.runAs(companyId, () -> grants.save(new UserBranchAccess(UUID.fromString(user[0]),
+                UUID.fromString(dead), roles.findByName("OWNER").orElseThrow().getId())));
         TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
 
         String token = accessToken(user[1], "password123");
@@ -273,7 +273,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         UUID newId = UUID.fromString(JsonPath.read(created, "$.id"));
         createdBranches.add(newId);
 
-        assertThat(grants.findByUserIdAndBranchId(UUID.fromString(userId), newId))
+        assertThat(TenantContext.runAsSystem(() -> grants.findByUserIdAndBranchId(UUID.fromString(userId), newId)))
                 .hasValueSatisfying(g -> assertThat(g.getRoleId()).isEqualTo(UUID.fromString(roleId)));
     }
 
@@ -294,8 +294,8 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
         UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
-        grants.save(new UserBranchAccess(UUID.fromString(userId), UUID.fromString(dead),
-                TenantContext.runAs(companyId, () -> roles.findByName("OWNER")).orElseThrow().getId()));
+        TenantContext.runAs(companyId, () -> grants.save(new UserBranchAccess(UUID.fromString(userId),
+                UUID.fromString(dead), roles.findByName("OWNER").orElseThrow().getId())));
         TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
         String token = accessToken("opener%d@t.test".formatted(n), "password123");
 
@@ -306,7 +306,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         UUID newId = UUID.fromString(JsonPath.read(created, "$.id"));
         createdBranches.add(newId);
 
-        assertThat(grants.findByUserIdAndBranchId(UUID.fromString(userId), newId))
+        assertThat(TenantContext.runAsSystem(() -> grants.findByUserIdAndBranchId(UUID.fromString(userId), newId)))
                 .hasValueSatisfying(g -> assertThat(g.getRoleId()).isEqualTo(UUID.fromString(roleId)));
     }
 
@@ -319,6 +319,6 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         createdBranches.add(id);
 
         assertThat(branch(id.toString()).isActive()).isFalse();
-        assertThat(grants.findByBranchId(id)).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> grants.findByBranchId(id))).isEmpty();
     }
 }

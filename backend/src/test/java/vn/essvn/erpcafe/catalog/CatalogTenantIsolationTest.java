@@ -57,7 +57,8 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
 
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
-        Company b = companyRepository.save(new Company("Cat Other %d".formatted(n), "CTB%d".formatted(n)));
+        Company b = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Cat Other %d".formatted(n), "CTB%d".formatted(n))));
         return TenantContext.runAs(b.getId(), () -> {
             Branch branch = branchRepository.save(new Branch("B Branch", "CTBB%d".formatted(n)));
             Category cat = categoryRepository.save(new Category("Foreign Cat %d".formatted(n), 0));
@@ -101,8 +102,8 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
         Product after = TenantContext.runAsSystem(() -> productRepository.findById(f.productId())).orElseThrow();
         assertThat(after.getName()).startsWith("Foreign Prod");
         assertThat(after.isActive()).isTrue();
-        assertThat(recipeRepository.findByProductId(f.productId())).isEmpty();
-        assertThat(availabilityRepository.findByProductId(f.productId())).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> recipeRepository.findByProductId(f.productId()))).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> availabilityRepository.findByProductId(f.productId()))).isEmpty();
     }
 
     @Test
@@ -161,6 +162,7 @@ class CatalogTenantIsolationTest extends AbstractIntegrationTest {
                 "{\"categoryId\":\"%s\",\"name\":\"New%d\",\"sku\":\"NW%d\",\"basePrice\":5}"
                         .formatted(f.categoryId(), n, n)));
 
-        assertThat(availabilityRepository.findByProductId(UUID.fromString(prodA))).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> availabilityRepository.findByProductId(UUID.fromString(prodA))))
+                .isEmpty();
     }
 }

@@ -41,8 +41,9 @@ public class ModifierGroup extends TenantOwnedEntity {
     @Column(name = "deleted", nullable = false)
     private boolean deleted = false;
 
+    // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "modifier_group_id")
+    @JoinColumn(name = "modifier_group_id", nullable = false)
     @OrderBy("displayOrder ASC")
     private List<Modifier> modifiers = new ArrayList<>();
 

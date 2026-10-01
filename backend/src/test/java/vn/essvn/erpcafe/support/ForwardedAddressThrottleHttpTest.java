@@ -28,9 +28,7 @@ class ForwardedAddressThrottleHttpTest {
 
     @DynamicPropertySource
     static void datasourceProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", AbstractIntegrationTest.POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", AbstractIntegrationTest.POSTGRES::getUsername);
-        registry.add("spring.datasource.password", AbstractIntegrationTest.POSTGRES::getPassword);
+        AbstractIntegrationTest.registerDatabase(registry);
     }
 
     @LocalServerPort

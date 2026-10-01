@@ -2,6 +2,11 @@
 # Postgres container (see AbstractIntegrationTest); everything else mirrors dev
 # but quiet.
 spring:
+  datasource:
+    # the app role V22 creates with this password; Flyway and the system work run as the
+    # container's superuser (AbstractIntegrationTest)
+    username: erp_app
+    password: erp-app-test
   jpa:
     hibernate:
       ddl-auto: validate

@@ -15,6 +15,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Flyway connects as the schema owner (spring.flyway.user, see DataSourceConfig); V22 creates the
+    # app role with the password the app connects with, if the role does not exist yet.
+    placeholders:
+      appRolePassword: ${spring.datasource.password}
   jpa:
     open-in-view: false
     hibernate:

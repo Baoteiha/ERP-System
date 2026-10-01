@@ -78,13 +78,15 @@ class RecipeValidationIntegrationTest extends AbstractIntegrationTest {
 
         expectRefused(setRecipe(productId, UUID.randomUUID().toString(), "5", "g"));
 
-        assertThat(recipeRepository.findByProductId(UUID.fromString(productId))).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> recipeRepository.findByProductId(UUID.fromString(productId))))
+                .isEmpty();
     }
 
     @Test
     void recipe_withAnotherCompanysIngredientIsRefused() throws Exception {
         int n = SEQ.incrementAndGet();
-        Company other = companyRepository.save(new Company("RecipeVal Foreign " + n, "RVF" + n));
+        Company other = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("RecipeVal Foreign " + n, "RVF" + n)));
         Ingredient foreign = TenantContext.runAs(other.getId(), () -> ingredientRepository.save(
                 new Ingredient("ForeignBeans" + SEQ.incrementAndGet(), "g", null)));
 

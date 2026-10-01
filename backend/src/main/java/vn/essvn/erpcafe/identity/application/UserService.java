@@ -17,6 +17,7 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.identity.domain.AccessPolicy;
 import vn.essvn.erpcafe.identity.domain.HeldAccess;
 import vn.essvn.erpcafe.identity.domain.Permission;
@@ -51,11 +52,12 @@ public class UserService {
     private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
     private final UserGrantCache grantCache;
+    private final SystemTransactions system;
 
     public UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser,
-            UserGrantCache grantCache) {
+            UserGrantCache grantCache, SystemTransactions system) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -64,6 +66,7 @@ public class UserService {
         this.organizationApi = organizationApi;
         this.currentUser = currentUser;
         this.grantCache = grantCache;
+        this.system = system;
     }
 
     @Transactional(readOnly = true)
@@ -80,7 +83,7 @@ public class UserService {
     /** A new account holds no permissions until {@link #grantAccess}, which is where the policy applies. */
     public User create(String rawEmail, String rawPassword, String fullName) {
         String email = User.normalizeEmail(rawEmail);
-        if (userRepository.existsByEmailInAnyCompany(email)) {
+        if (emailTaken(email)) {
             throw new ConflictException("Email already exists: " + email);
         }
         User user = new User(email, passwordEncoder.encode(rawPassword), fullName);
@@ -145,7 +148,7 @@ public class UserService {
         String email = User.normalizeEmail(rawEmail);
         User user = get(id);
         requireCanManage(id);
-        if (!user.getEmail().equals(email) && userRepository.existsByEmailInAnyCompany(email)) {
+        if (!user.getEmail().equals(email) && emailTaken(email)) {
             throw new ConflictException("Email already exists: " + email);
         }
         user.setEmail(email);
@@ -192,6 +195,12 @@ public class UserService {
         requireCanManage(id);
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(user.getId());
+    }
+
+    // Emails are unique across companies (login finds a user by email alone), so the check runs as
+    // the system: the tenant's own connection would see only its company's users.
+    private boolean emailTaken(String email) {
+        return system.run(() -> userRepository.existsByEmailInAnyCompany(email));
     }
 
     /** Refuses with 403 unless the acting user may manage the target user (see {@link AccessPolicy}). */

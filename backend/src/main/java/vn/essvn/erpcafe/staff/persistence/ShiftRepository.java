@@ -10,10 +10,12 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
 
+@Transactional(readOnly = true)
 public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     Optional<Shift> findByIdAndBranchId(UUID id, UUID branchId);

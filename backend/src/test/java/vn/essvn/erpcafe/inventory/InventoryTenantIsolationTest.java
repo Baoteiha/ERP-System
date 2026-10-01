@@ -187,7 +187,8 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
     /** Seeds an independent company (its own branch, full-permission role, and a user) and logs in. */
     private TenantB seedOtherCompany(int n) throws Exception {
         String email = "owner%d@rival.test".formatted(n);
-        Company company = companyRepository.save(new Company("Rival Cafe " + n, "RIV" + n));
+        Company company = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Rival Cafe " + n, "RIV" + n)));
         TransactionTemplate tx = new TransactionTemplate(txManager);
         // a session takes its tenant when it opens: the transaction starts inside the company's tenant
         String branchId = TenantContext.runAs(company.getId(), () -> tx.execute(statusTx -> {

@@ -1,8 +1,13 @@
 spring:
   datasource:
     url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    # the app role row-level security binds; V22 creates it with this password if it is missing
+    username: erp_app
+    password: ${DB_APP_PASSWORD}
+  flyway:
+    # the schema owner: owns the tables and holds BYPASSRLS (and CREATEROLE unless erp_app exists)
+    user: ${DB_OWNER_USER}
+    password: ${DB_OWNER_PASSWORD}
   jpa:
     show-sql: false
 

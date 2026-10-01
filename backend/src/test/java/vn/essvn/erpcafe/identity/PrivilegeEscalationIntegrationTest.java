@@ -185,7 +185,8 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
     }
 
     private UUID roleAt(UUID userId, UUID branch) {
-        return accessRepository.findByUserIdAndBranchId(userId, branch).orElseThrow().getRoleId();
+        return TenantContext.runAsSystem(() -> accessRepository.findByUserIdAndBranchId(userId, branch))
+                .orElseThrow().getRoleId();
     }
 
     /** Reads a user of the seeded company, as that company. */
@@ -225,7 +226,8 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(accessRepository.findByUserIdAndBranchId(manager.userId(), unheld)).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> accessRepository.findByUserIdAndBranchId(manager.userId(), unheld)))
+                .isEmpty();
     }
 
     @Test

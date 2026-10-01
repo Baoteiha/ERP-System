@@ -1,7 +1,12 @@
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5433/erpcafe
-    username: erpcafe
+    # the app role row-level security binds (created by V22 or docker/postgres-init)
+    username: erp_app
+    password: erp_app
+  flyway:
+    # the schema owner, for migrations and the system work (login, refresh, startup)
+    user: erpcafe
     password: erpcafe
   jpa:
     show-sql: false

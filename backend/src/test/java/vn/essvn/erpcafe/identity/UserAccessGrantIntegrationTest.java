@@ -61,7 +61,8 @@ class UserAccessGrantIntegrationTest extends AbstractIntegrationTest {
         // A second company (B) with a branch of its own, seeded directly: the branch
         // API deliberately no longer accepts a client-supplied company, so a foreign
         // branch cannot be created over HTTP at all.
-        Company companyB = companyRepository.save(new Company("Company B %d".formatted(n), "CB%d".formatted(n)));
+        Company companyB = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Company B %d".formatted(n), "CB%d".formatted(n))));
         String branchBId = TenantContext.runAs(companyB.getId(), () -> branchRepository
                 .save(new Branch("B Branch", "BB%d".formatted(n)))
                 .getId().toString());

@@ -6,9 +6,11 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.catalog.domain.Recipe;
 
+@Transactional(readOnly = true)
 public interface RecipeRepository extends JpaRepository<Recipe, UUID> {
 
     Optional<Recipe> findByProductId(UUID productId);

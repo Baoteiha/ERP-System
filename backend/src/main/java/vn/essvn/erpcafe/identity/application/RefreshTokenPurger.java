@@ -7,8 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
 
 /**
@@ -23,15 +23,17 @@ public class RefreshTokenPurger {
     private static final Duration RETENTION = Duration.ofDays(7);
 
     private final RefreshTokenRepository refreshTokenRepository;
+    private final SystemTransactions system;
 
-    public RefreshTokenPurger(RefreshTokenRepository refreshTokenRepository) {
+    public RefreshTokenPurger(RefreshTokenRepository refreshTokenRepository, SystemTransactions system) {
         this.refreshTokenRepository = refreshTokenRepository;
+        this.system = system;
     }
 
+    // every company's tokens, and no request to name one
     @Scheduled(cron = "0 30 3 * * *")
-    @Transactional
     public void purgeExpired() {
-        int deleted = refreshTokenRepository.deleteByExpiresAtBefore(Instant.now().minus(RETENTION));
+        int deleted = system.run(() -> refreshTokenRepository.deleteByExpiresAtBefore(Instant.now().minus(RETENTION)));
         log.info("Purged {} refresh tokens expired more than {} ago", deleted, RETENTION);
     }
 }

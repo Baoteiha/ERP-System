@@ -5,9 +5,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 
+@Transactional(readOnly = true)
 public interface UserBranchAccessRepository extends JpaRepository<UserBranchAccess, UUID> {
 
     List<UserBranchAccess> findByUserId(UUID userId);

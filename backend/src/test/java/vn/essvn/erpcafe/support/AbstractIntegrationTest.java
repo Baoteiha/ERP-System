@@ -38,9 +38,17 @@ public abstract class AbstractIntegrationTest {
 
     @DynamicPropertySource
     static void datasourceProps(DynamicPropertyRegistry registry) {
+        registerDatabase(registry);
+    }
+
+    /**
+     * The app connects as erp_app (application-test.yml), which the migrations create; Flyway and
+     * the system work connect as the container's superuser, the schema owner.
+     */
+    static void registerDatabase(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.user", POSTGRES::getUsername);
+        registry.add("spring.flyway.password", POSTGRES::getPassword);
     }
 
     @Autowired

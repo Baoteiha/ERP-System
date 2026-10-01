@@ -127,12 +127,14 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
         assertThat(avgCost(ingredientId)).isEqualByComparingTo(expectedAvg);
 
         String reversalRef = endpoint.equals("/void") ? "ORDER_VOID" : "ORDER_REFUND";
-        long before = movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId)).size();
+        long before = TenantContext.runAsSystem(
+                () -> movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId))).size();
         assertThat(before).isEqualTo(1);
         CogsResult again = TenantContext.runAs(companyId, () -> inventoryApi.reverseDeduction(
                 UUID.fromString(branchId), "ORDER", UUID.fromString(orderId), reversalRef));
         assertThat(again.totalCost().getAmount()).isEqualByComparingTo("0");
-        List<StockMovement> reversals = movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId));
+        List<StockMovement> reversals = TenantContext.runAsSystem(
+                () -> movements.findByRefTypeAndRefId(reversalRef, UUID.fromString(orderId)));
         assertThat(reversals).hasSize(1);
         assertThat(reversals.get(0).getType()).isEqualTo(MovementType.SALE_REVERSAL);
         assertThat(reversals.get(0).getQuantity()).isEqualByComparingTo("18");
@@ -145,10 +147,15 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
         UUID id = UUID.fromString(orderId);
         BigDecimal net = BigDecimal.ZERO;
         // Depletions are negative quantities, reversals positive: a signed cost nets them directly.
-        for (StockMovement m : movements.findByRefTypeAndRefId("ORDER", id)) {
+        List<StockMovement> depletions = TenantContext.runAsSystem(() -> movements.findByRefTypeAndRefId("ORDER", id));
+        List<StockMovement> reversals =
+                TenantContext.runAsSystem(() -> movements.findByRefTypeAndRefId(reversalRef, id));
+        assertThat(depletions).isNotEmpty();
+        assertThat(reversals).isNotEmpty();
+        for (StockMovement m : depletions) {
             net = net.subtract(m.getQuantity().multiply(m.getUnitCost().getAmount()));
         }
-        for (StockMovement m : movements.findByRefTypeAndRefId(reversalRef, id)) {
+        for (StockMovement m : reversals) {
             net = net.subtract(m.getQuantity().multiply(m.getUnitCost().getAmount()));
         }
         return net;

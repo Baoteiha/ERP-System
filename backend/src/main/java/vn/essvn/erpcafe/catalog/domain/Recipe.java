@@ -25,8 +25,9 @@ public class Recipe extends AuditableEntity {
     @Column(name = "product_id", nullable = false)
     private UUID productId;
 
+    // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "recipe_id")
+    @JoinColumn(name = "recipe_id", nullable = false)
     private List<RecipeLine> lines = new ArrayList<>();
 
     protected Recipe() {

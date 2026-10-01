@@ -52,7 +52,8 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
     /** Seeds company B with a role, a user and a grant of that role at B's branch. */
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
-        Company b = companyRepository.save(new Company("Role Other %d".formatted(n), "ROL%d".formatted(n)));
+        Company b = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Role Other %d".formatted(n), "ROL%d".formatted(n))));
         return TenantContext.runAs(b.getId(), () -> {
             Branch branchB = branchRepository.save(new Branch("B Branch", "RLB%d".formatted(n)));
             Role roleB = roleRepository.save(new Role("B-ROLE-%d".formatted(n), "foreign"));
@@ -139,7 +140,8 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        assertThat(accessRepository.findByUserIdAndBranchId(f.userId(), f.branchId())).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> accessRepository.findByUserIdAndBranchId(f.userId(), f.branchId())))
+                .isPresent();
     }
 
     @Test
@@ -159,6 +161,6 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        assertThat(accessRepository.findByUserId(ownUser)).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> accessRepository.findByUserId(ownUser))).isEmpty();
     }
 }

@@ -65,7 +65,7 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
         Order order = new Order(branchId, null, OrderType.DINE_IN, BigDecimal.ZERO);
         order.addLine(new PricedLine(product.getId(), product.getName(), Money.of(BigDecimal.TEN), List.of(),
                 Money.of(BigDecimal.TEN)), 1, BigDecimal.ZERO);
-        return orderRepository.save(order).getId();
+        return TenantContext.runAs(companyId, () -> orderRepository.save(order)).getId();
     }
 
     private String ownBranch() throws Exception {
@@ -93,7 +93,7 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     }
 
     private void assertUnchanged(UUID orderId) {
-        Order after = orderRepository.findById(orderId).orElseThrow();
+        Order after = TenantContext.runAsSystem(() -> orderRepository.findById(orderId)).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(OrderStatus.OPEN);
         assertThat(after.getPayments()).isEmpty();
     }
@@ -101,7 +101,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     @Test
     void orderActions_rejectAnotherCompanysOrder() throws Exception {
         int n = SEQ.incrementAndGet();
-        Company b = companyRepository.save(new Company("Sales Other %d".formatted(n), "SLB%d".formatted(n)));
+        Company b = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Sales Other %d".formatted(n), "SLB%d".formatted(n))));
         Branch branchB = TenantContext.runAs(b.getId(),
                 () -> branchRepository.save(new Branch("B Branch", "SLBB%d".formatted(n))));
         UUID orderB = seedOpenOrder(b.getId(), branchB.getId(), n);
@@ -121,8 +122,10 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
                 () -> branchRepository.save(new Branch("Second", "SLS%d".formatted(n))));
         UUID adminId = TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))
                 .orElseThrow().getId();
-        UserBranchAccess existing = accessRepository.findByUserId(adminId).get(0);
-        accessRepository.save(new UserBranchAccess(adminId, second.getId(), existing.getRoleId()));
+        TenantContext.runAs(companyA, () -> {
+            UserBranchAccess existing = accessRepository.findByUserId(adminId).get(0);
+            accessRepository.save(new UserBranchAccess(adminId, second.getId(), existing.getRoleId()));
+        });
         UUID orderAtSecond = seedOpenOrder(companyA, second.getId(), n);
 
         // Fresh login so the token's branch set includes the new branch; the header selects the first one.
@@ -145,7 +148,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     @Test
     void createOrder_rejectsAnotherCompanysProduct() throws Exception {
         int n = SEQ.incrementAndGet();
-        Company b = companyRepository.save(new Company("Sales Prod %d".formatted(n), "SLP%d".formatted(n)));
+        Company b = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Sales Prod %d".formatted(n), "SLP%d".formatted(n))));
         Product productB = TenantContext.runAs(b.getId(), () -> {
             Category cat = categoryRepository.save(new Category("CatP %d".formatted(n), 0));
             return productRepository.save(new Product(cat.getId(), "ProdP %d".formatted(n),

@@ -10,11 +10,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.sales.api.SalesSummary;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 
+@Transactional(readOnly = true)
 public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     /** Branch-scoped lookup: empty (→ 404) for an order at any other branch. */

@@ -154,10 +154,10 @@ class QuoteAndIdempotencyTest extends AbstractIntegrationTest {
     void quote_equalsTheOrderLaterCreatedAndStoresNothing() throws Exception {
         String productId = newProduct(uniq(), 25000);
         setBranchTaxRate("0.085");
-        long before = orders.count();
+        long before = TenantContext.runAsSystem(() -> orders.count());
 
         String quote = create("/api/v1/orders/quote", orderBody(productId, null));
-        assertThat(orders.count()).isEqualTo(before);
+        assertThat(TenantContext.runAsSystem(() -> orders.count())).isPositive().isEqualTo(before);
 
         String created = create("/api/v1/orders", orderBody(productId, UUID.randomUUID().toString()));
         for (String field : List.of("subtotal", "discountTotal", "taxTotal", "grandTotal")) {
@@ -189,7 +189,7 @@ class QuoteAndIdempotencyTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 
         assertThat((String) JsonPath.read(second, "$.id")).isEqualTo(JsonPath.read(first, "$.id"));
-        assertThat(orders.findAll().stream()
+        assertThat(TenantContext.runAsSystem(() -> orders.findAll()).stream()
                 .filter(o -> requestId.equals(String.valueOf(o.getClientRequestId())))).hasSize(1);
     }
 
@@ -225,7 +225,7 @@ class QuoteAndIdempotencyTest extends AbstractIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
-        assertThat(orders.findAll().stream()
+        assertThat(TenantContext.runAsSystem(() -> orders.findAll()).stream()
                 .filter(o -> requestId.equals(String.valueOf(o.getClientRequestId())))).hasSize(1);
     }
 

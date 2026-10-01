@@ -12,6 +12,7 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
@@ -23,10 +24,13 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final BranchRepository branchRepository;
+    private final SystemTransactions system;
 
-    public CompanyService(CompanyRepository companyRepository, BranchRepository branchRepository) {
+    public CompanyService(CompanyRepository companyRepository, BranchRepository branchRepository,
+            SystemTransactions system) {
         this.companyRepository = companyRepository;
         this.branchRepository = branchRepository;
+        this.system = system;
     }
 
     /** A tenant sees exactly one company: their own. */
@@ -50,7 +54,9 @@ public class CompanyService {
 
     public Company update(UUID id, CompanyRequest request) {
         Company company = get(id);
-        if (!company.getCode().equals(request.code()) && companyRepository.existsByCode(request.code())) {
+        // codes are unique across companies; a tenant's own connection sees only its company
+        if (!company.getCode().equals(request.code())
+                && system.run(() -> companyRepository.existsByCode(request.code()))) {
             throw new ConflictException("Company code already exists: " + request.code());
         }
         company.setName(request.name());

@@ -55,7 +55,8 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
     /** Seeds a company B with its own branch, employee, and a scheduled shift. */
     private Foreign seedForeign() {
         int n = SEQ.incrementAndGet();
-        Company b = companyRepository.save(new Company("Staff Other %d".formatted(n), "STF%d".formatted(n)));
+        Company b = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Staff Other %d".formatted(n), "STF%d".formatted(n))));
         return TenantContext.runAs(b.getId(), () -> {
             Branch branchB = branchRepository.save(new Branch("B Branch", "SFB%d".formatted(n)));
             Employee empB = employeeRepository.save(
@@ -109,7 +110,8 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
     void shiftRows_areFilteredByCompany_andWrittenOnlyInsideOne() {
         Foreign f = seedForeign();
         int n = SEQ.incrementAndGet();
-        UUID otherCompany = companyRepository.save(new Company("Staff Third %d".formatted(n), "STT%d".formatted(n)))
+        UUID otherCompany = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Staff Third %d".formatted(n), "STT%d".formatted(n))))
                 .getId();
 
         // a shift is branch-scoped, but it carries its company too, so the tenant seam filters it
