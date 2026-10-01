@@ -2,7 +2,9 @@ package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -16,6 +18,8 @@ import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.organization.api.BranchCreated;
 import vn.essvn.erpcafe.organization.api.BranchDeactivated;
 import vn.essvn.erpcafe.organization.api.BranchDeleted;
+import vn.essvn.erpcafe.organization.api.BranchDto;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * Class: BranchAccessListener
@@ -26,20 +30,31 @@ public class BranchAccessListener {
 
     private final UserBranchAccessRepository accessRepository;
     private final RoleRepository roleRepository;
+    private final OrganizationApi organizationApi;
 
-    public BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository) {
+    public BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository,
+            OrganizationApi organizationApi) {
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
+        this.organizationApi = organizationApi;
     }
 
     /**
      * Not routed through AccessPolicy: the creator just made this branch, so there is nothing
      * to be escalated. An owner gets OWNER; anyone else gets the role they hold at the branch
-     * they acted from, never more.
+     * they acted from, never more. Only grants on live branches count, and a branch created
+     * inactive gets no grant: one can be given once it is activated.
      */
     @EventListener
     public void onBranchCreated(BranchCreated event) {
-        List<UserBranchAccess> held = accessRepository.findByUserId(event.actorUserId());
+        if (!event.active()) {
+            return;
+        }
+        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(event.companyId()).stream()
+                .map(BranchDto::id).collect(Collectors.toSet());
+        List<UserBranchAccess> held = accessRepository.findByUserId(event.actorUserId()).stream()
+                .filter(g -> liveBranchIds.contains(g.getBranchId()))
+                .toList();
         List<Role> heldRoles = roleRepository.findAllById(
                 held.stream().map(UserBranchAccess::getRoleId).distinct().toList());
         Optional<Role> owner = heldRoles.stream()

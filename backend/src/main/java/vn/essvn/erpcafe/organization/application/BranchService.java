@@ -82,7 +82,7 @@ public class BranchService implements OrganizationApi {
         Branch branch = new Branch(companyId, request.name(), request.code());
         apply(branch, request);
         Branch saved = branchRepository.save(branch);
-        events.publishEvent(new BranchCreated(saved.getId(), companyId, actor.userId()));
+        events.publishEvent(new BranchCreated(saved.getId(), companyId, actor.userId(), saved.isActive()));
         return saved;
     }
 

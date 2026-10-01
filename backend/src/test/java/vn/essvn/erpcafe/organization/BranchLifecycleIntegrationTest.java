@@ -268,4 +268,49 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         assertThat(grants.findByUserIdAndBranchId(UUID.fromString(userId), newId))
                 .hasValueSatisfying(g -> assertThat(g.getRoleId()).isEqualTo(UUID.fromString(roleId)));
     }
+
+    @Test
+    void creatorWhoseOnlyOwnerGrantIsOnADeletedBranch_doesNotBecomeOwnerOfANewBranch() throws Exception {
+        String admin = adminToken();
+        String home = seededBranch(admin);
+        String dead = createBranch(admin);
+        int n = SEQ.incrementAndGet();
+        String roleId = JsonPath.read(postJson(admin, "/api/v1/roles",
+                "{\"name\":\"Opener%d\",\"description\":\"d\",\"permissions\":[\"branch:read\",\"branch:write\"]}"
+                        .formatted(n)), "$.id");
+        String userId = JsonPath.read(postJson(admin, "/api/v1/users",
+                "{\"email\":\"opener%d@t.test\",\"password\":\"password123\",\"fullName\":\"O\"}".formatted(n)), "$.id");
+        mockMvc.perform(post("/api/v1/users/" + userId + "/access")
+                .header(HttpHeaders.AUTHORIZATION, authHeader(admin)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(home, roleId)))
+                .andExpect(status().isOk());
+        UUID companyId = branches.findById(UUID.fromString(home)).orElseThrow().getCompanyId();
+        // a leftover from before grants were dropped on delete: seeded straight into the table
+        grants.save(new UserBranchAccess(UUID.fromString(userId), UUID.fromString(dead),
+                roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
+        branches.delete(branches.findById(UUID.fromString(dead)).orElseThrow());
+        String token = accessToken("opener%d@t.test".formatted(n), "password123");
+
+        String created = mockMvc.perform(post("/api/v1/branches").header(HttpHeaders.AUTHORIZATION, authHeader(token))
+                        .header("X-Branch-Id", home).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Opened\",\"code\":\"OP%d\"}".formatted(n)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID newId = UUID.fromString(JsonPath.read(created, "$.id"));
+        createdBranches.add(newId);
+
+        assertThat(grants.findByUserIdAndBranchId(UUID.fromString(userId), newId))
+                .hasValueSatisfying(g -> assertThat(g.getRoleId()).isEqualTo(UUID.fromString(roleId)));
+    }
+
+    @Test
+    void creatingAnInactiveBranch_writesNoGrant() throws Exception {
+        int n = SEQ.incrementAndGet();
+        String body = postJson(adminToken(), "/api/v1/branches",
+                "{\"name\":\"Dormant %d\",\"code\":\"DO%d\",\"active\":false}".formatted(n, n));
+        UUID id = UUID.fromString(JsonPath.read(body, "$.id"));
+        createdBranches.add(id);
+
+        assertThat(branches.findById(id).orElseThrow().isActive()).isFalse();
+        assertThat(grants.findByBranchId(id)).isEmpty();
+    }
 }
