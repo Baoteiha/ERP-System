@@ -1,6 +1,5 @@
 package vn.essvn.erpcafe.inventory.domain;
 
-import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -9,17 +8,14 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /** A supplier the company buys ingredients from. Company-scoped, soft-deletable. */
 @Entity
 @Table(name = "supplier", uniqueConstraints = @UniqueConstraint(name = "uk_supplier_company_name", columnNames = {"company_id", "name"}))
 @SQLDelete(sql = "UPDATE supplier SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Supplier extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Supplier extends TenantOwnedEntity {
 
     @Column(name = "name", nullable = false)
     private String name;
@@ -42,13 +38,8 @@ public class Supplier extends AuditableEntity {
     protected Supplier() {
     }
 
-    public Supplier(UUID companyId, String name) {
-        this.companyId = companyId;
+    public Supplier(String name) {
         this.name = name;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getName() {

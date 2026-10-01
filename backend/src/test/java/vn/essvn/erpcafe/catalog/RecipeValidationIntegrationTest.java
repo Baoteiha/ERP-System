@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.organization.domain.Company;
@@ -84,8 +85,8 @@ class RecipeValidationIntegrationTest extends AbstractIntegrationTest {
     void recipe_withAnotherCompanysIngredientIsRefused() throws Exception {
         int n = SEQ.incrementAndGet();
         Company other = companyRepository.save(new Company("RecipeVal Foreign " + n, "RVF" + n));
-        Ingredient foreign = ingredientRepository.save(
-                new Ingredient(other.getId(), "ForeignBeans" + SEQ.incrementAndGet(), "g", null));
+        Ingredient foreign = TenantContext.runAs(other.getId(), () -> ingredientRepository.save(
+                new Ingredient("ForeignBeans" + SEQ.incrementAndGet(), "g", null)));
 
         expectRefused(setRecipe(product(), foreign.getId().toString(), "5", "g"));
     }

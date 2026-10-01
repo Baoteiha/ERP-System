@@ -8,7 +8,7 @@ import org.hibernate.annotations.SQLRestriction;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * What a supplier sells us, and which {@link Ingredient} it becomes once received.
@@ -39,10 +39,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 @Table(name = "item")
 @SQLDelete(sql = "UPDATE item SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Item extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Item extends TenantOwnedEntity {
 
     /** The supplier's own product code, when they use one. Optional, and their vocabulary — not ours. */
     @Column(name = "sku", length = 64)
@@ -73,16 +70,11 @@ public class Item extends AuditableEntity {
     protected Item() {
     }
 
-    public Item(UUID companyId, UUID supplierId, UUID ingredientId, String name, String unit) {
-        this.companyId = companyId;
+    public Item(UUID supplierId, UUID ingredientId, String name, String unit) {
         this.supplierId = supplierId;
         this.ingredientId = ingredientId;
         this.name = name;
         this.unit = unit;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getSku() {

@@ -1,6 +1,5 @@
 package vn.essvn.erpcafe.inventory.domain;
 
-import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -9,7 +8,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A raw material a company stocks and consumes (coffee beans, oat milk, cups).
@@ -20,10 +19,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 @Table(name = "ingredient", uniqueConstraints = @UniqueConstraint(name = "uk_ingredient_company_name", columnNames = {"company_id", "name"}))
 @SQLDelete(sql = "UPDATE ingredient SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Ingredient extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Ingredient extends TenantOwnedEntity {
 
     @Column(name = "name", nullable = false)
     private String name;
@@ -43,15 +39,10 @@ public class Ingredient extends AuditableEntity {
     protected Ingredient() {
     }
 
-    public Ingredient(UUID companyId, String name, String baseUnit, String category) {
-        this.companyId = companyId;
+    public Ingredient(String name, String baseUnit, String category) {
         this.name = name;
         this.baseUnit = baseUnit;
         this.category = category;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getName() {

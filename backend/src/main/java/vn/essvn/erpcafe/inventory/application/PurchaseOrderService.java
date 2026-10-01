@@ -15,7 +15,6 @@ import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
@@ -41,16 +40,14 @@ public class PurchaseOrderService {
     private final SupplierRepository supplierRepository;
     private final IngredientRepository ingredientRepository;
     private final StockLedgerService ledger;
-    private final CurrentUser currentUser;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
             SupplierRepository supplierRepository, IngredientRepository ingredientRepository,
-            StockLedgerService ledger, CurrentUser currentUser) {
+            StockLedgerService ledger) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.supplierRepository = supplierRepository;
         this.ingredientRepository = ingredientRepository;
         this.ledger = ledger;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -68,14 +65,13 @@ public class PurchaseOrderService {
     }
 
     public PurchaseOrder create(UUID supplierId, String note, List<LineInput> lines) {
-        UUID companyId = currentUser.require().companyId();
-        requireSupplier(supplierId, companyId);
+        requireSupplier(supplierId);
         if (lines == null || lines.isEmpty()) {
             throw new BusinessRuleException("A purchase order needs at least one line");
         }
         PurchaseOrder order = new PurchaseOrder(supplierId, activeBranch(), note);
         for (LineInput line : lines) {
-            requireIngredient(line.ingredientId(), companyId);
+            requireIngredient(line.ingredientId());
             order.addLine(new PurchaseOrderLine(line.ingredientId(), line.orderedQty(), Money.of(line.unitCost())));
         }
         return purchaseOrderRepository.save(order);
@@ -143,13 +139,13 @@ public class PurchaseOrderService {
         return order;
     }
 
-    private void requireSupplier(UUID supplierId, UUID companyId) {
-        supplierRepository.findByIdAndCompanyId(supplierId, companyId)
+    private void requireSupplier(UUID supplierId) {
+        supplierRepository.findById(supplierId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", supplierId));
     }
 
-    private void requireIngredient(UUID ingredientId, UUID companyId) {
-        ingredientRepository.findByIdAndCompanyId(ingredientId, companyId)
+    private void requireIngredient(UUID ingredientId) {
+        ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
     }
 

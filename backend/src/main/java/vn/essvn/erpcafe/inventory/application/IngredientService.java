@@ -10,7 +10,6 @@ import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.IngredientReferenceCheck;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
@@ -30,49 +29,43 @@ public class IngredientService {
     private final StockItemRepository stockItemRepository;
     private final StockMovementRepository movementRepository;
     private final PurchaseOrderRepository purchaseOrderRepository;
-    private final CurrentUser currentUser;
     private final List<IngredientReferenceCheck> referenceChecks;
 
     public IngredientService(IngredientRepository ingredientRepository, ItemRepository itemRepository,
             StockItemRepository stockItemRepository, StockMovementRepository movementRepository,
-            PurchaseOrderRepository purchaseOrderRepository, CurrentUser currentUser,
-            List<IngredientReferenceCheck> referenceChecks) {
+            PurchaseOrderRepository purchaseOrderRepository, List<IngredientReferenceCheck> referenceChecks) {
         this.referenceChecks = referenceChecks;
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.ingredientRepository = ingredientRepository;
         this.itemRepository = itemRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<Ingredient> list() {
-        return ingredientRepository.findByCompanyId(currentUser.require().companyId());
+        return ingredientRepository.findAll();
     }
 
+    /** Another company's ingredient is not found (404): the tenant seam scopes the lookup. */
     @Transactional(readOnly = true)
     public Ingredient get(UUID id) {
-        // Scope to the caller's company: a bare findById would let one company read,
-        // edit, or delete another's ingredient by id (IDOR). 404 hides existence.
-        return ingredientRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return ingredientRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", id));
     }
 
     public Ingredient create(String name, String baseUnit, String category) {
-        UUID companyId = currentUser.require().companyId();
-        if (ingredientRepository.existsByCompanyIdAndName(companyId, name)) {
+        if (ingredientRepository.existsByName(name)) {
             throw new ConflictException("Ingredient already exists: " + name);
         }
-        return ingredientRepository.save(new Ingredient(companyId, name, canonicalUnit(baseUnit), category));
+        return ingredientRepository.save(new Ingredient(name, canonicalUnit(baseUnit), category));
     }
 
     public Ingredient update(UUID id, String name, String baseUnit, String category, boolean active,
             Long expectedVersion) {
         Ingredient ingredient = get(id);
         requireCurrentVersion(ingredient.getVersion(), expectedVersion);
-        if (!ingredient.getName().equals(name)
-                && ingredientRepository.existsByCompanyIdAndName(ingredient.getCompanyId(), name)) {
+        if (!ingredient.getName().equals(name) && ingredientRepository.existsByName(name)) {
             throw new ConflictException("Ingredient already exists: " + name);
         }
         ingredient.setName(name);
@@ -126,7 +119,7 @@ public class IngredientService {
         // Items resolve their ingredient on every edit, so soft-deleting it out from under
         // them would strand each one behind a misleading 404. Refuse while any live item
         // (active or not) still references this ingredient.
-        if (itemRepository.existsByCompanyIdAndIngredientId(ingredient.getCompanyId(), id)) {
+        if (itemRepository.existsByIngredientId(id)) {
             throw new ConflictException(
                     "Ingredient is still referenced by supplier items; delete or repoint those first");
         }

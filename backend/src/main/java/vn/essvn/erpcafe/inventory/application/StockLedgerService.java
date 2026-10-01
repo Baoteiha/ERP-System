@@ -272,7 +272,10 @@ public class StockLedgerService {
         if (companyId == null) {
             return baseUnits;
         }
-        for (Ingredient ingredient : ingredientRepository.findAllByIdInAndCompanyId(ids, companyId)) {
+        for (Ingredient ingredient : ingredientRepository.findAllById(ids)) {
+            if (!ingredient.getCompanyId().equals(companyId)) {
+                continue;
+            }
             baseUnits.put(ingredient.getId(), Unit.parse(ingredient.getBaseUnit()));
         }
         return baseUnits;

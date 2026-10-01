@@ -8,7 +8,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.domain.Supplier;
 import vn.essvn.erpcafe.inventory.persistence.SupplierRepository;
 
@@ -18,32 +17,28 @@ import vn.essvn.erpcafe.inventory.persistence.SupplierRepository;
 public class SupplierService {
 
     private final SupplierRepository supplierRepository;
-    private final CurrentUser currentUser;
 
-    public SupplierService(SupplierRepository supplierRepository, CurrentUser currentUser) {
+    public SupplierService(SupplierRepository supplierRepository) {
         this.supplierRepository = supplierRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<Supplier> list() {
-        return supplierRepository.findByCompanyId(currentUser.require().companyId());
+        return supplierRepository.findAll();
     }
 
+    /** Another company's supplier is not found (404): the tenant seam scopes the lookup. */
     @Transactional(readOnly = true)
     public Supplier get(UUID id) {
-        // Scope to the caller's company: a bare findById would let one company read,
-        // edit, or delete another's supplier by id (IDOR). 404 hides existence.
-        return supplierRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return supplierRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", id));
     }
 
     public Supplier create(String name, String contactPhone, String contactEmail, String address) {
-        UUID companyId = currentUser.require().companyId();
-        if (supplierRepository.existsByCompanyIdAndName(companyId, name)) {
+        if (supplierRepository.existsByName(name)) {
             throw new ConflictException("Supplier already exists: " + name);
         }
-        Supplier supplier = new Supplier(companyId, name);
+        Supplier supplier = new Supplier(name);
         supplier.setContactPhone(contactPhone);
         supplier.setContactEmail(contactEmail);
         supplier.setAddress(address);
@@ -54,8 +49,7 @@ public class SupplierService {
             String address, boolean active, Long expectedVersion) {
         Supplier supplier = get(id);
         requireCurrentVersion(supplier.getVersion(), expectedVersion);
-        if (!supplier.getName().equals(name)
-                && supplierRepository.existsByCompanyIdAndName(supplier.getCompanyId(), name)) {
+        if (!supplier.getName().equals(name) && supplierRepository.existsByName(name)) {
             throw new ConflictException("Supplier already exists: " + name);
         }
         supplier.setName(name);

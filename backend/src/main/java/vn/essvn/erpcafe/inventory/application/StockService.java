@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.StockItem;
 import vn.essvn.erpcafe.inventory.domain.StockMovement;
@@ -33,15 +32,13 @@ public class StockService {
     private final StockMovementRepository movementRepository;
     private final IngredientRepository ingredientRepository;
     private final StockLedgerService ledger;
-    private final CurrentUser currentUser;
 
     public StockService(StockItemRepository stockItemRepository, StockMovementRepository movementRepository,
-            IngredientRepository ingredientRepository, StockLedgerService ledger, CurrentUser currentUser) {
+            IngredientRepository ingredientRepository, StockLedgerService ledger) {
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
         this.ingredientRepository = ingredientRepository;
         this.ledger = ledger;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -84,7 +81,7 @@ public class StockService {
     }
 
     private void requireIngredient(UUID ingredientId) {
-        ingredientRepository.findByIdAndCompanyId(ingredientId, currentUser.require().companyId())
+        ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
     }
 

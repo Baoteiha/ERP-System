@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -27,6 +28,7 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.application.StockLedgerService;
+import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
@@ -116,8 +118,13 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .content("{\"name\":\"%s\",\"baseUnit\":\"%s\",\"active\":true}".formatted(name, unit));
     }
 
+    /** Reads the ingredient back as the admin's company. */
+    private Optional<Ingredient> stored(String id) {
+        return TenantContext.runAs(companyId, () -> ingredients.findById(UUID.fromString(id)));
+    }
+
     private String nameOf(String id) {
-        return ingredients.findById(UUID.fromString(id)).orElseThrow().getName();
+        return stored(id).orElseThrow().getName();
     }
 
     @Test
@@ -140,7 +147,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(ingredients.findById(UUID.fromString(id)).orElseThrow().getBaseUnit()).isEqualTo("ml");
+        assertThat(stored(id).orElseThrow().getBaseUnit()).isEqualTo("ml");
     }
 
     @Test
@@ -162,7 +169,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
 
-        assertThat(ingredients.findById(UUID.fromString(id)).orElseThrow().getBaseUnit()).isEqualTo("g");
+        assertThat(stored(id).orElseThrow().getBaseUnit()).isEqualTo("g");
     }
 
     @Test
@@ -183,7 +190,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+        assertThat(stored(id)).isPresent();
     }
 
     @Test
@@ -195,7 +202,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+        assertThat(stored(id)).isPresent();
     }
 
     @Test
@@ -215,7 +222,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+        assertThat(stored(id)).isPresent();
     }
 
     @Test
@@ -231,7 +238,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
 
-        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+        assertThat(stored(id)).isPresent();
     }
 
     @Test
@@ -240,7 +247,7 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
 
         mockMvc.perform(authed(delete("/api/v1/ingredients/" + id))).andExpect(status().isNoContent());
 
-        assertThat(ingredients.findById(UUID.fromString(id))).isEmpty();
+        assertThat(stored(id)).isEmpty();
     }
 
     @Test

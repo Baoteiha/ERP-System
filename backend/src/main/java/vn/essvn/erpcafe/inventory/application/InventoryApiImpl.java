@@ -49,8 +49,9 @@ public class InventoryApiImpl implements InventoryApi {
     @Transactional(readOnly = true)
     public void validateConsumption(UUID companyId, List<StockLine> lines) {
         Map<UUID, Ingredient> ingredients = new HashMap<>();
-        ingredientRepository.findAllByIdInAndCompanyId(
-                lines.stream().map(StockLine::ingredientId).distinct().toList(), companyId)
+        // the seam already narrows to the tenant; the named company still decides, as the contract says
+        ingredientRepository.findAllById(lines.stream().map(StockLine::ingredientId).distinct().toList()).stream()
+                .filter(i -> i.getCompanyId().equals(companyId))
                 .forEach(i -> ingredients.put(i.getId(), i));
         List<String> problems = new ArrayList<>();
         for (StockLine line : lines) {

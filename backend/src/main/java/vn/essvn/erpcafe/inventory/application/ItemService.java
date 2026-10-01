@@ -10,7 +10,6 @@ import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.Item;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
@@ -33,47 +32,42 @@ public class ItemService {
     private final ItemRepository itemRepository;
     private final IngredientRepository ingredientRepository;
     private final SupplierRepository supplierRepository;
-    private final CurrentUser currentUser;
 
     public ItemService(ItemRepository itemRepository, IngredientRepository ingredientRepository,
-            SupplierRepository supplierRepository, CurrentUser currentUser) {
+            SupplierRepository supplierRepository) {
         this.itemRepository = itemRepository;
         this.ingredientRepository = ingredientRepository;
         this.supplierRepository = supplierRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<Item> list(UUID supplierId, UUID ingredientId) {
-        UUID companyId = currentUser.require().companyId();
         if (supplierId != null) {
-            return itemRepository.findByCompanyIdAndSupplierId(companyId, supplierId);
+            return itemRepository.findBySupplierId(supplierId);
         }
         if (ingredientId != null) {
-            return itemRepository.findByCompanyIdAndIngredientId(companyId, ingredientId);
+            return itemRepository.findByIngredientId(ingredientId);
         }
-        return itemRepository.findByCompanyId(companyId);
+        return itemRepository.findAll();
     }
 
+    /** Another company's item is not found (404): the tenant seam scopes the lookup. */
     @Transactional(readOnly = true)
     public Item get(UUID id) {
-        // Scope to the caller's company: a bare findById would let one company read,
-        // edit, or delete another's item by id (IDOR). 404 hides existence.
-        return itemRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return itemRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Item", id));
     }
 
     public Item create(String sku, String name, UUID supplierId, UUID ingredientId, String unit) {
-        UUID companyId = currentUser.require().companyId();
-        requireSupplier(companyId, supplierId);
-        Ingredient ingredient = requireIngredient(companyId, ingredientId);
+        requireSupplier(supplierId);
+        Ingredient ingredient = requireIngredient(ingredientId);
 
         String canonicalUnit = compatibleUnit(unit, ingredient).symbol();
         String normalizedSku = normalizeSku(sku);
-        requireUniqueSku(companyId, supplierId, normalizedSku);
-        requireUniqueMapping(companyId, supplierId, ingredientId, canonicalUnit);
+        requireUniqueSku(supplierId, normalizedSku);
+        requireUniqueMapping(supplierId, ingredientId, canonicalUnit);
 
-        Item item = new Item(companyId, supplierId, ingredientId, name, canonicalUnit);
+        Item item = new Item(supplierId, ingredientId, name, canonicalUnit);
         item.setSku(normalizedSku);
         return itemRepository.save(item);
     }
@@ -95,18 +89,18 @@ public class ItemService {
         if (ingredientId != null && !ingredientId.equals(item.getIngredientId())) {
             throw new ConflictException("An item's ingredient cannot change; create a new item instead");
         }
-        Ingredient ingredient = requireIngredient(item.getCompanyId(), item.getIngredientId());
+        Ingredient ingredient = requireIngredient(item.getIngredientId());
 
         // Changing the purchase unit is allowed — it only affects how future receipts are
         // converted. Movements already in the ledger were recorded in the ingredient's base
         // unit, so history keeps its meaning.
         String canonicalUnit = compatibleUnit(unit, ingredient).symbol();
         if (!canonicalUnit.equals(item.getUnit())) {
-            requireUniqueMapping(item.getCompanyId(), item.getSupplierId(), item.getIngredientId(), canonicalUnit);
+            requireUniqueMapping(item.getSupplierId(), item.getIngredientId(), canonicalUnit);
         }
         String normalizedSku = normalizeSku(sku);
         if (normalizedSku != null && !normalizedSku.equals(item.getSku())) {
-            requireUniqueSku(item.getCompanyId(), item.getSupplierId(), normalizedSku);
+            requireUniqueSku(item.getSupplierId(), normalizedSku);
         }
 
         item.setSku(normalizedSku);
@@ -134,14 +128,14 @@ public class ItemService {
         return purchaseUnit;
     }
 
-    private void requireSupplier(UUID companyId, UUID supplierId) {
-        if (supplierRepository.findByIdAndCompanyId(supplierId, companyId).isEmpty()) {
+    private void requireSupplier(UUID supplierId) {
+        if (!supplierRepository.existsById(supplierId)) {
             throw ResourceNotFoundException.of("Supplier", supplierId);
         }
     }
 
-    private Ingredient requireIngredient(UUID companyId, UUID ingredientId) {
-        return ingredientRepository.findByIdAndCompanyId(ingredientId, companyId)
+    private Ingredient requireIngredient(UUID ingredientId) {
+        return ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
     }
 
@@ -154,18 +148,17 @@ public class ItemService {
 
     // Only ever called for a SKU the item does not already hold, so any existing row
     // carrying it is necessarily a different item.
-    private void requireUniqueSku(UUID companyId, UUID supplierId, String sku) {
+    private void requireUniqueSku(UUID supplierId, String sku) {
         if (sku == null || sku.isBlank()) {
             return; // suppliers who don't issue codes shouldn't be forced to invent them
         }
-        if (itemRepository.existsByCompanyIdAndSupplierIdAndSku(companyId, supplierId, sku)) {
+        if (itemRepository.existsBySupplierIdAndSku(supplierId, sku)) {
             throw new ConflictException("Supplier already has an item with SKU: " + sku);
         }
     }
 
-    private void requireUniqueMapping(UUID companyId, UUID supplierId, UUID ingredientId, String unit) {
-        if (itemRepository.existsByCompanyIdAndSupplierIdAndIngredientIdAndUnit(
-                companyId, supplierId, ingredientId, unit)) {
+    private void requireUniqueMapping(UUID supplierId, UUID ingredientId, String unit) {
+        if (itemRepository.existsBySupplierIdAndIngredientIdAndUnit(supplierId, ingredientId, unit)) {
             throw new ConflictException(
                     "This supplier already sells that ingredient by the " + unit);
         }

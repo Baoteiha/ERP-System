@@ -60,8 +60,7 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
         Company company = companies.save(new Company("Ledger Co %d".formatted(n), "LDG%d".formatted(n)));
         return TenantContext.runAs(company.getId(), () -> {
             Branch branch = branches.save(new Branch("Ledger Branch", "LDB%d".formatted(n)));
-            Ingredient ingredient = ingredients.save(
-                    new Ingredient(company.getId(), "Ledger Beans %d".formatted(n), "g", null));
+            Ingredient ingredient = ingredients.save(new Ingredient("Ledger Beans %d".formatted(n), "g", null));
             return new Seed(company.getId(), branch.getId(), ingredient.getId());
         });
     }
@@ -78,7 +77,8 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (Supplier<T> task : tasks) {
-                futures.add(pool.submit(() -> asCompany(seed, () -> new TransactionTemplate(txManager).execute(status -> {
+                TransactionTemplate tx = new TransactionTemplate(txManager);
+                futures.add(pool.submit(() -> asCompany(seed, () -> tx.execute(status -> {
                     ready.countDown();
                     try {
                         ready.await(30, TimeUnit.SECONDS);
