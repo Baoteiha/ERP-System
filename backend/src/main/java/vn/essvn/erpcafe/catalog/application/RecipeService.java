@@ -10,6 +10,7 @@ import vn.essvn.erpcafe.catalog.domain.Recipe;
 import vn.essvn.erpcafe.catalog.domain.RecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
@@ -45,16 +46,24 @@ public class RecipeService {
     }
 
     /** Creates or replaces the recipe for a product. */
-    public Recipe setRecipe(UUID productId, List<ConsumptionLine> lines) {
+    public Recipe setRecipe(UUID productId, List<ConsumptionLine> lines, Long expectedVersion) {
         requireProduct(productId);
         inventoryApi.validateConsumption(currentUser.require().companyId(), lines.stream()
                 .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
         Recipe recipe = recipeRepository.findByProductId(productId).orElseGet(() -> new Recipe(productId));
+        requireCurrentVersion(recipe.getVersion(), expectedVersion);
         List<RecipeLine> recipeLines = lines.stream()
                 .map(l -> new RecipeLine(l.ingredientId(), l.quantity(), l.unit()))
                 .toList();
         recipe.replaceLines(recipeLines);
         return recipeRepository.save(recipe);
+    }
+
+    // Same stale-form guard as IngredientService: enforced only when the client sends a version.
+    private static void requireCurrentVersion(Long current, Long expected) {
+        if (expected != null && !expected.equals(current)) {
+            throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
+        }
     }
 
     private void requireProduct(UUID productId) {

@@ -32,6 +32,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  * Class: CatalogManagementIntegrationTest
  * Purpose: Pins the catalog edit/delete gaps: in-use deletes, modifier edits, stale recipe saves and batched loading.
  */
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 class CatalogManagementIntegrationTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -171,5 +172,42 @@ class CatalogManagementIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(authed(delete("/api/v1/modifier-groups/" + groupId)))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONFLICT"));
         mockMvc.perform(authed(get("/api/v1/modifier-groups/" + groupId))).andExpect(status().isOk());
+    }
+
+    @Test
+    void savingARecipeFromAStaleVersion_isRefused() throws Exception {
+        String productId = product(category());
+        String ingredientId = created("/api/v1/ingredients",
+                "{\"name\":\"CMI%d\",\"baseUnit\":\"g\"}".formatted(SEQ.incrementAndGet()));
+        String url = "/api/v1/products/" + productId + "/recipe";
+        String line = "{\"lines\":[{\"ingredientId\":\"%s\",\"quantity\":%d,\"unit\":\"g\"}]%s}";
+
+        long loaded = ((Number) JsonPath.read(mockMvc.perform(authed(put(url))
+                .content(line.formatted(ingredientId, 5, ""))).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$.version")).longValue();
+        mockMvc.perform(authed(put(url)).content(line.formatted(ingredientId, 6, ",\"version\":" + loaded)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(authed(put(url)).content(line.formatted(ingredientId, 7, ",\"version\":" + loaded)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONFLICT"));
+        mockMvc.perform(authed(get(url))).andExpect(jsonPath("$.lines[0].quantity").value(6));
+    }
+
+    @Test
+    void aPageOfProducts_loadsWithABoundedNumberOfStatements() throws Exception {
+        String categoryId = category();
+        for (int i = 0; i < 20; i++) {
+            String productId = product(categoryId);
+            String groupId = group();
+            modifier(groupId, 1000);
+            attach(productId, groupId);
+        }
+        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
+        sessionFactory.getStatistics().clear();
+
+        mockMvc.perform(authed(get("/api/v1/products?size=20"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(20));
+
+        assertThat(sessionFactory.getStatistics().getPrepareStatementCount()).isLessThanOrEqualTo(5);
     }
 }

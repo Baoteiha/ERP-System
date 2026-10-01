@@ -41,13 +41,13 @@ public class RecipeController {
         List<ConsumptionLine> lines = request.lines().stream()
                 .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), l.unit()))
                 .toList();
-        return toResponse(recipeService.setRecipe(productId, lines));
+        return toResponse(recipeService.setRecipe(productId, lines, request.version()));
     }
 
     private RecipeResponse toResponse(Recipe recipe) {
         List<ConsumptionLineDto> lines = recipe.getLines().stream()
                 .map(l -> new ConsumptionLineDto(l.getIngredientId(), l.getQuantity(), l.getUnit()))
                 .toList();
-        return new RecipeResponse(recipe.getProductId(), lines);
+        return new RecipeResponse(recipe.getProductId(), lines, recipe.getVersion());
     }
 }

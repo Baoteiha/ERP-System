@@ -261,6 +261,7 @@ export class ProductsComponent {
   ef = { categoryId: '', name: '', sku: '', basePrice: '0', description: '', active: true };
   recipe = signal<ConsumptionLine[]>([]);
   recipeLoaded = signal(false);
+  private recipeVersion?: number;
   chosenGroups = signal<Set<string>>(new Set());
   availMap: Record<string, { available: boolean; priceOverride: string | null }> = {};
 
@@ -324,8 +325,9 @@ export class ProductsComponent {
     this.chosenGroups.set(new Set(p.modifierGroupIds));
     this.recipe.set([]);
     this.recipeLoaded.set(false);
+    this.recipeVersion = undefined;
     this.api.getRecipe(p.id).subscribe({
-      next: (r) => { this.recipe.set(r.lines ?? []); this.recipeLoaded.set(true); },
+      next: (r) => { this.recipe.set(r.lines ?? []); this.recipeVersion = r.version; this.recipeLoaded.set(true); },
       error: () => { this.recipe.set([]); this.recipeLoaded.set(true); },
     });
     this.buildAvailMap(p);
@@ -346,8 +348,8 @@ export class ProductsComponent {
     const p = this.managing(); if (!p) return;
     const lines = this.recipe().filter((l) => l.ingredientId && l.quantity && l.unit).map((l) => ({ ...l, quantity: String(l.quantity) }));
     this.saving.set(true);
-    this.api.setRecipe(p.id, { lines }).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Recipe saved'); },
+    this.api.setRecipe(p.id, { lines, version: this.recipeVersion }).subscribe({
+      next: (r) => { this.recipeVersion = r.version; this.saving.set(false); this.toast.success('Recipe saved'); },
       error: () => this.saving.set(false),
     });
   }
