@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CatalogService, InventoryService, OrganizationService } from '../../core/api.services';
@@ -6,6 +7,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { unitsFor } from '../../core/units';
 import { MoneyPipe } from '../../core/util';
 import {
   BranchAvailabilityResponse, BranchResponse, CategoryResponse, ConsumptionLine,
@@ -76,21 +78,23 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
     <!-- Create -->
     @if (creating()) {
       <app-modal title="New product" (close)="creating.set(false)">
+        <form id="prod-create-form" (ngSubmit)="create()">
         <div class="field"><label for="prod-category">Category <span class="req" aria-hidden="true">*</span></label>
-          <select id="prod-category" class="select" [(ngModel)]="nf.categoryId" required>
+          <select id="prod-category" class="select" name="categoryId" [(ngModel)]="nf.categoryId" required>
             <option value="" disabled>Select…</option>
             @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
           </select>
         </div>
-        <div class="field"><label for="prod-name">Name <span class="req" aria-hidden="true">*</span></label><input id="prod-name" class="input" [(ngModel)]="nf.name" placeholder="Cappuccino" required /></div>
+        <div class="field"><label for="prod-name">Name <span class="req" aria-hidden="true">*</span></label><input id="prod-name" class="input" name="name" [(ngModel)]="nf.name" placeholder="Cappuccino" required /></div>
         <div class="two-col">
-          <div class="field"><label for="prod-sku">SKU <span class="req" aria-hidden="true">*</span></label><input id="prod-sku" class="input" [(ngModel)]="nf.sku" placeholder="CAP-01" required /></div>
-          <div class="field"><label for="prod-price">Base price</label><input id="prod-price" class="input" type="number" min="0" [(ngModel)]="nf.basePrice" /></div>
+          <div class="field"><label for="prod-sku">SKU <span class="req" aria-hidden="true">*</span></label><input id="prod-sku" class="input" name="sku" [(ngModel)]="nf.sku" placeholder="CAP-01" required /></div>
+          <div class="field"><label for="prod-price">Base price</label><input id="prod-price" class="input" type="number" min="0" name="basePrice" [(ngModel)]="nf.basePrice" /></div>
         </div>
-        <div class="field"><label for="prod-desc">Description</label><textarea id="prod-desc" class="input" [(ngModel)]="nf.description"></textarea></div>
+        <div class="field"><label for="prod-desc">Description</label><textarea id="prod-desc" class="input" name="description" [(ngModel)]="nf.description"></textarea></div>
+        </form>
         <div footer>
-          <button class="btn btn-outline" (click)="creating.set(false)">Cancel</button>
-          <button class="btn btn-primary" (click)="create()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Create</button>
+          <button type="button" class="btn btn-outline" (click)="creating.set(false)">Cancel</button>
+          <button type="submit" form="prod-create-form" class="btn btn-primary" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Create</button>
         </div>
       </app-modal>
     }
@@ -107,41 +111,51 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
 
         @switch (tab()) {
           @case ('details') {
-            <div class="field"><label for="prod-e-category">Category</label>
-              <select id="prod-e-category" class="select" [(ngModel)]="ef.categoryId">
+            <form (ngSubmit)="saveDetails()">
+            <div class="field"><label for="prod-e-category">Category <span class="req" aria-hidden="true">*</span></label>
+              <select id="prod-e-category" class="select" name="categoryId" [(ngModel)]="ef.categoryId" required>
                 @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
               </select>
             </div>
-            <div class="field"><label for="prod-e-name">Name</label><input id="prod-e-name" class="input" [(ngModel)]="ef.name" /></div>
+            <div class="field"><label for="prod-e-name">Name <span class="req" aria-hidden="true">*</span></label><input id="prod-e-name" class="input" name="name" [(ngModel)]="ef.name" required /></div>
             <div class="two-col">
-              <div class="field"><label for="prod-e-sku">SKU</label><input id="prod-e-sku" class="input" [(ngModel)]="ef.sku" /></div>
-              <div class="field"><label for="prod-e-price">Base price</label><input id="prod-e-price" class="input" type="number" min="0" [(ngModel)]="ef.basePrice" /></div>
+              <div class="field"><label for="prod-e-sku">SKU <span class="req" aria-hidden="true">*</span></label><input id="prod-e-sku" class="input" name="sku" [(ngModel)]="ef.sku" required /></div>
+              <div class="field"><label for="prod-e-price">Base price</label><input id="prod-e-price" class="input" type="number" min="0" name="basePrice" [(ngModel)]="ef.basePrice" /></div>
             </div>
-            <div class="field"><label for="prod-e-desc">Description</label><textarea id="prod-e-desc" class="input" [(ngModel)]="ef.description"></textarea></div>
-            <label class="checkbox"><input type="checkbox" [(ngModel)]="ef.active" /> Active</label>
-            <div class="drawer-foot"><button class="btn btn-primary" (click)="saveDetails()" [disabled]="saving()">Save details</button></div>
+            <div class="field"><label for="prod-e-desc">Description</label><textarea id="prod-e-desc" class="input" name="description" [(ngModel)]="ef.description"></textarea></div>
+            <label class="checkbox"><input type="checkbox" name="active" [(ngModel)]="ef.active" /> Active</label>
+            <div class="drawer-foot"><button type="submit" class="btn btn-primary" [disabled]="saving()">Save details</button></div>
+            </form>
           }
 
           @case ('recipe') {
             <p class="soft">Ingredients consumed per unit sold — drives COGS on completion.</p>
+            <form (ngSubmit)="saveRecipe()">
             @if (!recipeLoaded()) {
               <div class="recipe-empty"><span class="spinner"></span> Loading recipe…</div>
+            } @else if (recipeError()) {
+              <div class="recipe-empty recipe-error" role="alert">Could not load the recipe. Close and reopen this product to try again — saving is disabled so the existing recipe is not overwritten.</div>
             } @else {
               @for (l of recipe(); track $index) {
                 <div class="delta-row">
-                  <select class="select" [(ngModel)]="l.ingredientId" aria-label="Ingredient">
+                  <select class="select" [name]="'ingredient-' + $index" [(ngModel)]="l.ingredientId" (ngModelChange)="onIngredientPicked(l)" aria-label="Ingredient" required>
                     <option value="" disabled>Ingredient…</option>
-                    @for (ing of ingredients(); track ing.id) { <option [value]="ing.id">{{ ing.name }}</option> }
+                    @for (ing of ingredients(); track ing.id) { <option [value]="ing.id">{{ ing.name }} ({{ ing.baseUnit }})</option> }
                   </select>
-                  <input class="input w-qty" type="number" [(ngModel)]="l.quantity" placeholder="Qty" aria-label="Quantity" />
-                  <input class="input w-unit" [(ngModel)]="l.unit" placeholder="unit" aria-label="Unit" />
-                  <button class="btn btn-icon btn-ghost" (click)="removeLine($index)" aria-label="Remove ingredient"><app-icon name="close" [size]="16" /></button>
+                  <input class="input w-qty" type="number" min="0" step="0.001" [name]="'quantity-' + $index" [(ngModel)]="l.quantity" placeholder="Qty" aria-label="Quantity" required />
+                  <select class="select w-unit" [name]="'unit-' + $index" [(ngModel)]="l.unit" aria-label="Unit" required>
+                    <option value="" disabled>Unit…</option>
+                    @for (u of unitOptions(l); track u.value) { <option [value]="u.value">{{ u.value }}</option> }
+                  </select>
+                  <button type="button" class="btn btn-icon btn-ghost" (click)="removeLine($index)" aria-label="Remove ingredient"><app-icon name="close" [size]="16" /></button>
                 </div>
               } @empty { <div class="recipe-empty">No recipe yet.</div> }
             }
-            @if (ingredients().length) { <button class="btn btn-sm btn-outline" (click)="addLine()"><app-icon name="plus" [size]="15" /> Add ingredient</button> }
+            @if (ingredients().length) { <button type="button" class="btn btn-sm btn-outline" (click)="addLine()" [disabled]="recipeError() || !recipeLoaded()"><app-icon name="plus" [size]="15" /> Add ingredient</button> }
             @else { <div class="muted note-sm">Ingredient list needs inventory:read.</div> }
-            <div class="drawer-foot"><button class="btn btn-primary" (click)="saveRecipe()" [disabled]="saving()">Save recipe</button></div>
+            @if (recipeProblem(); as problem) { <div class="note-sm field-error" role="alert">{{ problem }}</div> }
+            <div class="drawer-foot"><button type="submit" class="btn btn-primary" [disabled]="saving() || !recipeLoaded() || recipeError() || !!recipeProblem()">Save recipe</button></div>
+            </form>
           }
 
           @case ('modifiers') {
@@ -228,6 +242,8 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
     .w-qty { max-width: 110px; }
     .w-unit { max-width: 90px; }
     .note-sm { font-size: 12px; }
+    .recipe-error, .field-error { color: var(--red); }
+    .field-error { margin-top: .5rem; }
     .price-ov { max-width: 130px; min-height: 38px; }
     .recipe-empty { display: flex; align-items: center; gap: .5rem; margin: .75rem 0; padding: .85rem 1rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); color: var(--text-soft); background: var(--surface-2); }
     .mg-item { align-items: flex-start; padding: .5rem 0; border-bottom: 1px solid var(--border); }
@@ -261,6 +277,8 @@ export class ProductsComponent {
   ef = { categoryId: '', name: '', sku: '', basePrice: '0', description: '', active: true };
   recipe = signal<ConsumptionLine[]>([]);
   recipeLoaded = signal(false);
+  /** A failed load, as opposed to a product that simply has no recipe yet. */
+  recipeError = signal(false);
   private recipeVersion?: number;
   chosenGroups = signal<Set<string>>(new Set());
   availMap: Record<string, { available: boolean; priceOverride: string | null }> = {};
@@ -325,10 +343,16 @@ export class ProductsComponent {
     this.chosenGroups.set(new Set(p.modifierGroupIds));
     this.recipe.set([]);
     this.recipeLoaded.set(false);
+    this.recipeError.set(false);
     this.recipeVersion = undefined;
     this.api.getRecipe(p.id).subscribe({
       next: (r) => { this.recipe.set(r.lines ?? []); this.recipeVersion = r.version; this.recipeLoaded.set(true); },
-      error: () => { this.recipe.set([]); this.recipeLoaded.set(true); },
+      error: (e: HttpErrorResponse) => {
+        // 404 is the API's way of saying "no recipe yet"; anything else must not look like an empty recipe
+        this.recipe.set([]);
+        this.recipeError.set(e.status !== 404);
+        this.recipeLoaded.set(true);
+      },
     });
     this.buildAvailMap(p);
   }
@@ -344,9 +368,23 @@ export class ProductsComponent {
 
   addLine() { this.recipe.update((r) => [...r, { ingredientId: '', quantity: '', unit: '' }]); }
   removeLine(i: number) { this.recipe.update((r) => r.filter((_, idx) => idx !== i)); }
+  /** Units of the picked ingredient's own dimension; none picked yet offers them all. */
+  unitOptions(l: ConsumptionLine) { return unitsFor(this.ingredients().find((i) => i.id === l.ingredientId)?.baseUnit); }
+  onIngredientPicked(l: ConsumptionLine) {
+    const base = this.ingredients().find((i) => i.id === l.ingredientId)?.baseUnit;
+    if (base) l.unit = base;
+  }
+  /** Why Save is blocked, if it is: a half-filled line would otherwise be dropped silently. */
+  // a method, not a computed: ngModel edits the line objects in place, which a signal cannot see
+  recipeProblem(): string | null {
+    return this.recipe().some((l) => !l.ingredientId || !l.quantity || !l.unit)
+      ? 'Every ingredient needs a quantity and a unit — fill in or remove the incomplete lines.'
+      : null;
+  }
   saveRecipe() {
     const p = this.managing(); if (!p) return;
-    const lines = this.recipe().filter((l) => l.ingredientId && l.quantity && l.unit).map((l) => ({ ...l, quantity: String(l.quantity) }));
+    if (!this.recipeLoaded() || this.recipeError() || this.recipeProblem()) return;
+    const lines = this.recipe().map((l) => ({ ...l, quantity: String(l.quantity) }));
     this.saving.set(true);
     this.api.setRecipe(p.id, { lines, version: this.recipeVersion }).subscribe({
       next: (r) => { this.recipeVersion = r.version; this.saving.set(false); this.toast.success('Recipe saved'); },
@@ -387,7 +425,8 @@ export class ProductsComponent {
     this.saving.set(true);
     this.api.setAvailability(p.id, {
       branchId, available: row.available,
-      priceOverride: row.priceOverride ? String(row.priceOverride) : null,
+      // 0 is a real override (free at this branch); only an empty box means "no override"
+      priceOverride: row.priceOverride !== null && row.priceOverride !== '' ? String(row.priceOverride) : null,
     }).subscribe({
       next: () => { this.saving.set(false); this.toast.success('Availability saved'); },
       error: () => this.saving.set(false),

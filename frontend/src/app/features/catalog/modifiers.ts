@@ -6,6 +6,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { unitsFor } from '../../core/units';
 import { MoneyPipe } from '../../core/util';
 import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierResponse } from '../../core/models';
 
@@ -138,22 +139,26 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
         <div class="pg-title">Recipe deltas <span class="muted pg-note">— extra ingredients this option consumes (optional)</span></div>
         @for (d of deltas(); track $index) {
           <div class="delta-row">
-            <select class="select" [(ngModel)]="d.ingredientId" aria-label="Ingredient">
+            <select class="select" [(ngModel)]="d.ingredientId" (ngModelChange)="onIngredientPicked(d)" aria-label="Ingredient">
               <option value="" disabled>Ingredient…</option>
               @for (ing of ingredients(); track ing.id) { <option [value]="ing.id">{{ ing.name }}</option> }
             </select>
             <input class="input w-qty" type="number" [(ngModel)]="d.quantity" placeholder="Qty" aria-label="Quantity" />
-            <input class="input w-unit" [(ngModel)]="d.unit" placeholder="unit" aria-label="Unit" />
+            <select class="select w-unit" [(ngModel)]="d.unit" aria-label="Unit">
+              <option value="" disabled>Unit…</option>
+              @for (u of unitOptions(d); track u.value) { <option [value]="u.value">{{ u.value }}</option> }
+            </select>
             <button class="btn btn-icon btn-ghost" (click)="removeDelta($index)" aria-label="Remove ingredient"><app-icon name="close" [size]="16" /></button>
           </div>
         }
         @if (ingredients().length) {
           <button class="btn btn-sm btn-outline" (click)="addDelta()"><app-icon name="plus" [size]="15" /> Add ingredient</button>
         } @else { <div class="muted note-sm">Ingredient list unavailable (needs inventory:read).</div> }
+        @if (deltaProblem(); as problem) { <div class="note-sm field-error" role="alert">{{ problem }}</div> }
 
         <div footer>
           <button class="btn btn-outline" (click)="addTo.set(null)">Cancel</button>
-          <button class="btn btn-primary" (click)="addModifier()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Add option</button>
+          <button class="btn btn-primary" (click)="addModifier()" [disabled]="saving() || !!deltaProblem()">@if (saving()) { <span class="spinner"></span> } Add option</button>
         </div>
       </app-modal>
     }
@@ -192,6 +197,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     .w-qty { max-width: 100px; }
     .w-unit { max-width: 90px; }
     .note-sm { font-size: 12px; }
+    .field-error { margin-top: .5rem; color: var(--red); }
     @media (max-width: 620px) { .mg-count { display: none; } }
   `],
 })
@@ -263,13 +269,24 @@ export class ModifiersComponent {
     this.deltas.set([]);
     this.addTo.set(g);
   }
+  unitOptions(d: ConsumptionLine) { return unitsFor(this.ingredients().find((i) => i.id === d.ingredientId)?.baseUnit); }
+  onIngredientPicked(d: ConsumptionLine) {
+    const base = this.ingredients().find((i) => i.id === d.ingredientId)?.baseUnit;
+    if (base) d.unit = base;
+  }
+  deltaProblem(): string | null {
+    return this.deltas().some((d) => !d.ingredientId || !d.quantity || !d.unit)
+      ? 'Every ingredient needs a quantity and a unit — fill in or remove the incomplete lines.'
+      : null;
+  }
   addDelta() { this.deltas.update((d) => [...d, { ingredientId: '', quantity: '', unit: '' }]); }
   removeDelta(i: number) { this.deltas.update((d) => d.filter((_, idx) => idx !== i)); }
 
   addModifier() {
     const g = this.addTo();
     if (!g || !this.nm.name) { this.toast.error('Name is required'); return; }
-    const recipeDeltas = this.deltas().filter((d) => d.ingredientId && d.quantity && d.unit);
+    if (this.deltaProblem()) return;
+    const recipeDeltas = this.deltas().map((d) => ({ ...d, quantity: String(d.quantity) }));
     this.saving.set(true);
     this.api.addModifier(g.id, {
       name: this.nm.name,
