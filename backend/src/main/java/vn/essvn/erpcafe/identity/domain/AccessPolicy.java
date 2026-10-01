@@ -13,8 +13,8 @@ import vn.essvn.erpcafe.identity.security.AuthPrincipal;
  */
 public final class AccessPolicy {
 
-    // every rule weighs the actor's full grants, never the branch the request acts in: grants and
-    // account changes are judged at the target's branches, role edits (no branch) against the union (ADR-0007)
+    // every rule weighs the actor's full grants, never the branch the request acts in: grants, account
+    // changes and widening a role in use are judged at the branches affected, the rest against the union (ADR-0007)
 
     private AccessPolicy() {
     }
@@ -63,6 +63,23 @@ public final class AccessPolicy {
                         "You can only manage users whose permissions you hold at each of their branches");
             }
         });
+    }
+
+    /**
+     * Permissions added to a role reach everyone who holds it, wherever they hold it: at every branch
+     * where the role is granted, the actor must hold the branch and the added permissions there.
+     */
+    public static void requireCanWidenRole(AuthPrincipal actor, Set<String> added, Set<UUID> grantedAt) {
+        if (isOwner(actor) || added.isEmpty()) {
+            return;
+        }
+        for (UUID branchId : grantedAt) {
+            // a branch the actor does not hold has no permissions for them, so this refuses it too
+            if (!actor.permissionsAt(branchId).containsAll(added)) {
+                throw new ForbiddenException(
+                        "You can only widen a role with permissions you hold at every branch where it is granted");
+            }
+        }
     }
 
     /** A role may be given only permissions the actor holds; a role has no branch, so at any of theirs. */

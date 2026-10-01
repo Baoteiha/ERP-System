@@ -161,6 +161,23 @@ class AccessPolicyTest {
     }
 
     @Test
+    void wideningARole_isJudgedAtEveryBranchWhereItIsGranted() {
+        AuthPrincipal actor = managerHereCashierThere();
+        Set<String> refund = Set.of(Permissions.SALES_REFUND);
+
+        assertThatCode(() -> AccessPolicy.requireCanWidenRole(actor, refund, Set.of(HELD_BRANCH)))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> AccessPolicy.requireCanWidenRole(actor, refund, Set.of(HELD_BRANCH, OTHER_BRANCH)))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> AccessPolicy.requireCanWidenRole(actor, refund, Set.of(UUID.randomUUID())))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatCode(() -> AccessPolicy.requireCanWidenRole(actor, Set.of(), Set.of(OTHER_BRANCH)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> AccessPolicy.requireCanWidenRole(owner(), refund, Set.of(UUID.randomUUID())))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void editRole_allowsOnlyPermissionsTheActorHolds() {
         assertThatCode(() -> AccessPolicy.requireCanEditRole(manager(), Set.of(Permissions.SALES_WRITE)))
                 .doesNotThrowAnyException();

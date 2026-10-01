@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,11 +16,15 @@ import vn.essvn.erpcafe.identity.domain.AccessPolicy;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Role;
+import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.PermissionRepository;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
+import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.identity.security.RolePermissionCache;
+import vn.essvn.erpcafe.organization.api.BranchDto;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * Role management within the acting user's company: listing/creating roles and
@@ -34,14 +39,17 @@ public class RoleService {
     private final UserBranchAccessRepository accessRepository;
     private final CurrentUser currentUser;
     private final RolePermissionCache roleCache;
+    private final OrganizationApi organizationApi;
 
     public RoleService(RoleRepository roleRepository, PermissionRepository permissionRepository,
-            UserBranchAccessRepository accessRepository, CurrentUser currentUser, RolePermissionCache roleCache) {
+            UserBranchAccessRepository accessRepository, CurrentUser currentUser, RolePermissionCache roleCache,
+            OrganizationApi organizationApi) {
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.accessRepository = accessRepository;
         this.currentUser = currentUser;
         this.roleCache = roleCache;
+        this.organizationApi = organizationApi;
     }
 
     @Transactional(readOnly = true)
@@ -154,12 +162,31 @@ public class RoleService {
     /**
      * Refuses with 403 unless the actor holds every permission the role has now and every one
      * the edit gives it. A role's permissions are what everyone holding it can do, so the actor
-     * may neither widen it past their own nor reshape one that already exceeds them.
+     * may neither widen it past their own nor reshape one that already exceeds them. What the edit
+     * adds must also be the actor's at every live branch where the role is granted.
      */
     private void requireCanEdit(Role role, Set<String> newPermissions) {
+        AuthPrincipal actor = currentUser.require();
+        Set<String> current = new HashSet<>();
+        role.getPermissions().forEach(p -> current.add(p.getName()));
         Set<String> touched = new HashSet<>(newPermissions);
-        role.getPermissions().forEach(p -> touched.add(p.getName()));
-        AccessPolicy.requireCanEditRole(currentUser.require(), touched);
+        touched.addAll(current);
+        AccessPolicy.requireCanEditRole(actor, touched);
+
+        Set<String> added = new HashSet<>(newPermissions);
+        added.removeAll(current);
+        if (!added.isEmpty()) {
+            AccessPolicy.requireCanWidenRole(actor, added, liveBranchesGranting(role));
+        }
+    }
+
+    private Set<UUID> liveBranchesGranting(Role role) {
+        Set<UUID> live = organizationApi.listActiveBranches(role.getCompanyId()).stream()
+                .map(BranchDto::id).collect(Collectors.toSet());
+        return accessRepository.findByRoleId(role.getId()).stream()
+                .map(UserBranchAccess::getBranchId)
+                .filter(live::contains)
+                .collect(Collectors.toSet());
     }
 
     private Set<Permission> resolvePermissions(Set<String> names) {

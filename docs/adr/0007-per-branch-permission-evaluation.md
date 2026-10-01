@@ -38,9 +38,18 @@ cashier at B who manages A could grant themselves MANAGER at B:
 - **Manage a user** (profile, password, status, grants): the actor holds every
   branch the user holds, and at each the user's permissions are within the
   actor's there. Equal peers may still manage each other.
-- **Create or edit a role**: a role has no branch, so its permissions must be
-  within the union of the actor's.
+- **Create or edit a role**: see below.
 - An owner passes every rule; only an owner grants, revokes or manages OWNER.
+
+Role edits: a new role is held by nobody, so creating one needs only
+permissions within the union of the actor's — each later grant of it is judged
+at its branch. A role already granted is different: whatever an edit **adds**
+reaches every holder at once, so the added permissions must be the actor's at
+every live branch where the role is granted (and the actor must hold each such
+branch) — otherwise a cashier at B who edits roles from A could add refunds to
+their own till role. As before, an edit may touch only a role whose current
+permissions are within the actor's union, and OWNER is not editable. Removing a
+permission needs nothing more: narrowing cannot escalate.
 
 Code that reads several branches in one request, or acts at a branch named in
 the body or query rather than the header, must check that branch itself

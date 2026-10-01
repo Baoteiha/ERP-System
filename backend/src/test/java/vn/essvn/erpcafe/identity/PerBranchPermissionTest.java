@@ -13,8 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +30,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
+import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
@@ -340,5 +343,67 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(get(price + foreign), user, branchA, null)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    private record RoleEditor(String token, String tillRoleId) {
+    }
+
+    /** Edits roles and refunds at A through a custom role; at B holds only a till role (sell, no refunds). */
+    private RoleEditor roleEditor() throws Exception {
+        String backOffice = customRole("role:read", "role:write", "sales:read", "sales:write", "sales:refund");
+        String till = customRole("sales:read", "sales:write");
+        NewUser editor = newUser();
+        grant(editor, branchA, backOffice);
+        grant(editor, branchB, till);
+        return new RoleEditor(accessToken(editor.email(), "password123"), till);
+    }
+
+    private Set<String> permissionsOf(String roleId) {
+        return roles.findById(UUID.fromString(roleId)).orElseThrow().getPermissions().stream()
+                .map(Permission::getName).collect(Collectors.toSet());
+    }
+
+    @Test
+    void wideningARoleInUse_isJudgedAtEveryBranchItIsGranted() throws Exception {
+        RoleEditor editor = roleEditor();
+
+        send(post("/api/v1/roles/" + editor.tillRoleId() + "/permissions"), editor.token(), branchA,
+                "{\"permissions\":[\"sales:refund\"]}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        send(put("/api/v1/roles/" + editor.tillRoleId() + "/permissions"), editor.token(), branchA,
+                "{\"permissions\":[\"sales:read\",\"sales:write\",\"sales:refund\"]}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(permissionsOf(editor.tillRoleId())).containsExactlyInAnyOrder("sales:read", "sales:write");
+    }
+
+    @Test
+    void wideningARoleUsedOnlyWhereTheEditorHoldsThePermission_isAllowed() throws Exception {
+        RoleEditor editor = roleEditor();
+        String counter = customRole("sales:read");
+        grant(newUser(), branchA, counter);
+
+        json(send(post("/api/v1/roles/" + counter + "/permissions"), editor.token(), branchB,
+                "{\"permissions\":[\"sales:refund\"]}"));
+
+        assertThat(permissionsOf(counter)).containsExactlyInAnyOrder("sales:read", "sales:refund");
+    }
+
+    @Test
+    void creatingARole_andNarrowingOneInUse_areAllowed() throws Exception {
+        RoleEditor editor = roleEditor();
+
+        String created = send(post("/api/v1/roles"), editor.token(), branchB,
+                "{\"name\":\"PER_BRANCH_NEW_%d\",\"description\":\"d\",\"permissions\":[\"sales:refund\"]}"
+                        .formatted(SEQ.incrementAndGet()))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        createdRoles.add(UUID.fromString(JsonPath.read(created, "$.id")));
+
+        send(delete("/api/v1/roles/" + editor.tillRoleId() + "/permissions/sales:write"), editor.token(), branchB, null)
+                .andExpect(status().isOk());
+        assertThat(permissionsOf(editor.tillRoleId())).containsExactly("sales:read");
     }
 }
