@@ -77,11 +77,12 @@ public class DataInitializer implements ApplicationRunner {
     /**
      * Grants each default role the permissions its {@link DefaultRole} definition lists that
      * entered the catalog after the version the role last synced to, then records
-     * {@code catalogVersion} on the role. A permission is offered once, when it is new: an
-     * upgraded deployment's managers and cashiers still receive what a release adds, or they
-     * would 403 on every new endpoint until edited by hand (AUTH-G06), while a permission an
-     * owner removed stays removed across restarts. Never revokes, and roles with names outside
-     * the default set are not touched at all.
+     * {@code catalogVersion} on the role unless it already has a newer one (after a rollback, the
+     * next upgrade must not offer that release's permissions again). A permission is offered once,
+     * when it is new: an upgraded deployment's managers and cashiers still receive what a release
+     * adds, or they would 403 on every new endpoint until edited by hand (AUTH-G06), while a
+     * permission an owner removed stays removed across restarts. Never revokes, and roles with
+     * names outside the default set are not touched at all.
      *
      * @param catalogVersion the catalog version being synced to ({@link Permissions#CATALOG_VERSION})
      * @param sinceVersion permission name → the catalog version that introduced it ({@link Permissions#SINCE})
@@ -108,7 +109,7 @@ public class DataInitializer implements ApplicationRunner {
                 log.info("Granted {} new default permission(s) to {} role {}",
                         role.getPermissions().size() - before, role.getName(), role.getId());
             }
-            role.setSyncedCatalogVersion(catalogVersion);
+            role.setSyncedCatalogVersion(Math.max(role.getSyncedCatalogVersion(), catalogVersion));
         }
     }
 

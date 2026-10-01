@@ -49,9 +49,18 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         return role.getPermissions().stream().map(Permission::getName).collect(Collectors.toSet());
     }
 
-    /** Other test classes log in as these roles, so each test puts them back exactly as seeded. */
+    /**
+     * Other test classes log in as these roles, so each test puts them back exactly as seeded, and
+     * no role is left synced past the real catalog (the bumped-catalog test syncs every company's).
+     */
     @AfterEach
     void restoreDefaultRoles() {
+        for (Role role : roleRepository.findAll()) {
+            if (role.getSyncedCatalogVersion() > Permissions.CATALOG_VERSION) {
+                role.setSyncedCatalogVersion(Permissions.CATALOG_VERSION);
+                roleRepository.save(role);
+            }
+        }
         for (DefaultRole def : DefaultRole.all()) {
             Role role = role(def.roleName());
             role.setPermissions(def.permissions().stream()
@@ -93,8 +102,8 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
 
     @Test
     void roleNeverSynced_receivesItsWholeDefinition() {
-        // A role from before catalog versions existed (the migration leaves it at 0) and missing
-        // a permission its definition lists, as when staff/report permissions landed.
+        // Version 0 means never synced: seedTenant creates default roles that way and the same
+        // run() syncs them at once, so such a role is offered its whole definition.
         Role manager = role(DefaultRole.MANAGER.roleName());
         manager.getPermissions().removeIf(p -> Permissions.REPORT_READ.equals(p.getName()));
         manager.setSyncedCatalogVersion(0);
@@ -105,6 +114,19 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         Role synced = role(DefaultRole.MANAGER.roleName());
         assertThat(names(synced)).containsAll(DefaultRole.MANAGER.permissions());
         assertThat(synced.getSyncedCatalogVersion()).isEqualTo(Permissions.CATALOG_VERSION);
+    }
+
+    @Test
+    void olderCatalog_neverLowersTheSyncedVersion() {
+        // As after a rollback: the role was synced by a newer release than the one now starting.
+        int newer = Permissions.CATALOG_VERSION + 1;
+        Role manager = role(DefaultRole.MANAGER.roleName());
+        manager.setSyncedCatalogVersion(newer);
+        roleRepository.save(manager);
+
+        dataInitializer.run(null);
+
+        assertThat(role(DefaultRole.MANAGER.roleName()).getSyncedCatalogVersion()).isEqualTo(newer);
     }
 
     @Test
