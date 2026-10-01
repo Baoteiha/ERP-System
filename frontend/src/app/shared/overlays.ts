@@ -2,6 +2,7 @@ import { Component, ElementRef, HostListener, ViewChild, effect, inject } from '
 import { ToastService } from '../core/toast.service';
 import { ConfirmService } from '../core/confirm.service';
 import { IconComponent } from './icon';
+import { OverlayStack } from './overlay-stack';
 
 /** App-level toast stack. Rendered once in the root. */
 @Component({
@@ -94,6 +95,7 @@ export class ToastHostComponent {
 })
 export class ConfirmHostComponent {
   confirm = inject(ConfirmService);
+  private overlays = inject(OverlayStack);
 
   @ViewChild('box') box?: ElementRef<HTMLElement>;
   private opener: HTMLElement | null = null;
@@ -112,13 +114,13 @@ export class ConfirmHostComponent {
     });
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape() { if (this.confirm.pending()) this.confirm.answer(false); }
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(e: Event) { if (this.confirm.pending() && this.overlays.isTop(this.confirm, e)) this.confirm.answer(false); }
 
   /** Keep Tab / Shift+Tab inside the dialog while it is open. */
   @HostListener('document:keydown', ['$event'])
   trapTab(e: KeyboardEvent) {
-    if (e.key !== 'Tab' || !this.confirm.pending()) return;
+    if (e.key !== 'Tab' || !this.confirm.pending() || !this.overlays.isTop(this.confirm, e)) return;
     const root = this.box?.nativeElement;
     if (!root) return;
     const focusables = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled])'));

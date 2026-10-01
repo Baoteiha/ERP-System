@@ -1,5 +1,6 @@
-import { AfterViewInit, Component, ElementRef, EventEmitter, HostListener, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, EventEmitter, HostListener, Input, OnDestroy, Output, ViewChild, inject } from '@angular/core';
 import { IconComponent } from './icon';
+import { OverlayStack } from './overlay-stack';
 
 let modalSeq = 0;
 
@@ -63,7 +64,10 @@ export class ModalComponent implements AfterViewInit, OnDestroy {
   @ViewChild('dialog') dialog?: ElementRef<HTMLElement>;
 
   titleId = `modal-title-${++modalSeq}`;
+  private overlays = inject(OverlayStack);
   private opener: HTMLElement | null = null;
+
+  constructor() { this.overlays.push(this); }
 
   ngAfterViewInit() {
     this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -71,17 +75,17 @@ export class ModalComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Return focus to whatever opened the dialog. */
-  ngOnDestroy() { this.opener?.focus(); }
+  ngOnDestroy() { this.overlays.remove(this); this.opener?.focus(); }
 
   onBackdrop() { if (this.closeOnBackdrop) this.close.emit(); }
 
-  @HostListener('document:keydown.escape')
-  onEscape() { this.close.emit(); }
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(e: Event) { if (this.overlays.isTop(this, e)) this.close.emit(); }
 
   /** Keep Tab / Shift+Tab cycling inside the dialog. */
   @HostListener('document:keydown', ['$event'])
   trapTab(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return;
+    if (e.key !== 'Tab' || !this.overlays.isTop(this, e)) return;
     const root = this.dialog?.nativeElement;
     if (!root) return;
     const focusables = Array.from(root.querySelectorAll<HTMLElement>(
