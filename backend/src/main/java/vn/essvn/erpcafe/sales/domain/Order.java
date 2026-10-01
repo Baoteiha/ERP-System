@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.sales.domain;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -63,6 +64,14 @@ public class Order extends BranchScopedEntity {
 
     @Column(name = "cogs_total", precision = 19, scale = 4)
     private BigDecimal cogsTotal;
+
+    /** When the sale completed; null on legacy PAID rows, which reports count at creation. */
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    /** When a void or refund took the sale back; null for an order that was never reversed. */
+    @Column(name = "reversed_at")
+    private Instant reversedAt;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JoinColumn(name = "order_id")
@@ -162,6 +171,7 @@ public class Order extends BranchScopedEntity {
         requireCompletable();
         this.cogsTotal = cogs;
         this.status = OrderStatus.COMPLETED;
+        this.completedAt = Instant.now();
     }
 
     /** Cancels an open order, paying every tender back in the method it came in. */
@@ -182,6 +192,7 @@ public class Order extends BranchScopedEntity {
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.VOID;
+        this.reversedAt = Instant.now();
         refundAll(refundMethod);
         return wasCompleted;
     }
@@ -193,6 +204,7 @@ public class Order extends BranchScopedEntity {
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.REFUNDED;
+        this.reversedAt = Instant.now();
         refundAll(refundMethod);
         return wasCompleted;
     }
@@ -275,6 +287,14 @@ public class Order extends BranchScopedEntity {
 
     public BigDecimal getCogsTotal() {
         return cogsTotal;
+    }
+
+    public Instant getCompletedAt() {
+        return completedAt;
+    }
+
+    public Instant getReversedAt() {
+        return reversedAt;
     }
 
     public List<OrderLine> getLines() {

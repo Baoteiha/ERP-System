@@ -12,7 +12,8 @@ public interface StaffApi {
 
     /**
      * Total labor cost captured by shifts completed in {@code [from, to)} at a
-     * branch. Amounts are in the default currency.
+     * branch, counted in the period of the clock-out time. Amounts are in the
+     * default currency.
      */
     BigDecimal laborCost(UUID branchId, Instant from, Instant to);
 }

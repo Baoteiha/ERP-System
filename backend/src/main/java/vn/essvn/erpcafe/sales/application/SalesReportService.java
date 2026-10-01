@@ -28,7 +28,16 @@ public class SalesReportService implements SalesApi {
 
     @Override
     public SalesSummary summary(UUID branchId, Instant from, Instant to) {
-        return orderRepository.summarize(branchId, from, to);
+        SalesSummary sold = orderRepository.salesBooked(branchId, from, to);
+        SalesSummary reversed = orderRepository.reversalsOf(branchId, from, to);
+        // The order count stays the number of sales made; only the money is netted of reversals.
+        return new SalesSummary(
+                sold.orderCount(),
+                sold.grossSales().subtract(reversed.grossSales()),
+                sold.discountTotal().subtract(reversed.discountTotal()),
+                sold.netSales().subtract(reversed.netSales()),
+                sold.taxTotal().subtract(reversed.taxTotal()),
+                sold.grandTotal().subtract(reversed.grandTotal()));
     }
 
     @Override
