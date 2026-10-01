@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +58,9 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
     private String ownerEmail;
     private String ownerPasswordHash;
     private UserStatus ownerStatus;
+    private final List<UUID> createdUsers = new ArrayList<>();
+    private final List<UUID> createdRoles = new ArrayList<>();
+    private final List<UUID> createdBranches = new ArrayList<>();
 
     private record Login(UUID userId, String token) {
     }
@@ -75,14 +79,25 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
         ownerStatus = owner.getStatus();
     }
 
-    /** Every other test class logs in as the bootstrap owner, so an attack that ever got through is undone. */
+    /**
+     * Other test classes log in as the bootstrap owner and read the seeded company, so an attack that
+     * ever got through is undone, and the accounts, roles and branches made here are retired.
+     */
     @AfterEach
-    void restoreOwner() {
+    void cleanUp() {
         User owner = userRepository.findById(ownerId).orElseThrow();
         owner.setEmail(ownerEmail);
         owner.setPasswordHash(ownerPasswordHash);
         owner.setStatus(ownerStatus);
         userRepository.save(owner);
+        for (UUID userId : createdUsers) {
+            accessRepository.deleteAll(accessRepository.findByUserId(userId));
+            User user = userRepository.findById(userId).orElseThrow();
+            user.setStatus(UserStatus.DISABLED);
+            userRepository.save(user);
+        }
+        createdRoles.forEach(roleRepository::deleteById);
+        createdBranches.forEach(id -> branchRepository.delete(branchRepository.findById(id).orElseThrow()));
     }
 
     private ResultActions send(MockHttpServletRequestBuilder request, String token, String body) throws Exception {
@@ -110,11 +125,32 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                         .formatted(SEQ.incrementAndGet(), names))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$.id");
+        String id = JsonPath.read(json, "$.id");
+        createdRoles.add(UUID.fromString(id));
+        return id;
     }
 
-    /** Creates a company user through the API, has the owner grant them a role at a branch, and logs in. */
+    /** A manager whose role also carries role:write, which the default MANAGER lacks entirely. */
+    private Login roleWritingManager() throws Exception {
+        return userWithRole(createRole(
+                Stream.concat(DefaultRole.MANAGER.permissions().stream(), Stream.of(Permissions.ROLE_WRITE))));
+    }
+
+    /** A second branch of the seeded company, held by nobody until a test grants it. */
+    private UUID newBranch() {
+        UUID id = branchRepository
+                .save(new Branch(companyId, "Unheld Branch", "ESCB%d".formatted(SEQ.incrementAndGet())))
+                .getId();
+        createdBranches.add(id);
+        return id;
+    }
+
     private Login userWithRole(String roleId) throws Exception {
+        return userWithRole(roleId, List.of(branchId));
+    }
+
+    /** Creates a company user through the API, has the owner grant them a role at each branch, and logs in. */
+    private Login userWithRole(String roleId, List<UUID> branches) throws Exception {
         int n = SEQ.incrementAndGet();
         String email = "escalation%d@esscafe.vn".formatted(n);
         String json = send(post("/api/v1/users"), adminToken,
@@ -122,8 +158,11 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID userId = UUID.fromString(JsonPath.read(json, "$.id"));
-        send(post("/api/v1/users/" + userId + "/access"), adminToken, grant(branchId, roleId))
-                .andExpect(status().isOk());
+        createdUsers.add(userId);
+        for (UUID branch : branches) {
+            send(post("/api/v1/users/" + userId + "/access"), adminToken, grant(branch, roleId))
+                    .andExpect(status().isOk());
+        }
         return new Login(userId, accessToken(email, "password123"));
     }
 
@@ -131,8 +170,22 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
         return userWithRole(roleId(DefaultRole.MANAGER.roleName()));
     }
 
+    /** A cashier holds less than a manager, but this one works only at a branch the manager does not hold. */
+    private Login cashierAtAnotherBranch() throws Exception {
+        return userWithRole(roleId(DefaultRole.CASHIER.roleName()), List.of(newBranch()));
+    }
+
+    /** Holds every permission OWNER does, at the owner's branch, without being an owner. */
+    private Login nonOwnerWithEveryPermission() throws Exception {
+        return userWithRole(createRole(Permissions.ALL.stream()));
+    }
+
     private UUID roleAt(UUID userId, UUID branch) {
         return accessRepository.findByUserIdAndBranchId(userId, branch).orElseThrow().getRoleId();
+    }
+
+    private String passwordHashOf(UUID userId) {
+        return userRepository.findById(userId).orElseThrow().getPasswordHash();
     }
 
     @Test
@@ -151,9 +204,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
     @Test
     void managerGrantingThemselvesABranchTheyDoNotHold_isForbidden() throws Exception {
         Login manager = manager();
-        UUID unheld = branchRepository
-                .save(new Branch(companyId, "Unheld Branch", "ESCB%d".formatted(SEQ.incrementAndGet())))
-                .getId();
+        UUID unheld = newBranch();
 
         send(post("/api/v1/users/" + manager.userId() + "/access"), manager.token(),
                 grant(unheld, roleId(DefaultRole.MANAGER.roleName())))
@@ -217,10 +268,8 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void managerCreatingOrWideningARoleBeyondTheirPermissions_isForbidden() throws Exception {
-        // The default MANAGER cannot write roles at all; this manager's role adds role:write,
-        // so the request gets past the endpoint's authority check and reaches the policy.
-        Login manager = userWithRole(createRole(
-                Stream.concat(DefaultRole.MANAGER.permissions().stream(), Stream.of(Permissions.ROLE_WRITE))));
+        // role:write gets the request past the endpoint's authority check, so the policy decides.
+        Login manager = roleWritingManager();
         String name = "ESC_WIDE_%d".formatted(SEQ.incrementAndGet());
 
         send(post("/api/v1/roles"), manager.token(),
@@ -238,15 +287,31 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .extracting(Permission::getName)
                 .containsExactly(Permissions.SALES_READ);
 
-        send(post("/api/v1/roles"), manager.token(),
+        String created = send(post("/api/v1/roles"), manager.token(),
                 "{\"name\":\"%s\",\"description\":\"d\",\"permissions\":[\"sales:read\"]}".formatted(name))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        createdRoles.add(UUID.fromString(JsonPath.read(created, "$.id")));
+    }
+
+    @Test
+    void managerReplacingARolesPermissionsBeyondTheirOwn_isForbidden() throws Exception {
+        Login manager = roleWritingManager();
+        String narrow = createRole(Stream.of(Permissions.SALES_READ));
+
+        send(put("/api/v1/roles/" + narrow + "/permissions"), manager.token(),
+                "{\"permissions\":[\"sales:read\",\"company:write\"]}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(roleRepository.findById(UUID.fromString(narrow)).orElseThrow().getPermissions())
+                .extracting(Permission::getName)
+                .containsExactly(Permissions.SALES_READ);
     }
 
     @Test
     void managerReshapingARoleWiderThanThemselves_isForbidden() throws Exception {
-        Login manager = userWithRole(createRole(
-                Stream.concat(DefaultRole.MANAGER.permissions().stream(), Stream.of(Permissions.ROLE_WRITE))));
+        Login manager = roleWritingManager();
         // Whoever holds this role can do more than the manager, so the manager may not narrow it either.
         String wide = createRole(Stream.of(Permissions.SALES_READ, Permissions.COMPANY_WRITE));
 
@@ -270,6 +335,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID cashierId = UUID.fromString(JsonPath.read(json, "$.id"));
+        createdUsers.add(cashierId);
 
         send(post("/api/v1/users/" + cashierId + "/access"), manager.token(), grant(branchId, cashierRoleId))
                 .andExpect(status().isOk());
@@ -278,5 +344,100 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
         // A cashier holds less than the manager, so the manager may also manage the account.
         send(put("/api/v1/users/" + cashierId + "/password"), manager.token(), "{\"newPassword\":\"newpassword1\"}")
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void managerResettingThePasswordOfAUserAtAnotherBranch_isForbidden() throws Exception {
+        Login manager = manager();
+        Login cashier = cashierAtAnotherBranch();
+        String hash = passwordHashOf(cashier.userId());
+
+        send(put("/api/v1/users/" + cashier.userId() + "/password"), manager.token(), "{\"newPassword\":\"takeover123\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(passwordHashOf(cashier.userId())).isEqualTo(hash);
+    }
+
+    @Test
+    void managerChangingTheEmailOfAUserAtAnotherBranch_isForbidden() throws Exception {
+        Login manager = manager();
+        Login cashier = cashierAtAnotherBranch();
+        String email = userRepository.findById(cashier.userId()).orElseThrow().getEmail();
+
+        send(put("/api/v1/users/" + cashier.userId()), manager.token(),
+                "{\"email\":\"takeover%d@esscafe.vn\",\"fullName\":\"Taken Over\"}".formatted(SEQ.incrementAndGet()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(userRepository.findById(cashier.userId()).orElseThrow().getEmail()).isEqualTo(email);
+    }
+
+    @Test
+    void managerDisablingAUserAtAnotherBranch_isForbidden() throws Exception {
+        Login manager = manager();
+        Login cashier = cashierAtAnotherBranch();
+
+        send(put("/api/v1/users/" + cashier.userId() + "/status"), manager.token(), "{\"status\":\"DISABLED\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(userRepository.findById(cashier.userId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void managerRevokingAGrantAtABranchTheyDoNotHold_isForbidden() throws Exception {
+        Login manager = manager();
+        UUID elsewhere = newBranch();
+        String cashierRoleId = roleId(DefaultRole.CASHIER.roleName());
+        // Works at the manager's branch and at one the manager does not hold.
+        Login cashier = userWithRole(cashierRoleId, List.of(branchId, elsewhere));
+
+        send(delete("/api/v1/users/" + cashier.userId() + "/access/" + elsewhere), manager.token(), null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(roleAt(cashier.userId(), elsewhere)).hasToString(cashierRoleId);
+    }
+
+    @Test
+    void nonOwnerWithEveryPermission_grantingThemselvesOwner_isForbidden() throws Exception {
+        Login almostOwner = nonOwnerWithEveryPermission();
+        UUID ownRole = roleAt(almostOwner.userId(), branchId);
+
+        send(post("/api/v1/users/" + almostOwner.userId() + "/access"), almostOwner.token(),
+                grant(branchId, roleId(DefaultRole.OWNER.roleName())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(roleAt(almostOwner.userId(), branchId)).isEqualTo(ownRole);
+    }
+
+    @Test
+    void nonOwnerWithEveryPermission_resettingAnOwnersPassword_isForbidden() throws Exception {
+        Login almostOwner = nonOwnerWithEveryPermission();
+        // A second owner at the same branch only, so nothing but the OWNER rule stands in the way.
+        Login otherOwner = userWithRole(roleId(DefaultRole.OWNER.roleName()));
+        String hash = passwordHashOf(otherOwner.userId());
+
+        send(put("/api/v1/users/" + otherOwner.userId() + "/password"), almostOwner.token(),
+                "{\"newPassword\":\"takeover123\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(passwordHashOf(otherOwner.userId())).isEqualTo(hash);
+    }
+
+    @Test
+    void nonOwnerWithEveryPermission_revokingAnOwner_isForbidden() throws Exception {
+        Login almostOwner = nonOwnerWithEveryPermission();
+        String ownerRoleId = roleId(DefaultRole.OWNER.roleName());
+        Login otherOwner = userWithRole(ownerRoleId);
+
+        send(delete("/api/v1/users/" + otherOwner.userId() + "/access/" + branchId), almostOwner.token(), null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(roleAt(otherOwner.userId(), branchId)).hasToString(ownerRoleId);
     }
 }

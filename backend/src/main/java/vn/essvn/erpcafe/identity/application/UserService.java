@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -15,6 +14,7 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.domain.AccessPolicy;
+import vn.essvn.erpcafe.identity.domain.HeldAccess;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.Role;
@@ -179,21 +179,23 @@ public class UserService {
         revokeAllTokens(user.getId());
     }
 
-    /** Refuses with 403 unless the acting user holds every permission the target user holds. */
+    /** Refuses with 403 unless the acting user may manage the target user (see {@link AccessPolicy}). */
     private void requireCanManage(UUID userId) {
-        AccessPolicy.requireCanManage(currentUser.require(), permissionsOf(userId));
+        AccessPolicy.requireCanManage(currentUser.require(), heldAccessOf(userId));
     }
 
-    /** Every permission the user holds, across all of their branch grants. */
-    private Set<String> permissionsOf(UUID userId) {
-        List<UUID> roleIds = accessRepository.findByUserId(userId).stream()
-                .map(UserBranchAccess::getRoleId)
-                .distinct()
-                .toList();
-        return roleRepository.findAllById(roleIds).stream()
-                .flatMap(role -> role.getPermissions().stream())
-                .map(Permission::getName)
-                .collect(Collectors.toSet());
+    /** The branches, roles and permissions the user holds across all of their branch grants. */
+    private HeldAccess heldAccessOf(UUID userId) {
+        List<UserBranchAccess> grants = accessRepository.findByUserId(userId);
+        List<Role> roles = roleRepository.findAllById(
+                grants.stream().map(UserBranchAccess::getRoleId).distinct().toList());
+        return new HeldAccess(
+                grants.stream().map(UserBranchAccess::getBranchId).collect(Collectors.toSet()),
+                roles.stream().map(Role::getName).collect(Collectors.toSet()),
+                roles.stream()
+                        .flatMap(role -> role.getPermissions().stream())
+                        .map(Permission::getName)
+                        .collect(Collectors.toSet()));
     }
 
     /** Revokes every outstanding refresh token for a user. */

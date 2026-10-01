@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.identity.domain.AccessPolicy;
+import vn.essvn.erpcafe.identity.domain.HeldAccess;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Permissions;
 import vn.essvn.erpcafe.identity.domain.Role;
@@ -40,9 +41,13 @@ class AccessPolicyTest {
     }
 
     private static Role role(String... permissions) {
-        Role role = new Role(UUID.randomUUID(), "SOME_ROLE", "test");
+        return named("SOME_ROLE", permissions);
+    }
+
+    private static Role named(String name, String... permissions) {
+        Role role = new Role(UUID.randomUUID(), name, "test");
         role.setPermissions(Arrays.stream(permissions)
-                .map(name -> new Permission(name, name))
+                .map(permission -> new Permission(permission, permission))
                 .collect(Collectors.toSet()));
         return role;
     }
@@ -68,18 +73,54 @@ class AccessPolicyTest {
     }
 
     @Test
-    void manage_allowsATargetWithinTheActorsPermissions() {
-        assertThatCode(() -> AccessPolicy.requireCanManage(manager(), Set.of(Permissions.SALES_READ)))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> AccessPolicy.requireCanManage(manager(), Set.of()))
-                .doesNotThrowAnyException();
+    void grant_refusesTheOwnerRoleToANonOwnerHoldingEveryPermission() {
+        String[] everything = Permissions.ALL.toArray(String[]::new);
+        AuthPrincipal almostOwner = actor("EVERYTHING", everything);
+
+        assertThatThrownBy(() -> AccessPolicy.requireCanGrant(almostOwner, named("OWNER", everything), HELD_BRANCH))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void manage_allowsATargetWithinTheActorsBranchesAndPermissions() {
+        HeldAccess cashier = new HeldAccess(Set.of(HELD_BRANCH), Set.of("CASHIER"), Set.of(Permissions.SALES_READ));
+        HeldAccess noGrants = new HeldAccess(Set.of(), Set.of(), Set.of());
+
+        assertThatCode(() -> AccessPolicy.requireCanManage(manager(), cashier)).doesNotThrowAnyException();
+        assertThatCode(() -> AccessPolicy.requireCanManage(manager(), noGrants)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void manage_allowsAPeerWithEqualAccess() {
+        AuthPrincipal manager = manager();
+        HeldAccess peer = new HeldAccess(manager.branchIds(), manager.roles(), manager.permissions());
+
+        assertThatCode(() -> AccessPolicy.requireCanManage(manager, peer)).doesNotThrowAnyException();
     }
 
     @Test
     void manage_refusesATargetHoldingMoreThanTheActor() {
-        Set<String> target = Set.of(Permissions.SALES_READ, Permissions.ROLE_WRITE);
+        HeldAccess target = new HeldAccess(Set.of(HELD_BRANCH), Set.of("SOME_ROLE"),
+                Set.of(Permissions.SALES_READ, Permissions.ROLE_WRITE));
 
         assertThatThrownBy(() -> AccessPolicy.requireCanManage(manager(), target))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void manage_refusesATargetAtABranchTheActorDoesNotHold() {
+        HeldAccess elsewhere = new HeldAccess(Set.of(OTHER_BRANCH), Set.of("CASHIER"), Set.of(Permissions.SALES_READ));
+
+        assertThatThrownBy(() -> AccessPolicy.requireCanManage(manager(), elsewhere))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void manage_refusesAnOwnerToANonOwnerHoldingEveryPermission() {
+        AuthPrincipal almostOwner = actor("EVERYTHING", Permissions.ALL.toArray(String[]::new));
+        HeldAccess owner = new HeldAccess(Set.of(HELD_BRANCH), Set.of("OWNER"), Set.copyOf(Permissions.ALL));
+
+        assertThatThrownBy(() -> AccessPolicy.requireCanManage(almostOwner, owner))
                 .isInstanceOf(ForbiddenException.class);
     }
 
@@ -95,9 +136,11 @@ class AccessPolicyTest {
     void owner_passesEveryRule() {
         Set<String> everything = Set.copyOf(Permissions.ALL);
 
+        HeldAccess otherOwner = new HeldAccess(Set.of(OTHER_BRANCH), Set.of("OWNER"), everything);
+
         assertThatCode(() -> {
-            AccessPolicy.requireCanGrant(owner(), role(Permissions.ALL.toArray(String[]::new)), OTHER_BRANCH);
-            AccessPolicy.requireCanManage(owner(), everything);
+            AccessPolicy.requireCanGrant(owner(), named("OWNER", Permissions.ALL.toArray(String[]::new)), OTHER_BRANCH);
+            AccessPolicy.requireCanManage(owner(), otherOwner);
             AccessPolicy.requireCanEditRole(owner(), everything);
         }).doesNotThrowAnyException();
     }

@@ -9,17 +9,23 @@ import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 
 /**
  * Class: AccessPolicy
- * Purpose: Decides whether an actor may grant a role, manage a user or edit a role, never beyond what they hold.
+ * Purpose: Keeps grants, user management and role edits within the actor's own access; equal peers may manage each other.
  */
 public final class AccessPolicy {
 
     private AccessPolicy() {
     }
 
-    /** The role may carry only permissions the actor holds, granted only at a branch the actor holds. */
+    /**
+     * The role may carry only permissions the actor holds, granted only at a branch the actor holds.
+     * Only an owner grants or revokes OWNER, even to an actor whose permissions cover all of OWNER's.
+     */
     public static void requireCanGrant(AuthPrincipal actor, Role role, UUID branchId) {
         if (isOwner(actor)) {
             return;
+        }
+        if (DefaultRole.OWNER.roleName().equals(role.getName())) {
+            throw new ForbiddenException("Only an owner can grant or revoke the OWNER role");
         }
         if (!actor.canAccessBranch(branchId)) {
             throw new ForbiddenException("You can only grant access at branches you hold");
@@ -32,9 +38,22 @@ public final class AccessPolicy {
         }
     }
 
-    /** Editing, resetting, disabling or re-granting a user needs every permission that user holds. */
-    public static void requireCanManage(AuthPrincipal actor, Set<String> targetPermissions) {
-        if (!isOwner(actor) && !actor.permissions().containsAll(targetPermissions)) {
+    /**
+     * Editing, resetting, disabling or re-granting a user needs every branch and permission that
+     * user holds, so nobody can take over an account to act where they could not. Only an owner
+     * manages an owner.
+     */
+    public static void requireCanManage(AuthPrincipal actor, HeldAccess target) {
+        if (isOwner(actor)) {
+            return;
+        }
+        if (target.roleNames().contains(DefaultRole.OWNER.roleName())) {
+            throw new ForbiddenException("Only an owner can manage an owner");
+        }
+        if (!actor.branchIds().containsAll(target.branchIds())) {
+            throw new ForbiddenException("You can only manage users at branches you hold");
+        }
+        if (!actor.permissions().containsAll(target.permissions())) {
             throw new ForbiddenException("You can only manage users whose permissions you hold");
         }
     }
