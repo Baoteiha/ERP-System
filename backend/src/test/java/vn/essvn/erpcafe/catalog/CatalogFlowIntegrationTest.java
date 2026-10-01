@@ -27,8 +27,6 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 class CatalogFlowIntegrationTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
-    private static final String ING1 = "11111111-1111-1111-1111-111111111111";
-    private static final String ING2 = "22222222-2222-2222-2222-222222222222";
 
     private String postJson(String url, String token, String body) throws Exception {
         return mockMvc.perform(post(url).header(HttpHeaders.AUTHORIZATION, authHeader(token))
@@ -62,6 +60,12 @@ class CatalogFlowIntegrationTest extends AbstractIntegrationTest {
                 mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
                         .andReturn().getResponse().getContentAsString(),
                 "$.branchIds")).get(0);
+
+        // recipes are validated at save, so the ingredients must exist
+        String ING1 = id(postJson("/api/v1/ingredients", token,
+                "{\"name\":\"FlowBeans%d\",\"baseUnit\":\"g\"}".formatted(n)));
+        String ING2 = id(postJson("/api/v1/ingredients", token,
+                "{\"name\":\"FlowMilk%d\",\"baseUnit\":\"ml\"}".formatted(n)));
 
         // category + product (base price 25000)
         String categoryId = id(postJson("/api/v1/categories", token,

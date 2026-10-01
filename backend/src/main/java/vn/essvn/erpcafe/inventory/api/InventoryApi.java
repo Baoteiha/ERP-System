@@ -12,8 +12,12 @@ import java.util.UUID;
  */
 public interface InventoryApi {
 
-    /** Whether the ingredient exists (and is not deleted). */
-    boolean ingredientExists(UUID ingredientId);
+    /**
+     * Checks that every line could be consumed from the company's stock: the ingredient exists in
+     * that company (a foreign or deleted one counts as missing), the unit is known, and it measures
+     * the same thing as the ingredient's base unit. Throws a business-rule error listing each problem.
+     */
+    void validateConsumption(UUID companyId, List<StockLine> lines);
 
     /**
      * Deducts the given ingredient quantities from stock at a branch and returns

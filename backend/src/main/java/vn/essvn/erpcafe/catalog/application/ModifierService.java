@@ -15,6 +15,8 @@ import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.inventory.api.InventoryApi;
+import vn.essvn.erpcafe.inventory.api.StockLine;
 
 /** Modifier group + modifier management within the acting user's company. */
 @Service
@@ -23,8 +25,11 @@ public class ModifierService {
 
     private final ModifierGroupRepository groupRepository;
     private final CurrentUser currentUser;
+    private final InventoryApi inventoryApi;
 
-    public ModifierService(ModifierGroupRepository groupRepository, CurrentUser currentUser) {
+    public ModifierService(ModifierGroupRepository groupRepository, CurrentUser currentUser,
+            InventoryApi inventoryApi) {
+        this.inventoryApi = inventoryApi;
         this.groupRepository = groupRepository;
         this.currentUser = currentUser;
     }
@@ -56,6 +61,10 @@ public class ModifierService {
     public Modifier addModifier(UUID groupId, String name, BigDecimal priceDelta, int displayOrder,
             List<ConsumptionLine> recipeDeltas) {
         ModifierGroup group = getGroup(groupId);
+        if (recipeDeltas != null) {
+            inventoryApi.validateConsumption(currentUser.require().companyId(), recipeDeltas.stream()
+                    .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
+        }
         Modifier modifier = new Modifier(name, Money.of(priceDelta), displayOrder);
         if (recipeDeltas != null) {
             for (ConsumptionLine line : recipeDeltas) {
