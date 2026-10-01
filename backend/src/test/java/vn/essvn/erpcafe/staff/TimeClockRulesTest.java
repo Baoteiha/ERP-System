@@ -178,6 +178,31 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adjust_recordsASeventeenHourShiftButRefusesTwentyFiveHoursAndTheFuture() throws Exception {
+        login();
+        UUID emp = employee("Double " + unique(), "30000");
+        UUID id = openShift(emp, "30000", 30);
+        Instant in = shiftRepository.findById(id).orElseThrow().getClockInAt();
+
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(in.plus(25, ChronoUnit.HOURS))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(Instant.now().plus(1, ChronoUnit.HOURS))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+        assertThat(shiftRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(in.plus(17, ChronoUnit.HOURS))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+        assertThat(shiftRepository.findById(id).orElseThrow().getLaborCost().getAmount())
+                .isEqualByComparingTo("510000");
+    }
+
+    @Test
     void adjust_refusedWhenTheShiftIsStillScheduled() throws Exception {
         login();
         UUID emp = employee("Sched " + unique(), "30000");

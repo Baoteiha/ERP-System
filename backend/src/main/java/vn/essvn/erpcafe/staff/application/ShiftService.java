@@ -100,7 +100,7 @@ public class ShiftService implements StaffApi {
     /** Manager correction of a punch; see {@link Shift#adjust}. */
     public Shift adjust(UUID id, Instant clockIn, Instant clockOut) {
         Shift shift = get(id);
-        shift.adjust(clockIn, clockOut, properties.maxShiftLength());
+        shift.adjust(clockIn, clockOut, properties.maxAdjustedShiftLength(), Instant.now());
         return shift;
     }
 

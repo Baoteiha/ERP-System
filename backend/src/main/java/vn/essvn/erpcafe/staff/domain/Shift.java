@@ -107,11 +107,16 @@ public class Shift extends BranchScopedEntity {
     /**
      * Manager correction of a forgotten or wrong punch: sets the clock-out (and the clock-in when
      * given) of an open or completed shift and re-captures its labor cost at the snapshotted rate.
+     * {@code maxLength} is a sanity bound, looser than the clock-out limit: adjust exists to record
+     * the long shifts a normal clock-out refuses.
      */
-    public void adjust(Instant newClockIn, Instant newClockOut, Duration maxLength) {
+    public void adjust(Instant newClockIn, Instant newClockOut, Duration maxLength, Instant now) {
         if (status != ShiftStatus.IN_PROGRESS && status != ShiftStatus.COMPLETED) {
             throw new BusinessRuleException(
                     "Only an open or completed shift can be adjusted (was %s)".formatted(status));
+        }
+        if (newClockOut != null && newClockOut.isAfter(now)) {
+            throw new BusinessRuleException("Clock-out cannot be in the future");
         }
         close(newClockIn != null ? newClockIn : clockInAt, newClockOut, maxLength,
                 "Shift cannot be longer than %d hours".formatted(maxLength.toHours()));

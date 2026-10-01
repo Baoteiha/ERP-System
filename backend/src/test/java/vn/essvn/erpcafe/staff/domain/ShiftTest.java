@@ -21,6 +21,7 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 class ShiftTest {
 
     private static final Instant START = Instant.parse("2026-03-01T08:00:00Z");
+    private static final Instant NOW = START.plus(Duration.ofDays(2));
     private static final Duration MAX = Duration.ofHours(16);
     private static final Money RATE = Money.of(new BigDecimal("30000"));
 
@@ -53,7 +54,7 @@ class ShiftTest {
     @Test
     void scheduledShift_cannotClockOutOrBeAdjusted() {
         refused(scheduled(), s -> s.clockOut(START.plusSeconds(60), MAX));
-        refused(scheduled(), s -> s.adjust(null, START.plusSeconds(60), MAX));
+        refused(scheduled(), s -> s.adjust(null, START.plusSeconds(60), MAX, NOW));
     }
 
     @Test
@@ -77,7 +78,7 @@ class ShiftTest {
         refused(cancelled(), s -> s.clockOut(START.plusSeconds(60), MAX));
         refused(cancelled(), s -> s.reschedule(START, START.plusSeconds(60), null));
         refused(cancelled(), Shift::cancel);
-        refused(cancelled(), s -> s.adjust(null, START.plusSeconds(60), MAX));
+        refused(cancelled(), s -> s.adjust(null, START.plusSeconds(60), MAX, NOW));
     }
 
     @Test
@@ -90,16 +91,20 @@ class ShiftTest {
     @Test
     void adjust_canCorrectAnOpenOrCompletedShiftAndKeepsTheSnapshotRate() {
         Shift open = inProgress();
-        open.adjust(null, START.plus(Duration.ofHours(4)), MAX);
+        open.adjust(null, START.plus(Duration.ofHours(4)), MAX, NOW);
         assertThat(open.getStatus()).isEqualTo(ShiftStatus.COMPLETED);
         assertThat(open.getLaborCost().getAmount()).isEqualByComparingTo("120000");
 
         Shift done = completed();
-        done.adjust(START.plus(Duration.ofHours(1)), START.plus(Duration.ofHours(3)), MAX);
+        done.adjust(START.plus(Duration.ofHours(1)), START.plus(Duration.ofHours(3)), MAX, NOW);
         assertThat(done.getLaborCost().getAmount()).isEqualByComparingTo("60000");
         assertThat(done.getHourlyRate()).isEqualTo(RATE);
-        refused(inProgress(), s -> s.adjust(null, START.plus(Duration.ofHours(17)), MAX));
-        refused(inProgress(), s -> s.adjust(null, START, MAX));
+        Shift longer = inProgress();
+        longer.adjust(null, START.plus(Duration.ofHours(17)), Duration.ofHours(24), NOW); // beyond the clock-out limit
+        assertThat(longer.getLaborCost().getAmount()).isEqualByComparingTo("510000");
+        refused(inProgress(), s -> s.adjust(null, START.plus(Duration.ofHours(25)), Duration.ofHours(24), NOW));
+        refused(inProgress(), s -> s.adjust(null, NOW.plusSeconds(60), Duration.ofHours(24), NOW));
+        refused(inProgress(), s -> s.adjust(null, START, MAX, NOW));
     }
 
     @Test

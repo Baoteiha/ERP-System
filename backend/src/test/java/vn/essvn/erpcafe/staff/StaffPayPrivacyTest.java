@@ -113,6 +113,35 @@ class StaffPayPrivacyTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void cashierClockResponsesAndOpenListCarryNoPayData() throws Exception {
+        setUp();
+        UUID emp = UUID.fromString(JsonPath.read(admin(post("/api/v1/staff/employees"),
+                "{\"fullName\":\"Clock %d\",\"hourlyRate\":45000}".formatted(System.nanoTime())), "$.id"));
+        Instant start = Instant.now().minus(1, ChronoUnit.HOURS);
+        Shift shift = shiftRepository.save(
+                new Shift(UUID.fromString(branchId), emp, start, start.plus(8, ChronoUnit.HOURS), null));
+        String base = "/api/v1/staff/shifts/" + shift.getId();
+
+        mockMvc.perform(post(base + "/clock-in")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hourlyRate").doesNotExist())
+                .andExpect(jsonPath("$.laborCost").doesNotExist());
+        mockMvc.perform(get("/api/v1/staff/shifts/open")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='%s')].status".formatted(shift.getId())).value("IN_PROGRESS"))
+                .andExpect(jsonPath("$[?(@.id=='%s')].hourlyRate".formatted(shift.getId())).doesNotExist())
+                .andExpect(jsonPath("$[?(@.id=='%s')].laborCost".formatted(shift.getId())).doesNotExist());
+        mockMvc.perform(post(base + "/clock-out")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(cashierToken)).header("X-Branch-Id", branchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.hourlyRate").doesNotExist())
+                .andExpect(jsonPath("$.laborCost").doesNotExist());
+    }
+
+    @Test
     void cashierCannotAdjustAShift() throws Exception {
         setUp();
         UUID emp = UUID.fromString(JsonPath.read(admin(post("/api/v1/staff/employees"),
