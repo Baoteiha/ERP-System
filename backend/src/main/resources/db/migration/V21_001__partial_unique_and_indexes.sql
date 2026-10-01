@@ -6,6 +6,12 @@
 -- SKU unusable forever. Each is replaced by a unique index over live rows only. The
 -- old constraints allowed at most one row per key, so no existing data can collide
 -- with the new, weaker indexes.
+--
+-- The sales tables also gain NOT NULLs and CHECKs. Order lines and line modifiers whose
+-- parent is NULL are derived, unreachable children and are DELETED here so the NOT NULLs
+-- can apply. Payments are money records and are never deleted: if any payment has no
+-- order, or any row would break a new constraint, the migration stops with a message
+-- naming the rows so a person can decide.
 
 ALTER TABLE company DROP CONSTRAINT uk_company_code;
 CREATE UNIQUE INDEX uk_company_code ON company (code) WHERE deleted = FALSE;
@@ -34,12 +40,46 @@ CREATE INDEX idx_stock_movement_branch_created ON stock_movement (branch_id, cre
 CREATE INDEX idx_stock_movement_branch_ingredient_created ON stock_movement (branch_id, ingredient_id, created_at DESC);
 CREATE INDEX idx_stock_movement_branch_type_created ON stock_movement (branch_id, type, created_at);
 
--- Children detached from their parent can never be reached again; clear them so the NOT NULLs apply.
+-- Derived children detached from their parent can never be reached again; clear them so the NOT NULLs apply.
 DELETE FROM order_line_modifier
  WHERE order_line_id IS NULL
     OR order_line_id IN (SELECT id FROM order_line WHERE order_id IS NULL);
 DELETE FROM order_line WHERE order_id IS NULL;
-DELETE FROM payment WHERE order_id IS NULL;
+
+-- Payments are money: stop the deploy rather than guess.
+DO $$
+DECLARE
+    n   BIGINT;
+    ids TEXT;
+BEGIN
+    SELECT count(*), string_agg(id::text, ', ') INTO n, ids
+      FROM (SELECT id FROM payment WHERE order_id IS NULL ORDER BY id LIMIT 20) p;
+    IF n > 0 THEN
+        RAISE EXCEPTION 'V21: % payment row(s) have a NULL order_id (first 20 ids: %); resolve them by hand before migrating',
+            (SELECT count(*) FROM payment WHERE order_id IS NULL), ids;
+    END IF;
+
+    SELECT count(*), string_agg(id::text, ', ') INTO n, ids
+      FROM (SELECT id FROM payment WHERE amount IS NULL OR amount <= 0 ORDER BY id LIMIT 20) p;
+    IF n > 0 THEN
+        RAISE EXCEPTION 'V21: % payment row(s) have a NULL or non-positive amount (first 20 ids: %); fix them before migrating',
+            (SELECT count(*) FROM payment WHERE amount IS NULL OR amount <= 0), ids;
+    END IF;
+
+    SELECT count(*), string_agg(id::text, ', ') INTO n, ids
+      FROM (SELECT id FROM order_line WHERE quantity <= 0 ORDER BY id LIMIT 20) p;
+    IF n > 0 THEN
+        RAISE EXCEPTION 'V21: % order_line row(s) have quantity <= 0 (first 20 ids: %); fix them before migrating',
+            (SELECT count(*) FROM order_line WHERE quantity <= 0), ids;
+    END IF;
+
+    SELECT count(*), string_agg(id::text, ', ') INTO n, ids
+      FROM (SELECT id FROM order_line WHERE line_total IS NULL ORDER BY id LIMIT 20) p;
+    IF n > 0 THEN
+        RAISE EXCEPTION 'V21: % order_line row(s) have a NULL line_total (first 20 ids: %); fix them before migrating',
+            (SELECT count(*) FROM order_line WHERE line_total IS NULL), ids;
+    END IF;
+END $$;
 
 ALTER TABLE order_line ALTER COLUMN order_id SET NOT NULL;
 ALTER TABLE order_line ALTER COLUMN line_total SET NOT NULL;
