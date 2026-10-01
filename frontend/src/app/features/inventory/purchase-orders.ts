@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
@@ -40,7 +40,7 @@ import { IconComponent } from '../../shared/icon';
                         @if (auth.can('purchasing:write')) {
                           @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" (click)="send(po); $event.stopPropagation()" [disabled]="saving()">Send</button> }
                           @if (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="openReceive(po); $event.stopPropagation()">Receive</button> }
-                          @if (po.status === 'DRAFT' || po.status === 'SENT') { <button class="btn btn-sm btn-ghost" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
+                          @if (po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
                         }
                       </td>
                     </tr>
@@ -73,9 +73,9 @@ import { IconComponent } from '../../shared/icon';
                   @for (l of po.lines; track l.id) {
                     <tr>
                       <td>{{ ingredientName(l.ingredientId) }}</td>
-                      <td class="num">{{ l.orderedQty }}</td>
-                      <td class="num">{{ l.receivedQty }}</td>
-                      <td class="num">{{ l.unitCost | money }}</td>
+                      <td class="num">{{ l.orderedQty }} <span class="unit">{{ unitOf(l.ingredientId) }}</span></td>
+                      <td class="num">{{ l.receivedQty }} <span class="unit">{{ unitOf(l.ingredientId) }}</span></td>
+                      <td class="num">{{ l.unitCost | money }} <span class="unit">per {{ unitOf(l.ingredientId) }}</span></td>
                     </tr>
                   }
                 </tbody>
@@ -105,8 +105,14 @@ import { IconComponent } from '../../shared/icon';
                 <option value="">Ingredient</option>
                 @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }}</option> }
               </select>
-              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" aria-label="Quantity" />
-              <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" aria-label="Unit cost" />
+              <div class="with-unit">
+                <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" aria-label="Quantity" />
+                <span class="unit">{{ unitOf(line.ingredientId) }}</span>
+              </div>
+              <div class="with-unit">
+                <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" aria-label="Unit cost" />
+                @if (unitOf(line.ingredientId); as u) { <span class="unit">per {{ u }}</span> }
+              </div>
               <button class="btn btn-ghost btn-icon" (click)="removeLine(idx)" aria-label="Remove line"><app-icon name="close" [size]="16" /></button>
             </div>
           }
@@ -124,9 +130,15 @@ import { IconComponent } from '../../shared/icon';
         <div class="line-editor">
           @for (r of receiveLines; track r.lineId) {
             <div class="po-line receive">
-              <div><b>{{ lineIngredientName(r.lineId) }}</b><div class="soft">Remaining {{ remaining(r.lineId) }}</div></div>
-              <input class="input" type="number" min="0" step="0.001" [(ngModel)]="r.receivedQty" placeholder="Received qty" aria-label="Received qty" />
-              <input class="input" type="number" min="0" step="1" [(ngModel)]="r.unitCostOverride" placeholder="Override cost" aria-label="Override cost" />
+              <div><b>{{ lineIngredientName(r.lineId) }}</b><div class="soft">Remaining {{ remaining(r.lineId) }} {{ lineUnit(r.lineId) }}</div></div>
+              <div class="with-unit">
+                <input class="input" type="number" min="0" step="0.001" [(ngModel)]="r.receivedQty" placeholder="Received qty" aria-label="Received qty" />
+                <span class="unit">{{ lineUnit(r.lineId) }}</span>
+              </div>
+              <div class="with-unit">
+                <input class="input" type="number" min="0" step="1" [(ngModel)]="r.unitCostOverride" placeholder="Override cost" aria-label="Override cost" />
+                @if (lineUnit(r.lineId); as u) { <span class="unit">per {{ u }}</span> }
+              </div>
             </div>
           }
         </div>
@@ -161,10 +173,14 @@ import { IconComponent } from '../../shared/icon';
     /* pencilled margin note */
     .note { border-left: 3px solid var(--paper-line); padding: .5rem .8rem; margin-bottom: .85rem;
       font-style: italic; color: var(--paper-ink-soft); font-size: 14px; }
+    .with-unit { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+    .with-unit .input { min-width: 0; }
+    .unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+    .detail .unit { color: var(--paper-ink-soft); }
     .compact th, .compact td { padding: .65rem .55rem; }
     .line-editor { display: grid; gap: .65rem; }
-    .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 130px 40px; gap: .5rem; align-items: center; }
-    .po-line.receive { grid-template-columns: 1fr 130px 145px; }
+    .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 140px 170px 40px; gap: .5rem; align-items: center; }
+    .po-line.receive { grid-template-columns: 1fr 140px 190px; }
     @media (max-width: 980px) { .split { grid-template-columns: 1fr; } .po-line, .po-line.receive { grid-template-columns: 1fr; } }
   `],
 })
@@ -187,7 +203,13 @@ export class PurchaseOrdersComponent {
 
   selectedTotal = computed(() => this.selected() ? this.total(this.selected()!) : '0');
 
-  constructor() { this.load(); }
+  constructor() {
+    // runs once at start and again whenever the till switches branch, so no other branch's orders linger
+    effect(() => {
+      this.auth.activeBranchId();
+      untracked(() => { this.selected.set(null); this.load(); });
+    });
+  }
 
   load() {
     this.loading.set(true);
@@ -205,6 +227,11 @@ export class PurchaseOrdersComponent {
   select(po: PurchaseOrderResponse) { this.selected.set(po); }
 
   supplierName(id: string) { return this.suppliers().find((s) => s.id === id)?.name ?? id.slice(0, 8); }
+  unitOf(ingredientId: string) { return this.ingredients().find((i) => i.id === ingredientId)?.baseUnit ?? ''; }
+  lineUnit(lineId: string) {
+    const line = this.receiving()?.lines.find((l) => l.id === lineId);
+    return line ? this.unitOf(line.ingredientId) : '';
+  }
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
   lineIngredientName(lineId: string) {
     const line = this.receiving()?.lines.find((l) => l.id === lineId);

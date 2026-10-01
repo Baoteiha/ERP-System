@@ -142,8 +142,11 @@ export interface StockItemResponse {
   ingredientId: UUID; branchId: UUID; quantityOnHand: string; reorderLevel: string;
   avgUnitCost: Money; belowReorderLevel: boolean;
 }
+/** Mirrors the backend `MovementType` enum. */
+export type MovementType =
+  'PURCHASE_RECEIPT' | 'SALE_DEPLETION' | 'SALE_REVERSAL' | 'WASTE' | 'ADJUSTMENT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
 export interface MovementResponse {
-  id: UUID; ingredientId: UUID; branchId: UUID; type: string; quantity: string;
+  id: UUID; ingredientId: UUID; branchId: UUID; type: MovementType; quantity: string;
   unitCost?: Money; refType?: string; refId?: UUID; note?: string; occurredAt: string; actor: string;
 }
 export interface AdjustRequest { ingredientId: UUID; quantityDelta: string; unit?: string; note?: string; }

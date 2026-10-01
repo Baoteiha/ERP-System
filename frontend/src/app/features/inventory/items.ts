@@ -196,7 +196,7 @@ export class ItemsComponent {
     if (!base || !this.form.unit) return '';
     return this.form.unit === base
       ? `Bought and counted in ${base} — no conversion.`
-      : `Ordered in ${this.form.unit}, counted in ${base}. Receiving converts.`;
+      : `Ordered in ${this.form.unit}, counted in ${base}.`;
   }
 
   onIngredientChange(ingredientId: string) {

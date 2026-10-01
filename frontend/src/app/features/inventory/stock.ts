@@ -1,9 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
-import { IngredientResponse, MovementResponse, StockItemResponse } from '../../core/models';
+import { IngredientResponse, MovementResponse, MovementType, StockItemResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { unitsFor } from '../../core/units';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
@@ -171,8 +171,15 @@ export class StockComponent {
   filtered = computed(() => this.view() === 'low' ? this.stock().filter((s) => s.belowReorderLevel) : this.stock());
 
   constructor() {
-    this.load();
-    this.loadMovements();
+    // runs once at start and again whenever the till switches branch, so no other branch's rows linger
+    effect(() => {
+      this.auth.activeBranchId();
+      untracked(() => {
+        this.selectedIngredientId.set(null);
+        this.load();
+        this.loadMovements();
+      });
+    });
   }
 
   load() {
@@ -196,21 +203,23 @@ export class StockComponent {
   selectIngredient(id: string) { this.selectedIngredientId.set(id); this.loadMovements(); }
 
   /* decorative icon coin per movement type (type text is displayed alongside) */
-  pinIcon(type: string) {
-    const t = (type || '').toUpperCase();
-    if (t === 'RECEIVE' || t === 'PURCHASE') return 'truck';
-    if (t === 'WASTE') return 'trash';
-    if (t === 'ADJUST' || t === 'ADJUSTMENT') return 'sliders';
-    if (t === 'SALE' || t === 'CONSUMPTION') return 'receipt';
-    return 'box';
+  pinIcon(type: MovementType) {
+    switch (type) {
+      case 'PURCHASE_RECEIPT': return 'truck';
+      case 'WASTE': return 'trash';
+      case 'ADJUSTMENT': return 'sliders';
+      case 'SALE_DEPLETION': case 'SALE_REVERSAL': return 'receipt';
+      default: return 'box';
+    }
   }
-  pinClass(type: string) {
-    const t = (type || '').toUpperCase();
-    if (t === 'RECEIVE' || t === 'PURCHASE') return 'pin-green';
-    if (t === 'WASTE') return 'pin-red';
-    if (t === 'ADJUST' || t === 'ADJUSTMENT') return 'pin-amber';
-    if (t === 'SALE' || t === 'CONSUMPTION') return 'pin-azure';
-    return 'pin-gray';
+  pinClass(type: MovementType) {
+    switch (type) {
+      case 'PURCHASE_RECEIPT': return 'pin-green';
+      case 'WASTE': return 'pin-red';
+      case 'ADJUSTMENT': return 'pin-amber';
+      case 'SALE_DEPLETION': case 'SALE_REVERSAL': return 'pin-azure';
+      default: return 'pin-gray';
+    }
   }
 
   openAction(mode: StockMode) {
