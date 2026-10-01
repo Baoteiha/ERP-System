@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,6 +34,17 @@ abstract class ReportFixtures extends AbstractIntegrationTest {
     protected String token;
     protected List<String> branchIds;
 
+    @AfterEach
+    void removeFreshBranches() {
+        // straight SQL: the branches hold orders and stock, which the delete endpoint refuses
+        if (branchIds != null) {
+            for (String id : branchIds) {
+                jdbc.update("DELETE FROM user_branch_access WHERE branch_id = ?::uuid", id);
+                jdbc.update("UPDATE branch SET deleted = true WHERE id = ?::uuid", id);
+            }
+        }
+    }
+
     protected static String uniq() {
         return UUID.randomUUID().toString().substring(0, 8);
     }
@@ -46,7 +58,8 @@ abstract class ReportFixtures extends AbstractIntegrationTest {
 
     /**
      * A user who only has the given fresh branches, so every figure over them comes from this test's orders
-     * alone; the shared admin and its branch grants are left untouched.
+     * alone. The admin is made OWNER of each branch when it is created; {@link #removeFreshBranches} undoes
+     * that, so the admin's own branches are unchanged once the test is over.
      */
     protected void freshTenant(int branchCount, String taxRate) throws Exception {
         String s = uniq();

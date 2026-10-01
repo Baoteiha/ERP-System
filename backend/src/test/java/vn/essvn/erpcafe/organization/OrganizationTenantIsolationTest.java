@@ -147,5 +147,9 @@ class OrganizationTenantIsolationTest extends AbstractIntegrationTest {
 
         assertThat(JsonPath.read(created, "$.companyId").toString())
                 .isEqualTo(JsonPath.read(me, "$.companyId").toString());
+
+        // the admin became OWNER of the new branch: remove it so the shared admin keeps its own branches
+        mockMvc.perform(delete("/api/v1/branches/" + JsonPath.read(created, "$.id"))
+                .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))).andExpect(status().isNoContent());
     }
 }

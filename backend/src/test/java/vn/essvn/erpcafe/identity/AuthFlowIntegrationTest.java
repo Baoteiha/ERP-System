@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -89,13 +90,18 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
                         .andReturn().getResponse().getContentAsString(),
                 "$.companyId");
 
-        mockMvc.perform(post("/api/v1/branches")
+        String created = mockMvc.perform(post("/api/v1/branches")
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json("{\"companyId\":\"%s\",\"name\":\"Test Outlet\",\"code\":\"TST\"}".formatted(companyId))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.createdBy").value(ADMIN_EMAIL))
-                .andExpect(jsonPath("$.code").value("TST"));
+                .andExpect(jsonPath("$.code").value("TST"))
+                .andReturn().getResponse().getContentAsString();
+
+        // the admin became OWNER of the new branch: remove it so the shared admin keeps its own branches
+        mockMvc.perform(delete("/api/v1/branches/" + JsonPath.read(created, "$.id"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(token))).andExpect(status().isNoContent());
     }
 
     @Test
