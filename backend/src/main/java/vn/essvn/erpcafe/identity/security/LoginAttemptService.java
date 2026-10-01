@@ -2,13 +2,13 @@ package vn.essvn.erpcafe.identity.security;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import vn.essvn.erpcafe.common.exception.TooManyRequestsException;
+import vn.essvn.erpcafe.config.SecurityProperties;
 
 /**
  * Throttles repeated failed logins (AUTH-G11).
@@ -17,9 +17,11 @@ import vn.essvn.erpcafe.common.exception.TooManyRequestsException;
  * across replicas. That is adequate for the current single-instance deployment and
  * is deliberately cheap; move it behind Redis when the app is scaled out.
  *
- * <p>Entries are keyed by email <em>and</em> client address. Keying on the email
- * alone would let anyone lock a known user out of their own account simply by
- * failing logins on their behalf.
+ * <p>Two counters run side by side. One is keyed by email <em>and</em> client address:
+ * keying on the email alone would let anyone lock a known user out of their own account
+ * by failing logins on their behalf. The other is keyed by address alone, so one client
+ * cannot spray guesses across many emails. The map is bounded: past the configured
+ * number of keys the oldest entry is evicted, so a flood of random emails cannot grow it.
  */
 @Service
 public class LoginAttemptService {
@@ -27,20 +29,44 @@ public class LoginAttemptService {
     private record Window(int failures, Instant firstFailureAt) {
     }
 
-    private final Map<String, Window> windows = new ConcurrentHashMap<>();
+    private final Map<String, Window> windows;
 
     private final int maxFailures;
+    private final int maxFailuresPerAddress;
     private final Duration window;
 
-    public LoginAttemptService(
-            @Value("${app.security.login.max-failures:10}") int maxFailures,
-            @Value("${app.security.login.window:PT15M}") Duration window) {
-        this.maxFailures = maxFailures;
-        this.window = window;
+    public LoginAttemptService(SecurityProperties properties) {
+        SecurityProperties.Login login = properties.login();
+        this.maxFailures = login.maxFailures();
+        this.maxFailuresPerAddress = login.maxFailuresPerAddress();
+        this.window = login.window();
+        int maxKeys = login.maxTrackedKeys();
+        this.windows = new LinkedHashMap<>() {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Window> eldest) {
+                return size() > maxKeys;
+            }
+        };
     }
 
-    /** Throws if the key is currently blocked. Called before the password is checked. */
-    public void checkNotBlocked(String key) {
+    /** Throws if the email-and-address pair, or the address alone, is currently blocked. */
+    public synchronized void checkNotBlocked(String email, String address) {
+        checkNotBlocked(pairKey(email, address), maxFailures);
+        checkNotBlocked(addressKey(address), maxFailuresPerAddress);
+    }
+
+    /** Records one failed attempt against both counters, starting a fresh window if one lapsed. */
+    public synchronized void recordFailure(String email, String address) {
+        recordFailure(pairKey(email, address));
+        recordFailure(addressKey(address));
+    }
+
+    /** Clears the pair's counter after a successful login; the address counter is left to expire. */
+    public synchronized void reset(String email, String address) {
+        windows.remove(pairKey(email, address));
+    }
+
+    private void checkNotBlocked(String key, int limit) {
         Window current = windows.get(key);
         if (current == null) {
             return;
@@ -49,13 +75,12 @@ public class LoginAttemptService {
             windows.remove(key);
             return;
         }
-        if (current.failures() >= maxFailures) {
+        if (current.failures() >= limit) {
             throw new TooManyRequestsException("Too many failed login attempts. Try again later.");
         }
     }
 
-    /** Records one failed attempt, starting a fresh window if the previous one lapsed. */
-    public void recordFailure(String key) {
+    private void recordFailure(String key) {
         Instant now = Instant.now();
         windows.compute(key, (k, existing) -> {
             if (existing == null || now.isAfter(existing.firstFailureAt().plus(window))) {
@@ -65,8 +90,12 @@ public class LoginAttemptService {
         });
     }
 
-    /** Clears the counter after a successful login. */
-    public void reset(String key) {
-        windows.remove(key);
+    private static String pairKey(String email, String address) {
+        return email + "|" + address;
+    }
+
+    // the prefix cannot collide with a pair key, whose email part is never empty
+    private static String addressKey(String address) {
+        return "|" + address;
     }
 }

@@ -15,6 +15,9 @@ app:
       access-token-ttl: 15m
       refresh-token-ttl: 30d
       secret: test-erp-cafe-jwt-secret-key-for-tests-0123456789
+    login:
+      # MockMvc requests all come from one address; keep the per-address limit out of other tests' way
+      max-failures-per-address: 100000
     bootstrap:
       admin-email: admin@esscafe.vn
       admin-password: admin1234

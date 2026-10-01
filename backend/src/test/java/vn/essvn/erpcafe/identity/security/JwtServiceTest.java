@@ -18,7 +18,7 @@ class JwtServiceTest {
     private JwtService jwtService(Duration accessTtl) {
         SecurityProperties props = new SecurityProperties(
                 new SecurityProperties.Jwt(SECRET, accessTtl, Duration.ofDays(30)),
-                new SecurityProperties.Bootstrap("admin@test", "pw"));
+                new SecurityProperties.Bootstrap("admin@test", "pw"), null);
         return new JwtService(props);
     }
 
@@ -66,7 +66,7 @@ class JwtServiceTest {
         String token = jwtService(Duration.ofMinutes(15)).generateAccessToken(samplePrincipal());
         SecurityProperties otherProps = new SecurityProperties(
                 new SecurityProperties.Jwt("a-completely-different-secret-key-000000000", Duration.ofMinutes(15), Duration.ofDays(30)),
-                new SecurityProperties.Bootstrap("a", "b"));
+                new SecurityProperties.Bootstrap("a", "b"), null);
         JwtService otherService = new JwtService(otherProps);
         assertThatThrownBy(() -> otherService.parseAccessToken(token))
                 .isInstanceOf(Exception.class);

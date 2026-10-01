@@ -1,3 +1,6 @@
+server:
+  forward-headers-strategy: framework
+
 spring:
   application:
     name: erp-cafe
@@ -25,3 +28,8 @@ app:
     jwt:
       access-token-ttl: 15m
       refresh-token-ttl: 30d
+    login:
+      max-failures: 10
+      window: 15m
+      max-failures-per-address: 20
+      max-tracked-keys: 10000

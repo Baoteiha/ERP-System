@@ -41,6 +41,8 @@ import vn.essvn.erpcafe.organization.api.OrganizationApi;
 public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    // BCrypt, cost 10 like the real encoder, of a throwaway string
+    private static final String DUMMY_HASH = "$2y$10$z9vj/OETvQdVWGLhV4ih8edtiq1fW2b3c1CM4WC2pTyEeq8ztpVTK";
 
     private final UserRepository userRepository;
     private final UserBranchAccessRepository accessRepository;
@@ -75,22 +77,24 @@ public class AuthService {
      * address; it only ever feeds the failed-attempt throttle.
      */
     public TokenPair login(String email, String rawPassword, String clientKey) {
-        String throttleKey = email + "|" + clientKey;
-        loginAttemptService.checkNotBlocked(throttleKey);
+        String normalizedEmail = User.normalizeEmail(email);
+        loginAttemptService.checkNotBlocked(normalizedEmail, clientKey);
 
-        User user = userRepository.findByEmail(email)
-                .filter(u -> passwordEncoder.matches(rawPassword, u.getPasswordHash()))
-                .orElse(null);
+        User found = userRepository.findByEmail(normalizedEmail).orElse(null);
+        // An unknown email still pays for one hash check, so response time does not reveal which emails exist.
+        boolean passwordMatches = passwordEncoder.matches(rawPassword,
+                found != null ? found.getPasswordHash() : DUMMY_HASH);
+        User user = found != null && passwordMatches ? found : null;
         if (user == null) {
-            loginAttemptService.recordFailure(throttleKey);
+            loginAttemptService.recordFailure(normalizedEmail, clientKey);
             throw new UnauthorizedException("Invalid email or password");
         }
         if (!user.isActive()) {
-            loginAttemptService.recordFailure(throttleKey);
+            loginAttemptService.recordFailure(normalizedEmail, clientKey);
             throw new BusinessRuleException("Account is disabled");
         }
 
-        loginAttemptService.reset(throttleKey);
+        loginAttemptService.reset(normalizedEmail, clientKey);
         return issueTokens(user);
     }
 
