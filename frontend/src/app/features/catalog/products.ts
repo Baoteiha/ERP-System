@@ -359,6 +359,7 @@ export class ProductsComponent {
 
   saveDetails() {
     const p = this.managing(); if (!p) return;
+    if (!this.ef.categoryId || !this.ef.name || !this.ef.sku) { this.toast.error('Category, name and SKU are required'); return; }
     this.saving.set(true);
     this.api.updateProduct(p.id, { ...this.ef, basePrice: String(this.ef.basePrice || '0') }).subscribe({
       next: (up) => { this.saving.set(false); this.managing.set(up); this.toast.success('Details saved'); this.load(); },

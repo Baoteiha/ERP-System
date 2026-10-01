@@ -41,6 +41,27 @@ describe('StockComponent', () => {
     expect(stock.stock().length).toBe(1);
   });
 
+  it('ignores a late answer from the branch it left, and clears the old rows at once', () => {
+    const auth = TestBed.inject(AuthService);
+    const row = (branchId: string, qty: string) => ({ ingredientId: 'i1', branchId, quantityOnHand: qty, reorderLevel: '1', avgUnitCost: { amount: '1', currency: 'VND' }, belowReorderLevel: false });
+    const empty = { content: [], page: 0, size: 30, totalElements: 0, totalPages: 0 };
+    stock.stock.set([row('b1', '9')]);
+    stock.load(); // branch A's load, still in flight
+    const lateA = ctrl.expectOne('/api/v1/stock');
+    ctrl.expectOne('/api/v1/ingredients').flush([]);
+
+    auth.setActiveBranch('b2');
+    TestBed.tick();
+    expect(stock.stock()).toEqual([]);
+    ctrl.expectOne('/api/v1/ingredients').flush([]);
+    ctrl.expectOne('/api/v1/stock').flush([row('b2', '3')]);
+    ctrl.expectOne(url('/api/v1/stock/movements')).flush(empty);
+
+    lateA.flush([row('b1', '9')]);
+
+    expect(stock.stock().map((s) => s.quantityOnHand)).toEqual(['3']);
+  });
+
   it('keys the movement icons by the real movement types', () => {
     expect(stock.pinIcon('PURCHASE_RECEIPT')).toBe('truck');
     expect(stock.pinIcon('SALE_DEPLETION')).toBe('receipt');

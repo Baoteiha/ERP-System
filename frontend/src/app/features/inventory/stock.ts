@@ -176,6 +176,9 @@ export class StockComponent {
       this.auth.activeBranchId();
       untracked(() => {
         this.selectedIngredientId.set(null);
+        // the old branch's rows must not stay on screen (or stay if the new request fails)
+        this.stock.set([]);
+        this.movements.set([]);
         this.load();
         this.loadMovements();
       });
@@ -185,17 +188,20 @@ export class StockComponent {
   load() {
     this.loading.set(true);
     this.api.listIngredients().subscribe({ next: (items) => this.ingredients.set(items) });
+    const branch = this.auth.activeBranchId();
     this.api.listStock().subscribe({
-      next: (items) => { this.stock.set(items); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      // a slow answer for a branch the till has since left must not overwrite the current one
+      next: (items) => { if (this.auth.activeBranchId() === branch) { this.stock.set(items); this.loading.set(false); } },
+      error: () => { if (this.auth.activeBranchId() === branch) this.loading.set(false); },
     });
   }
 
   loadMovements() {
     this.movementsLoading.set(true);
+    const branch = this.auth.activeBranchId();
     this.api.movements(this.selectedIngredientId() ?? undefined).subscribe({
-      next: (page) => { this.movements.set(page.content); this.movementsLoading.set(false); },
-      error: () => this.movementsLoading.set(false),
+      next: (page) => { if (this.auth.activeBranchId() === branch) { this.movements.set(page.content); this.movementsLoading.set(false); } },
+      error: () => { if (this.auth.activeBranchId() === branch) this.movementsLoading.set(false); },
     });
   }
 

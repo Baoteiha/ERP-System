@@ -207,7 +207,7 @@ export class PurchaseOrdersComponent {
     // runs once at start and again whenever the till switches branch, so no other branch's orders linger
     effect(() => {
       this.auth.activeBranchId();
-      untracked(() => { this.selected.set(null); this.load(); });
+      untracked(() => { this.selected.set(null); this.items.set([]); this.load(); });
     });
   }
 
@@ -215,9 +215,15 @@ export class PurchaseOrdersComponent {
     this.loading.set(true);
     this.api.listIngredients().subscribe({ next: (i) => this.ingredients.set(i) });
     this.api.listSuppliers().subscribe({ next: (s) => this.suppliers.set(s) });
+    const branch = this.auth.activeBranchId();
     this.api.listPurchaseOrders().subscribe({
-      next: (page) => { this.items.set(page.content); this.loading.set(false); if (!this.selected() && page.content[0]) this.selected.set(page.content[0]); },
-      error: () => this.loading.set(false),
+      // a slow answer for a branch the till has since left must not overwrite the current one
+      next: (page) => {
+        if (this.auth.activeBranchId() !== branch) return;
+        this.items.set(page.content); this.loading.set(false);
+        if (!this.selected() && page.content[0]) this.selected.set(page.content[0]);
+      },
+      error: () => { if (this.auth.activeBranchId() === branch) this.loading.set(false); },
     });
   }
 
