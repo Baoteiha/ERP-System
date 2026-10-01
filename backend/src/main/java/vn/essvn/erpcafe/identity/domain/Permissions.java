@@ -58,6 +58,37 @@ public final class Permissions {
 
     public static final List<String> ALL = List.copyOf(CATALOG.keySet());
 
+    /**
+     * Raised by the release that adds permissions to the catalog. On startup each default role
+     * is offered only the permissions {@link #SINCE} dates after the version it last synced to,
+     * so a permission is granted once, when it is new, and an owner's later removal sticks.
+     */
+    public static final int CATALOG_VERSION = 1;
+
+    /** name → the {@link #CATALOG_VERSION} that introduced it; a new permission takes the raised version. */
+    public static final Map<String, Integer> SINCE = Map.ofEntries(
+            Map.entry(COMPANY_READ, 1),
+            Map.entry(COMPANY_WRITE, 1),
+            Map.entry(BRANCH_READ, 1),
+            Map.entry(BRANCH_WRITE, 1),
+            Map.entry(USER_READ, 1),
+            Map.entry(USER_WRITE, 1),
+            Map.entry(ROLE_READ, 1),
+            Map.entry(ROLE_WRITE, 1),
+            Map.entry(CATALOG_READ, 1),
+            Map.entry(CATALOG_WRITE, 1),
+            Map.entry(INVENTORY_READ, 1),
+            Map.entry(INVENTORY_WRITE, 1),
+            Map.entry(PURCHASING_READ, 1),
+            Map.entry(PURCHASING_WRITE, 1),
+            Map.entry(SALES_READ, 1),
+            Map.entry(SALES_WRITE, 1),
+            Map.entry(SALES_REFUND, 1),
+            Map.entry(STAFF_READ, 1),
+            Map.entry(STAFF_WRITE, 1),
+            Map.entry(STAFF_CLOCK, 1),
+            Map.entry(REPORT_READ, 1));
+
     private Permissions() {
     }
 }

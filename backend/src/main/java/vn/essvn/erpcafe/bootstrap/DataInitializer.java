@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.bootstrap;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -70,18 +71,23 @@ public class DataInitializer implements ApplicationRunner {
         if (userRepository.count() == 0) {
             seedTenant();
         }
-        syncDefaultRolePermissions();
+        syncDefaultRolePermissions(Permissions.CATALOG_VERSION, Permissions.SINCE);
     }
 
     /**
-     * Reconciles every default role against its {@link DefaultRole} definition, add-only:
-     * as later phases add permissions to the catalog, existing companies' default roles
-     * are granted the new ones on startup — not only OWNER, or an upgraded deployment's
-     * managers and cashiers would 403 on every new endpoint until edited by hand
-     * (AUTH-G06). Never revokes: grants an admin added beyond the definition survive,
-     * and roles with names outside the default set are not touched at all.
+     * Grants each default role the permissions its {@link DefaultRole} definition lists that
+     * entered the catalog after the version the role last synced to, then records
+     * {@code catalogVersion} on the role. A permission is offered once, when it is new: an
+     * upgraded deployment's managers and cashiers still receive what a release adds, or they
+     * would 403 on every new endpoint until edited by hand (AUTH-G06), while a permission an
+     * owner removed stays removed across restarts. Never revokes, and roles with names outside
+     * the default set are not touched at all.
+     *
+     * @param catalogVersion the catalog version being synced to ({@link Permissions#CATALOG_VERSION})
+     * @param sinceVersion permission name → the catalog version that introduced it ({@link Permissions#SINCE})
      */
-    private void syncDefaultRolePermissions() {
+    @Transactional
+    public void syncDefaultRolePermissions(int catalogVersion, Map<String, Integer> sinceVersion) {
         for (Role role : roleRepository.findAll()) {
             DefaultRole def = DefaultRole.all().stream()
                     .filter(d -> d.roleName().equals(role.getName()))
@@ -93,14 +99,16 @@ public class DataInitializer implements ApplicationRunner {
             role.getPermissions().forEach(p -> held.add(p.getName()));
             int before = role.getPermissions().size();
             for (String name : def.permissions()) {
-                if (!held.contains(name)) {
+                boolean newSinceLastSync = sinceVersion.getOrDefault(name, 0) > role.getSyncedCatalogVersion();
+                if (newSinceLastSync && !held.contains(name)) {
                     permissionRepository.findByName(name).ifPresent(role.getPermissions()::add);
                 }
             }
             if (role.getPermissions().size() != before) {
-                log.info("Granted {} missing default permission(s) to {} role {}",
+                log.info("Granted {} new default permission(s) to {} role {}",
                         role.getPermissions().size() - before, role.getName(), role.getId());
             }
+            role.setSyncedCatalogVersion(catalogVersion);
         }
     }
 

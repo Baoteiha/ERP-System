@@ -39,6 +39,10 @@ public class Role extends AuditableEntity {
             inverseJoinColumns = @JoinColumn(name = "permission_id"))
     private Set<Permission> permissions = new HashSet<>();
 
+    /** The {@link Permissions#CATALOG_VERSION} this role's default permissions were last synced to. */
+    @Column(name = "synced_catalog_version", nullable = false)
+    private int syncedCatalogVersion;
+
     protected Role() {
         // for JPA
     }
@@ -75,5 +79,13 @@ public class Role extends AuditableEntity {
 
     public void setPermissions(Set<Permission> permissions) {
         this.permissions = permissions;
+    }
+
+    public int getSyncedCatalogVersion() {
+        return syncedCatalogVersion;
+    }
+
+    public void setSyncedCatalogVersion(int syncedCatalogVersion) {
+        this.syncedCatalogVersion = syncedCatalogVersion;
     }
 }
