@@ -1,6 +1,5 @@
 package vn.essvn.erpcafe.staff.domain;
 
-import java.util.UUID;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -10,8 +9,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A staff member of a company. Master data: employees are deactivated, never
@@ -21,10 +20,7 @@ import vn.essvn.erpcafe.common.domain.Money;
  */
 @Entity
 @Table(name = "employee")
-public class Employee extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Employee extends TenantOwnedEntity {
 
     @Column(name = "full_name", nullable = false)
     private String fullName;
@@ -54,15 +50,10 @@ public class Employee extends AuditableEntity {
     protected Employee() {
     }
 
-    public Employee(UUID companyId, String fullName, String position, Money hourlyRate) {
-        this.companyId = companyId;
+    public Employee(String fullName, String position, Money hourlyRate) {
         this.fullName = fullName;
         this.position = position;
         this.hourlyRate = hourlyRate == null ? Money.zero() : hourlyRate;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getFullName() {

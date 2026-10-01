@@ -114,7 +114,7 @@ class PinClockTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(shiftRepository.findById(shift).orElseThrow().getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
+        assertThat(storedShift(shift).getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
     }
 
     @Test
@@ -130,7 +130,7 @@ class PinClockTest extends AbstractIntegrationTest {
         mockMvc.perform(punch(shift, "clock-out", "9999"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(shiftRepository.findById(shift).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+        assertThat(storedShift(shift).getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
         mockMvc.perform(punch(shift, "clock-out", "1234"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
@@ -161,7 +161,7 @@ class PinClockTest extends AbstractIntegrationTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
 
-        assertThat(shiftRepository.findById(shift).orElseThrow().getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
+        assertThat(storedShift(shift).getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
     }
 
     @Test
@@ -240,11 +240,11 @@ class PinClockTest extends AbstractIntegrationTest {
                             .content("{\"pin\":\"%s\"}".formatted(bad)))
                     .andExpect(status().isBadRequest());
         }
-        assertThat(employeeRepository.findById(emp).orElseThrow().hasPin()).isFalse();
+        assertThat(storedEmployee(emp).hasPin()).isFalse();
 
         setPin(emp, "246810");
 
-        String stored = employeeRepository.findById(emp).orElseThrow().getPinHash();
+        String stored = storedEmployee(emp).getPinHash();
         assertThat(stored).isNotEqualTo("246810").startsWith("$2");
         mockMvc.perform(authed(get("/api/v1/staff/employees/" + emp)))
                 .andExpect(status().isOk())
@@ -262,7 +262,7 @@ class PinClockTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        assertThat(employeeRepository.findById(foreign.employeeId()).orElseThrow().hasPin()).isFalse();
+        assertThat(storedEmployee(foreign.employeeId()).hasPin()).isFalse();
     }
 
     @Test
@@ -305,8 +305,16 @@ class PinClockTest extends AbstractIntegrationTest {
         assertThat(batch.get(foreign.branchIds().get(1))).isEqualByComparingTo("30000");
     }
 
+    private Shift storedShift(UUID id) {
+        return TenantContext.runAsSystem(() -> shiftRepository.findById(id).orElseThrow());
+    }
+
+    private Employee storedEmployee(UUID id) {
+        return TenantContext.runAsSystem(() -> employeeRepository.findById(id).orElseThrow());
+    }
+
     private void completed(Foreign f, int branchIdx, Instant clockOut, int hours, String rate) {
-        Shift s = new Shift(f.companyId(), f.branchIds().get(branchIdx), f.employeeId(),
+        Shift s = new Shift(f.branchIds().get(branchIdx), f.employeeId(),
                 clockOut.minus(hours + 1, ChronoUnit.HOURS), clockOut, null);
         s.clockIn(clockOut.minus(hours, ChronoUnit.HOURS), Money.of(new BigDecimal(rate)));
         s.clockOut(clockOut, Duration.ofHours(16));
@@ -323,7 +331,7 @@ class PinClockTest extends AbstractIntegrationTest {
             Branch b1 = branchRepository.save(new Branch("P1", "PA%d".formatted(n)));
             Branch b2 = branchRepository.save(new Branch("P2", "PB%d".formatted(n)));
             Employee e = employeeRepository.save(
-                    new Employee(c.getId(), "Pin Foreign %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
+                    new Employee("Pin Foreign %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
             return new Foreign(c.getId(), List.of(b1.getId(), b2.getId()), e.getId());
         });
     }

@@ -5,6 +5,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.hibernate.annotations.TenantId;
+
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
 import jakarta.persistence.Column;
@@ -12,7 +14,9 @@ import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.BranchScopedEntity;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
@@ -27,7 +31,10 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 @Table(name = "shift")
 public class Shift extends BranchScopedEntity {
 
-    @Column(name = "company_id", nullable = false)
+    // Branch-scoped, but the row carries its company too (V20), so the tenant seam filters and
+    // stamps it like a TenantOwnedEntity: written inside its company's tenant, never assigned one.
+    @TenantId
+    @Column(name = "company_id", nullable = false, updatable = false)
     private UUID companyId;
 
     @Column(name = "employee_id", nullable = false)
@@ -69,11 +76,10 @@ public class Shift extends BranchScopedEntity {
     protected Shift() {
     }
 
-    public Shift(UUID companyId, UUID branchId, UUID employeeId, Instant scheduledStart, Instant scheduledEnd, String note) {
+    public Shift(UUID branchId, UUID employeeId, Instant scheduledStart, Instant scheduledEnd, String note) {
         if (scheduledStart == null || scheduledEnd == null || !scheduledEnd.isAfter(scheduledStart)) {
             throw new BusinessRuleException("Shift end must be after its start");
         }
-        this.companyId = companyId;
         setBranchId(branchId);
         this.employeeId = employeeId;
         this.scheduledStart = scheduledStart;
@@ -159,6 +165,15 @@ public class Shift extends BranchScopedEntity {
 
     public UUID getCompanyId() {
         return companyId;
+    }
+
+    /** As {@code TenantOwnedEntity}: the company is readable from persist on, and there is none outside a tenant. */
+    @PrePersist
+    void takeCompanyFromTenant() {
+        if (companyId == null) {
+            companyId = TenantContext.current().orElseThrow(() -> new IllegalStateException(
+                    "A tenant-owned row can only be written inside its company's tenant"));
+        }
     }
 
     public UUID getEmployeeId() {

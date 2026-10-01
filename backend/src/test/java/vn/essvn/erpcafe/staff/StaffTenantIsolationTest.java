@@ -1,5 +1,7 @@
 package vn.essvn.erpcafe.staff;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -57,9 +59,8 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
         return TenantContext.runAs(b.getId(), () -> {
             Branch branchB = branchRepository.save(new Branch("B Branch", "SFB%d".formatted(n)));
             Employee empB = employeeRepository.save(
-                    new Employee(b.getId(), "Foreign Emp %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
-            Shift shiftB = shiftRepository.save(
-                    new Shift(b.getId(), branchB.getId(), empB.getId(), START, END, "b shift"));
+                    new Employee("Foreign Emp %d".formatted(n), "Barista", Money.of(BigDecimal.TEN)));
+            Shift shiftB = shiftRepository.save(new Shift(branchB.getId(), empB.getId(), START, END, "b shift"));
             return new Foreign(empB.getId(), shiftB.getId());
         });
     }
@@ -102,5 +103,20 @@ class StaffTenantIsolationTest extends AbstractIntegrationTest {
                         .content("{\"employeeId\":\"%s\",\"scheduledStart\":\"%s\",\"scheduledEnd\":\"%s\"}"
                                 .formatted(foreignEmp, START, END)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shiftRows_areFilteredByCompany_andWrittenOnlyInsideOne() {
+        Foreign f = seedForeign();
+        int n = SEQ.incrementAndGet();
+        UUID otherCompany = companyRepository.save(new Company("Staff Third %d".formatted(n), "STT%d".formatted(n)))
+                .getId();
+
+        // a shift is branch-scoped, but it carries its company too, so the tenant seam filters it
+        assertThat(TenantContext.runAs(otherCompany, () -> shiftRepository.findById(f.shiftId()))).isEmpty();
+        Shift seen = TenantContext.runAsSystem(() -> shiftRepository.findById(f.shiftId())).orElseThrow();
+        assertThatThrownBy(() -> TenantContext.runAsSystem(() -> shiftRepository.save(
+                new Shift(seen.getBranchId(), seen.getEmployeeId(), START, END, "as the system"))))
+                .hasStackTraceContaining("can only be written inside its company's tenant");
     }
 }

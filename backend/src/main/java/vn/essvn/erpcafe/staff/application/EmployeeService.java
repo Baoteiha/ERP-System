@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
@@ -33,21 +32,19 @@ public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
-    private final CurrentUser currentUser;
     // Lazy: the encoder lives in SecurityConfig, whose filter chain reaches back here via organization.
     private final ObjectProvider<PasswordEncoder> passwordEncoder;
 
     public EmployeeService(EmployeeRepository employeeRepository, ShiftRepository shiftRepository,
-            CurrentUser currentUser, ObjectProvider<PasswordEncoder> passwordEncoder) {
+            ObjectProvider<PasswordEncoder> passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
         this.employeeRepository = employeeRepository;
         this.shiftRepository = shiftRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
     public List<Employee> list() {
-        return employeeRepository.findByCompanyIdOrderByFullName(currentUser.require().companyId());
+        return employeeRepository.findAllByOrderByFullName();
     }
 
     /** Names of just these employees, so a shift list does not load the whole company roster. */
@@ -56,7 +53,7 @@ public class EmployeeService {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return employeeRepository.findByCompanyIdAndIdIn(currentUser.require().companyId(), ids).stream()
+        return employeeRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(Employee::getId, Employee::getFullName));
     }
 
@@ -66,20 +63,19 @@ public class EmployeeService {
         if (ids.isEmpty()) {
             return Set.of();
         }
-        return employeeRepository.findByCompanyIdAndIdIn(currentUser.require().companyId(), ids).stream()
+        return employeeRepository.findAllById(ids).stream()
                 .filter(Employee::hasPin).map(Employee::getId).collect(Collectors.toSet());
     }
 
     @Transactional(readOnly = true)
     public Employee get(UUID id) {
-        return employeeRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return employeeRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", id));
     }
 
     public Employee create(String fullName, String position, BigDecimal hourlyRate,
             String phone, String email) {
-        UUID companyId = currentUser.require().companyId();
-        Employee employee = new Employee(companyId, fullName, position, rate(hourlyRate));
+        Employee employee = new Employee(fullName, position, rate(hourlyRate));
         employee.setPhone(phone);
         employee.setEmail(email);
         return employeeRepository.save(employee);

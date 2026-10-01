@@ -88,7 +88,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
         Employee employee = TenantContext.runAsSystem(() -> employeeRepository.findById(emp).orElseThrow());
         TenantContext.runAs(employee.getCompanyId(), () -> {
             Branch other = branchRepository.save(new Branch("Other", unique()));
-            Shift open = new Shift(employee.getCompanyId(), other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
+            Shift open = new Shift(other.getId(), emp, Instant.now(), Instant.now().plus(8, ChronoUnit.HOURS), null);
             open.clockIn(Instant.now(), Money.of(new BigDecimal("30000")));
             shiftRepository.save(open);
         });
@@ -98,7 +98,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
 
-        assertThat(shiftRepository.findById(mine).orElseThrow().getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
+        assertThat(stored(mine).getStatus()).isEqualTo(ShiftStatus.SCHEDULED);
     }
 
     @Test
@@ -132,17 +132,22 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
 
         deactivate(emp, "Leaver");
 
-        assertThat(shiftRepository.findById(future).orElseThrow().getStatus()).isEqualTo(ShiftStatus.CANCELLED);
-        assertThat(shiftRepository.findById(inProgress).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+        assertThat(stored(future).getStatus()).isEqualTo(ShiftStatus.CANCELLED);
+        assertThat(stored(inProgress).getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
     }
 
     /** A shift already running for {@code hours}, saved straight through the repository. */
     private UUID openShift(UUID emp, String rate, long hours) throws Exception {
         UUID id = shift(emp, Instant.now().minus(hours + 1, ChronoUnit.HOURS));
-        Shift s = shiftRepository.findById(id).orElseThrow();
+        Shift s = stored(id);
         s.clockIn(Instant.now().minus(hours, ChronoUnit.HOURS), Money.of(new BigDecimal(rate)));
-        shiftRepository.save(s);
+        TenantContext.runAs(s.getCompanyId(), () -> shiftRepository.save(s));
         return id;
+    }
+
+    /** Reads a shift back, as the system. */
+    private Shift stored(UUID id) {
+        return TenantContext.runAsSystem(() -> shiftRepository.findById(id).orElseThrow());
     }
 
     @Test
@@ -156,7 +161,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"))
                 .andExpect(jsonPath("$.detail").value("Shift is longer than 16 hours; ask a manager to adjust it"));
 
-        assertThat(shiftRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+        assertThat(stored(id).getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
     }
 
     @Test
@@ -164,7 +169,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
         login();
         UUID emp = employee("Adjusted " + unique(), "30000");
         UUID id = openShift(emp, "30001", 17);
-        Instant in = shiftRepository.findById(id).orElseThrow().getClockInAt();
+        Instant in = stored(id).getClockInAt();
         Instant out = in.plus(8 * 60 + 20, ChronoUnit.MINUTES);
 
         mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
@@ -173,7 +178,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.clockOutAt").exists());
 
-        Shift saved = shiftRepository.findById(id).orElseThrow();
+        Shift saved = stored(id);
         // 30001 x 8h20m = 250008.3333... rounded once at the Money scale
         assertThat(saved.getLaborCost().getAmount()).isEqualByComparingTo("250008.3333");
         assertThat(saved.getClockOutAt()).isEqualTo(out);
@@ -185,7 +190,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
         login();
         UUID emp = employee("Double " + unique(), "30000");
         UUID id = openShift(emp, "30000", 30);
-        Instant in = shiftRepository.findById(id).orElseThrow().getClockInAt();
+        Instant in = stored(id).getClockInAt();
 
         mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
                         .content("{\"clockOut\":\"%s\"}".formatted(in.plus(25, ChronoUnit.HOURS))))
@@ -195,13 +200,13 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
                         .content("{\"clockOut\":\"%s\"}".formatted(Instant.now().plus(1, ChronoUnit.HOURS))))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
-        assertThat(shiftRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
+        assertThat(stored(id).getStatus()).isEqualTo(ShiftStatus.IN_PROGRESS);
 
         mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
                         .content("{\"clockOut\":\"%s\"}".formatted(in.plus(17, ChronoUnit.HOURS))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
-        assertThat(shiftRepository.findById(id).orElseThrow().getLaborCost().getAmount())
+        assertThat(stored(id).getLaborCost().getAmount())
                 .isEqualByComparingTo("510000");
     }
 

@@ -18,7 +18,6 @@ import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
@@ -39,7 +38,6 @@ public class ShiftService implements StaffApi {
 
     private final ShiftRepository shiftRepository;
     private final EmployeeRepository employeeRepository;
-    private final CurrentUser currentUser;
     private final StaffProperties properties;
     // Lazy: the encoder lives in SecurityConfig, whose filter chain reaches back here via organization.
     private final ObjectProvider<PasswordEncoder> passwordEncoder;
@@ -48,7 +46,7 @@ public class ShiftService implements StaffApi {
     private final PinAttemptService pinAttempts;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
-            CurrentUser currentUser, StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
+            StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
             ObjectProvider<OrganizationApi> organizationApi, PinAttemptService pinAttempts) {
         this.pinAttempts = pinAttempts;
         this.passwordEncoder = passwordEncoder;
@@ -56,7 +54,6 @@ public class ShiftService implements StaffApi {
         this.properties = properties;
         this.shiftRepository = shiftRepository;
         this.employeeRepository = employeeRepository;
-        this.currentUser = currentUser;
     }
 
     @Transactional(readOnly = true)
@@ -77,12 +74,12 @@ public class ShiftService implements StaffApi {
     public Shift schedule(UUID employeeId, Instant start, Instant end, String note) {
         // The employee must belong to the caller's company — otherwise a shift (and its
         // labor cost) could be booked against another tenant's employee.
-        Employee employee = employeeRepository.findByIdAndCompanyId(employeeId, currentUser.require().companyId())
+        Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", employeeId));
         if (!employee.isActive()) {
             throw new BusinessRuleException("Cannot schedule an inactive employee");
         }
-        return shiftRepository.save(new Shift(employee.getCompanyId(), BranchContext.require(), employeeId, start, end, note));
+        return shiftRepository.save(new Shift(BranchContext.require(), employeeId, start, end, note));
     }
 
     public Shift reschedule(UUID id, Instant start, Instant end, String note) {
@@ -115,7 +112,7 @@ public class ShiftService implements StaffApi {
 
     /** The shift's employee, once the PIN is proven — before any state rule can leak anything. */
     private Employee employeeOf(Shift shift, String pin) {
-        Employee employee = employeeRepository.findByIdAndCompanyId(shift.getEmployeeId(), shift.getCompanyId())
+        Employee employee = employeeRepository.findById(shift.getEmployeeId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", shift.getEmployeeId()));
         if (employee.hasPin()) {
             pinAttempts.checkNotLocked(employee.getId());
