@@ -22,6 +22,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
+import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.exception.TooManyRequestsException;
 import vn.essvn.erpcafe.common.exception.UnauthorizedException;
@@ -54,6 +55,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     ProblemDetail handleAccessDenied(AccessDeniedException ex) {
         return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", "Insufficient permissions");
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    ProblemDetail handleForbidden(ForbiddenException ex) {
+        return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
     @ExceptionHandler(BusinessRuleException.class)

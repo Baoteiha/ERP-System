@@ -1,7 +1,9 @@
 package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -12,7 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.domain.AccessPolicy;
+import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
+import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.domain.UserStatus;
@@ -63,6 +68,7 @@ public class UserService {
                 .orElseThrow(() -> ResourceNotFoundException.of("User", id));
     }
 
+    /** A new account holds no permissions until {@link #grantAccess}, which is where the policy applies. */
     public User create(String email, String rawPassword, String fullName) {
         UUID companyId = currentUser.require().companyId();
         if (userRepository.existsByEmail(email)) {
@@ -78,7 +84,10 @@ public class UserService {
         return accessRepository.findByUserId(userId);
     }
 
-    /** Grants (or updates) a user's role at a branch. */
+    /**
+     * Grants (or updates) a user's role at a branch. The actor must be able to manage the user,
+     * since replacing a grant can demote them, and to grant the role at that branch.
+     */
     public UserBranchAccess grantAccess(UUID userId, UUID branchId, UUID roleId) {
         User user = get(userId);
         // The branch must belong to the user's own company. A bare existence check would
@@ -87,8 +96,10 @@ public class UserService {
         if (!organizationApi.branchExistsInCompany(branchId, user.getCompanyId())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
-        roleRepository.findByIdAndCompanyId(roleId, user.getCompanyId())
+        Role role = roleRepository.findByIdAndCompanyId(roleId, user.getCompanyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
+        requireCanManage(userId);
+        AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         return accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .map(existing -> {
                     existing.setRoleId(roleId);
@@ -97,12 +108,19 @@ public class UserService {
                 .orElseGet(() -> accessRepository.save(new UserBranchAccess(userId, branchId, roleId)));
     }
 
-    /** Revokes a user's access at a branch. */
+    /**
+     * Revokes a user's access at a branch. Revoking is a grant undone, so it takes what granting
+     * it would: a user the actor can manage, and a branch the actor holds.
+     */
     public void revokeAccess(UUID userId, UUID branchId) {
         get(userId);
         UserBranchAccess access = accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User " + userId + " has no access at branch " + branchId));
+        requireCanManage(userId);
+        Role role = roleRepository.findById(access.getRoleId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Role", access.getRoleId()));
+        AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         accessRepository.delete(access);
     }
 
@@ -111,6 +129,7 @@ public class UserService {
     /** Updates a user's display name and login email. */
     public User updateProfile(UUID id, String email, String fullName) {
         User user = get(id);
+        requireCanManage(id);
         if (!user.getEmail().equals(email) && userRepository.existsByEmail(email)) {
             throw new ConflictException("Email already exists: " + email);
         }
@@ -132,6 +151,7 @@ public class UserService {
             throw new BusinessRuleException("You cannot change your own account status");
         }
         User user = get(id);
+        requireCanManage(id);
         user.setStatus(status);
         if (status == UserStatus.DISABLED) {
             revokeAllTokens(id);
@@ -154,8 +174,26 @@ public class UserService {
     /** Administrative reset; does not need the old password, but does need user:write. */
     public void resetPassword(UUID id, String newPassword) {
         User user = get(id);
+        requireCanManage(id);
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(user.getId());
+    }
+
+    /** Refuses with 403 unless the acting user holds every permission the target user holds. */
+    private void requireCanManage(UUID userId) {
+        AccessPolicy.requireCanManage(currentUser.require(), permissionsOf(userId));
+    }
+
+    /** Every permission the user holds, across all of their branch grants. */
+    private Set<String> permissionsOf(UUID userId) {
+        List<UUID> roleIds = accessRepository.findByUserId(userId).stream()
+                .map(UserBranchAccess::getRoleId)
+                .distinct()
+                .toList();
+        return roleRepository.findAllById(roleIds).stream()
+                .flatMap(role -> role.getPermissions().stream())
+                .map(Permission::getName)
+                .collect(Collectors.toSet());
     }
 
     /** Revokes every outstanding refresh token for a user. */
