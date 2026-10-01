@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { StaffService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
@@ -25,23 +25,25 @@ import { IconComponent } from '../../shared/icon';
           <div class="table-wrap">
             <table class="data">
               <caption class="sr-only">Employees with position, hourly rate, contact details and status</caption>
-              <thead><tr><th scope="col">Name</th><th scope="col">Position</th><th scope="col" class="right">Hourly rate</th><th scope="col">Contact</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th scope="col">Name</th><th scope="col">Position</th>@if (showPay()) { <th scope="col" class="right">Hourly rate</th><th scope="col">Contact</th> }<th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 @for (e of items(); track e.id) {
                   <tr>
                     <td><span class="name-cell"><span class="mini-coin" [class.dusty]="!e.active" aria-hidden="true">{{ e.fullName.slice(0, 2).toUpperCase() }}</span><b>{{ e.fullName }}</b></span></td>
                     <td class="soft">{{ e.position || '—' }}</td>
-                    <td class="num">{{ e.hourlyRate | money }} <span class="muted">/h</span></td>
-                    <td>
-                      <div>{{ e.phone || '—' }}</div>
-                      @if (e.email) { <div class="soft">{{ e.email }}</div> }
-                    </td>
+                    @if (showPay()) {
+                      <td class="num">{{ e.hourlyRate | money }} <span class="muted">/h</span></td>
+                      <td>
+                        <div>{{ e.phone || '—' }}</div>
+                        @if (e.email) { <div class="soft">{{ e.email }}</div> }
+                      </td>
+                    }
                     <td><span class="badge dot" [class]="e.active ? 'badge-green' : 'badge-gray'">{{ e.active ? 'Active' : 'Inactive' }}</span></td>
                     <td class="row-actions">
                       @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openEdit(e)">Edit</button> }
                     </td>
                   </tr>
-                } @empty { <tr><td colspan="6"><div class="empty"><div class="big"><app-icon name="users" [size]="30" /></div>No employees yet — add your team.</div></td></tr> }
+                } @empty { <tr><td [attr.colspan]="showPay() ? 6 : 4"><div class="empty"><div class="big"><app-icon name="users" [size]="30" /></div>No employees yet — add your team.</div></td></tr> }
               </tbody>
             </table>
           </div>
@@ -86,6 +88,8 @@ export class TeamComponent {
   private staff = inject(StaffService);
   private toast = inject(ToastService);
 
+  // The API sends rate and contact details only to staff:write holders.
+  showPay = computed(() => this.auth.can('staff:write'));
   items = signal<EmployeeResponse[]>([]);
   loading = signal(true);
   saving = signal(false);

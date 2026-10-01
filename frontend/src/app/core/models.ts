@@ -184,7 +184,7 @@ export interface OrderResponse {
 
 /* ---- staff (phase 5) --------------------------------------------------- */
 export interface EmployeeResponse {
-  id: UUID; fullName: string; position?: string; hourlyRate: Money;
+  id: UUID; fullName: string; position?: string; hourlyRate?: Money; // rate and contact only for staff:write
   phone?: string; email?: string; active: boolean;
 }
 export interface EmployeeRequest {

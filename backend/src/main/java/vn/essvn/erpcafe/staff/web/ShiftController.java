@@ -23,6 +23,7 @@ import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
+import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.application.ShiftService;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -42,8 +43,11 @@ public class ShiftController {
 
     private final ShiftService shiftService;
     private final EmployeeService employeeService;
+    private final CurrentUser currentUser;
 
-    public ShiftController(ShiftService shiftService, EmployeeService employeeService) {
+    public ShiftController(ShiftService shiftService, EmployeeService employeeService,
+            CurrentUser currentUser) {
+        this.currentUser = currentUser;
         this.shiftService = shiftService;
         this.employeeService = employeeService;
     }
@@ -123,11 +127,13 @@ public class ShiftController {
         return employeeService.namesByIds(List.of(shift.getEmployeeId()));
     }
 
-    private static ShiftResponse toResponse(Shift s, Map<UUID, String> names) {
+    private ShiftResponse toResponse(Shift s, Map<UUID, String> names) {
+        boolean canSeePay = StaffAccess.canSeePay(currentUser);
         return new ShiftResponse(s.getId(), s.getBranchId(), s.getEmployeeId(),
                 names.getOrDefault(s.getEmployeeId(), "—"),
                 s.getStatus().name(), s.getScheduledStart(), s.getScheduledEnd(),
                 s.getClockInAt(), s.getClockOutAt(),
-                MoneyDto.from(s.getHourlyRate()), MoneyDto.from(s.getLaborCost()), s.getNote());
+                canSeePay ? MoneyDto.from(s.getHourlyRate()) : null,
+                canSeePay ? MoneyDto.from(s.getLaborCost()) : null, s.getNote());
     }
 }
