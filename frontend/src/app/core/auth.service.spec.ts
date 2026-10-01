@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
 import { MeResponse } from './models';
 
@@ -44,5 +45,88 @@ describe('AuthService', () => {
 
     expect(auth.activeBranchId()).toBe('b2');
     expect(localStorage.getItem('erpcafe.branch')).toBe('b2');
+  });
+
+  it('clears a stale active branch when the user has no branches', () => {
+    localStorage.setItem('erpcafe.branch', 'b1');
+    const auth = setup();
+
+    auth.loadMe().subscribe();
+    ctrl.expectOne('/api/v1/auth/me').flush({ branchIds: [], permissions: [] } as unknown as MeResponse);
+
+    expect(auth.activeBranchId()).toBeNull();
+    expect(localStorage.getItem('erpcafe.branch')).toBeNull();
+  });
+
+  describe('across tabs', () => {
+    const storageEvent = (key: string | null, newValue: string | null) =>
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+
+    it('picks up tokens another tab stored', () => {
+      localStorage.setItem('erpcafe.access', 'old');
+      localStorage.setItem('erpcafe.refresh', 'r1');
+      const auth = setup();
+
+      storageEvent('erpcafe.access', 'new');
+      storageEvent('erpcafe.refresh', 'r2');
+
+      expect(auth.accessToken()).toBe('new');
+      expect(auth.refreshToken()).toBe('r2');
+    });
+
+    it('treats a token removed by another tab as a logout', () => {
+      localStorage.setItem('erpcafe.access', 'old');
+      localStorage.setItem('erpcafe.refresh', 'r1');
+      const auth = setup();
+
+      storageEvent('erpcafe.access', null);
+
+      expect(auth.accessToken()).toBeNull();
+      expect(auth.isAuthenticated()).toBe(false);
+    });
+
+    describe('refresh lock', () => {
+      afterEach(() => vi.unstubAllGlobals());
+
+      const stubLocks = () => {
+        const request = vi.fn((_name: string, cb: () => Promise<unknown>) => cb());
+        vi.stubGlobal('navigator', { locks: { request } });
+        return request;
+      };
+
+      it('refreshes inside the erpcafe-refresh lock', async () => {
+        const request = stubLocks();
+        localStorage.setItem('erpcafe.access', 'old');
+        localStorage.setItem('erpcafe.refresh', 'r1');
+        const auth = setup();
+
+        const done = firstValueFrom(auth.refresh());
+        ctrl.expectOne('/api/v1/auth/refresh').flush({ accessToken: 'new', refreshToken: 'r2', tokenType: 'Bearer' });
+        await done;
+
+        expect(request.mock.calls[0][0]).toBe('erpcafe-refresh');
+        expect(auth.accessToken()).toBe('new');
+      });
+
+      it('reuses the tokens another tab stored while waiting for the lock', async () => {
+        const request = vi.fn(async (_name: string, cb: () => Promise<unknown>) => {
+          // the other tab finished its refresh while we queued
+          localStorage.setItem('erpcafe.access', 'other-new');
+          localStorage.setItem('erpcafe.refresh', 'other-r2');
+          return cb();
+        });
+        vi.stubGlobal('navigator', { locks: { request } });
+        localStorage.setItem('erpcafe.access', 'old');
+        localStorage.setItem('erpcafe.refresh', 'r1');
+        const auth = setup();
+
+        const res = await firstValueFrom(auth.refresh());
+
+        ctrl.expectNone('/api/v1/auth/refresh');
+        expect(res.accessToken).toBe('other-new');
+        expect(auth.accessToken()).toBe('other-new');
+        expect(auth.refreshToken()).toBe('other-r2');
+      });
+    });
   });
 });

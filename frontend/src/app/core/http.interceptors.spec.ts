@@ -65,6 +65,22 @@ describe('errorInterceptor', () => {
     expect(navigate).toHaveBeenCalledWith(['/login']);
   });
 
+  it('retries with the current token, without a second refresh, when another refresh already finished', () => {
+    let ok = false;
+    http.get('/api/v1/a').subscribe(() => (ok = true));
+    const stale = ctrl.expectOne('/api/v1/a'); // sent with 'old'
+    auth.accessToken.set('newer'); // a refresh completed while this request was in flight
+    auth.refreshToken.set('r9');
+
+    stale.flush({}, { status: 401, statusText: 'Unauthorized' });
+    const retry = ctrl.expectOne('/api/v1/a');
+    expect(retry.request.headers.get('Authorization')).toBe('Bearer newer');
+    retry.flush({});
+
+    ctrl.expectNone('/api/v1/auth/refresh');
+    expect(ok).toBe(true);
+  });
+
   it('triggers exactly one refresh for concurrent 401s', () => {
     const done: string[] = [];
     http.get('/api/v1/a').subscribe(() => done.push('a'));

@@ -72,6 +72,13 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
       if (err.status === 401 && !isAuthFree(req.url)) {
+        const current = auth.accessToken();
+        if (current && req.headers.get('Authorization') !== `Bearer ${current}`) {
+          // sent with a token that has since been replaced: no new refresh, just retry with the current one
+          return next(req.clone({ setHeaders: { Authorization: `Bearer ${current}` } })).pipe(
+            catchError((e: HttpErrorResponse) => surface(e)),
+          );
+        }
         if (auth.refreshToken()) {
           // only the refresh itself may log out; the retried request's errors propagate normally
           return coordinator.refreshed().pipe(
