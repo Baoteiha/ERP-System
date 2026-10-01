@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.catalog.domain.Category;
 import vn.essvn.erpcafe.catalog.domain.Product;
 import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
@@ -30,7 +32,6 @@ import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.sales.domain.Order;
-import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderType;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
@@ -59,11 +60,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
         Product product = productRepository.save(new Product(
                 companyId, category.getId(), "Prod %d".formatted(n), "SKU-S%d".formatted(n), Money.of(BigDecimal.TEN)));
         Order order = new Order(branchId, null, OrderType.DINE_IN, BigDecimal.ZERO);
-        OrderLine line = new OrderLine(product.getId(), product.getName(), Money.of(BigDecimal.TEN), 1,
-                Money.of(BigDecimal.ZERO));
-        line.setLineTotal(Money.of(BigDecimal.TEN));
-        order.addLine(line);
-        order.setTotals(BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.TEN);
+        order.addLine(new PricedLine(product.getId(), product.getName(), Money.of(BigDecimal.TEN), List.of(),
+                Money.of(BigDecimal.TEN)), 1, BigDecimal.ZERO);
         return orderRepository.save(order).getId();
     }
 

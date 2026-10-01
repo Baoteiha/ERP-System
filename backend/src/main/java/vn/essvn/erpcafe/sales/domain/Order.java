@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.sales.domain;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,6 +15,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.common.domain.BranchScopedEntity;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
@@ -103,9 +105,33 @@ public class Order extends BranchScopedEntity {
 
     // --- state transitions (side effects live in the service; this enforces validity) ---
 
-    public void addLine(OrderLine line) {
+    /** Adds a priced line; its discount may not exceed its gross. Totals are recomputed. */
+    public void addLine(PricedLine priced, int quantity, BigDecimal lineDiscount) {
         requireOpen("add lines to");
-        lines.add(line);
+        if (quantity <= 0) {
+            throw new BusinessRuleException("Line quantity must be positive");
+        }
+        Money discount = Money.of(lineDiscount == null ? BigDecimal.ZERO : lineDiscount);
+        Money gross = OrderLine.grossTotal(priced, quantity);
+        if (discount.getAmount().signum() < 0 || discount.getAmount().compareTo(gross.getAmount()) > 0) {
+            throw new BusinessRuleException("Line discount must be between 0 and the line total of %s"
+                    .formatted(gross.getAmount().toPlainString()));
+        }
+        lines.add(new OrderLine(priced, quantity, discount));
+        recalculate();
+    }
+
+    /** Sets the whole-order discount; it may not exceed the subtotal left after line discounts. */
+    public void applyOrderDiscount(BigDecimal discount) {
+        requireOpen("discount");
+        BigDecimal value = Money.of(discount == null ? BigDecimal.ZERO : discount).getAmount();
+        BigDecimal room = subtotal.subtract(lineDiscounts());
+        if (value.signum() < 0 || value.compareTo(room) > 0) {
+            throw new BusinessRuleException("Order discount must be between 0 and %s"
+                    .formatted(room.toPlainString()));
+        }
+        this.orderDiscount = value;
+        recalculate();
     }
 
     public void addPayment(Payment payment) {
@@ -193,15 +219,18 @@ public class Order extends BranchScopedEntity {
         }
     }
 
-    // --- totals (computed and set by the pricing service) ---
+    // --- totals: gross = subtotal; net = gross - discounts; tax on net; every figure rounded once, here ---
 
-    public void setTotals(BigDecimal subtotal, BigDecimal orderDiscount, BigDecimal discountTotal,
-            BigDecimal taxTotal, BigDecimal grandTotal) {
-        this.subtotal = subtotal;
-        this.orderDiscount = orderDiscount;
-        this.discountTotal = discountTotal;
-        this.taxTotal = taxTotal;
-        this.grandTotal = grandTotal;
+    private BigDecimal lineDiscounts() {
+        return lines.stream().map(l -> l.getLineDiscount().getAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private void recalculate() {
+        this.subtotal = lines.stream().map(l -> l.gross().getAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
+        this.discountTotal = lineDiscounts().add(orderDiscount);
+        BigDecimal net = subtotal.subtract(discountTotal);
+        this.taxTotal = net.multiply(taxRate).setScale(Money.SCALE, Money.ROUNDING);
+        this.grandTotal = net.add(taxTotal);
     }
 
     public UUID getCashierUserId() {
@@ -249,10 +278,10 @@ public class Order extends BranchScopedEntity {
     }
 
     public List<OrderLine> getLines() {
-        return lines;
+        return Collections.unmodifiableList(lines);
     }
 
     public List<Payment> getPayments() {
-        return payments;
+        return Collections.unmodifiableList(payments);
     }
 }

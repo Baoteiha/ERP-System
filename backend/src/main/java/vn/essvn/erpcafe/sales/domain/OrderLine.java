@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.sales.domain;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -16,6 +17,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.common.domain.BaseEntity;
 import vn.essvn.erpcafe.common.domain.Money;
 
@@ -67,12 +69,25 @@ public class OrderLine extends BaseEntity {
     protected OrderLine() {
     }
 
-    public OrderLine(UUID productId, String productName, Money unitPrice, int quantity, Money lineDiscount) {
-        this.productId = productId;
-        this.productName = productName;
-        this.unitPrice = unitPrice;
+    /** Built only by {@link Order#addLine}, which has already bounded the discount. */
+    OrderLine(PricedLine priced, int quantity, Money lineDiscount) {
+        this.productId = priced.productId();
+        this.productName = priced.productName();
+        this.unitPrice = priced.unitBasePrice();
         this.quantity = quantity;
         this.lineDiscount = lineDiscount;
+        this.lineTotal = grossTotal(priced, quantity).subtract(lineDiscount);
+        priced.modifiers().forEach(m ->
+                modifiers.add(new OrderLineModifier(m.modifierId(), m.name(), m.priceDelta())));
+    }
+
+    static Money grossTotal(PricedLine priced, int quantity) {
+        return priced.unitTotal().multiply(BigDecimal.valueOf(quantity));
+    }
+
+    /** Before the line discount: lineTotal + lineDiscount. */
+    Money gross() {
+        return lineTotal.add(lineDiscount);
     }
 
     public UUID getProductId() {
@@ -99,16 +114,8 @@ public class OrderLine extends BaseEntity {
         return lineTotal;
     }
 
-    public void setLineTotal(Money lineTotal) {
-        this.lineTotal = lineTotal;
-    }
-
     public List<OrderLineModifier> getModifiers() {
         return modifiers;
-    }
-
-    public void addModifier(OrderLineModifier modifier) {
-        this.modifiers.add(modifier);
     }
 
     public Set<UUID> modifierIds() {

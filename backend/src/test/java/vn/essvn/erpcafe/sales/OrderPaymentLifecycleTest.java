@@ -161,6 +161,28 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void totals_subtotalIsGross_discountsCountOnce() throws Exception {
+        setup();
+        String json = create("/api/v1/orders",
+                ("{\"orderType\":\"DINE_IN\",\"taxRate\":0.1,\"orderDiscount\":3000,"
+                        + "\"lines\":[{\"productId\":\"%s\",\"quantity\":2,\"lineDiscount\":5000}]}")
+                        .formatted(productId));
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(json, "$.subtotal")))).isEqualByComparingTo("50000");
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(json, "$.discountTotal")))).isEqualByComparingTo("8000");
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(json, "$.taxTotal")))).isEqualByComparingTo("4200");
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(json, "$.grandTotal")))).isEqualByComparingTo("46200");
+    }
+
+    @Test
+    void discountAboveGross_isRejectedWith422() throws Exception {
+        setup();
+        mockMvc.perform(authed(post("/api/v1/orders"), token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1,\"lineDiscount\":25001}]}"
+                                .formatted(productId)))
+                .andExpect(status().is(422)).andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
     void zeroTotalOrder_completesAtCreation() throws Exception {
         setup();
         String json = order(",\"orderDiscount\":25000");

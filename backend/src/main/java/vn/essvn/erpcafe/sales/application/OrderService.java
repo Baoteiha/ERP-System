@@ -1,7 +1,5 @@
 package vn.essvn.erpcafe.sales.application;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -28,7 +26,6 @@ import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
-import vn.essvn.erpcafe.sales.domain.OrderLineModifier;
 import vn.essvn.erpcafe.sales.domain.Payment;
 import vn.essvn.erpcafe.sales.domain.PaymentMethod;
 import vn.essvn.erpcafe.sales.domain.PaymentType;
@@ -43,7 +40,6 @@ import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 @Transactional
 public class OrderService {
 
-    private static final int MONEY_SCALE = 4;
     private static final String REF_ORDER = "ORDER";
     private static final String REF_VOID = "ORDER_VOID";
     private static final String REF_REFUND = "ORDER_REFUND";
@@ -78,27 +74,11 @@ public class OrderService {
         Order order = new Order(branchId, cashierId, input.orderType(), input.taxRate());
 
         for (LineInput li : input.lines()) {
-            if (li.quantity() <= 0) {
-                throw new BusinessRuleException("Line quantity must be positive");
-            }
             catalogApi.validateModifierSelection(li.productId(), li.modifierIds());
             PricedLine priced = catalogApi.priceLine(li.productId(), branchId, li.modifierIds());
-
-            Money lineDiscount = Money.of(li.lineDiscount() == null ? BigDecimal.ZERO : li.lineDiscount());
-            OrderLine line = new OrderLine(li.productId(), priced.productName(),
-                    priced.unitBasePrice(), li.quantity(), lineDiscount);
-            priced.modifiers().forEach(m ->
-                    line.addModifier(new OrderLineModifier(m.modifierId(), m.name(), m.priceDelta())));
-
-            // lineTotal = unitTotal (base + modifiers) × qty − lineDiscount
-            Money lineTotal = priced.unitTotal()
-                    .multiply(BigDecimal.valueOf(li.quantity()))
-                    .subtract(lineDiscount);
-            line.setLineTotal(lineTotal);
-            order.addLine(line);
+            order.addLine(priced, li.quantity(), li.lineDiscount());
         }
-
-        applyTotals(order, input.orderDiscount());
+        order.applyOrderDiscount(input.orderDiscount());
         Order saved = orderRepository.save(order);
         saved.markPaidIfSettled(); // a zero-total ticket has nothing to collect
         return finishIfPaid(saved);
@@ -154,23 +134,6 @@ public class OrderService {
 
     // --- helpers ---
 
-    private void applyTotals(Order order, BigDecimal orderDiscountInput) {
-        BigDecimal subtotal = order.getLines().stream()
-                .map(l -> l.getLineTotal().getAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal orderDiscount = orderDiscountInput == null ? BigDecimal.ZERO : orderDiscountInput;
-        BigDecimal lineDiscounts = order.getLines().stream()
-                .map(l -> l.getLineDiscount().getAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal taxableBase = subtotal.subtract(orderDiscount).max(BigDecimal.ZERO);
-        BigDecimal taxTotal = scale(taxableBase.multiply(order.getTaxRate()));
-        BigDecimal grandTotal = scale(taxableBase.add(taxTotal));
-        BigDecimal discountTotal = scale(lineDiscounts.add(orderDiscount));
-
-        order.setTotals(scale(subtotal), scale(orderDiscount), discountTotal, taxTotal, grandTotal);
-    }
-
     /** Explodes every line (product + modifiers × quantity) into ingredient stock lines. */
     private List<StockLine> stockLinesFor(Order order) {
         List<StockLine> lines = new ArrayList<>();
@@ -180,10 +143,6 @@ public class OrderService {
             consumption.forEach(c -> lines.add(new StockLine(c.ingredientId(), c.quantity(), c.unit())));
         }
         return lines;
-    }
-
-    private static BigDecimal scale(BigDecimal value) {
-        return value.setScale(MONEY_SCALE, RoundingMode.HALF_EVEN);
     }
 
     private UUID activeBranch() {
