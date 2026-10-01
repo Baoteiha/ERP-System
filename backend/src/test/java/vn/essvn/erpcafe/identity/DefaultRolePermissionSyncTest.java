@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import vn.essvn.erpcafe.bootstrap.DataInitializer;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Permissions;
@@ -40,9 +41,15 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    /** A default role of the seeded company, read as that company. */
     private Role role(String name) {
-        UUID companyId = userRepository.findByEmail("admin@esscafe.vn").orElseThrow().getCompanyId();
-        return roleRepository.findByCompanyIdAndName(companyId, name).orElseThrow();
+        UUID companyId = TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))
+                .orElseThrow().getCompanyId();
+        return TenantContext.runAs(companyId, () -> roleRepository.findByName(name).orElseThrow());
+    }
+
+    private void save(Role role) {
+        TenantContext.runAs(role.getCompanyId(), () -> roleRepository.save(role));
     }
 
     private Set<String> names(Role role) {
@@ -55,10 +62,10 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
      */
     @AfterEach
     void restoreDefaultRoles() {
-        for (Role role : roleRepository.findAll()) {
+        for (Role role : TenantContext.runAsSystem(() -> roleRepository.findAll())) {
             if (role.getSyncedCatalogVersion() > Permissions.CATALOG_VERSION) {
                 role.setSyncedCatalogVersion(Permissions.CATALOG_VERSION);
-                roleRepository.save(role);
+                save(role);
             }
         }
         for (DefaultRole def : DefaultRole.all()) {
@@ -67,7 +74,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
                     .map(name -> permissionRepository.findByName(name).orElseThrow())
                     .collect(Collectors.toSet()));
             role.setSyncedCatalogVersion(Permissions.CATALOG_VERSION);
-            roleRepository.save(role);
+            save(role);
         }
     }
 
@@ -75,7 +82,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
     void removedDefaultPermission_staysRemovedAfterSync() {
         Role manager = role(DefaultRole.MANAGER.roleName());
         manager.getPermissions().removeIf(p -> Permissions.USER_WRITE.equals(p.getName()));
-        roleRepository.save(manager);
+        save(manager);
 
         dataInitializer.run(null);
 
@@ -87,7 +94,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         Role manager = role(DefaultRole.MANAGER.roleName());
         manager.getPermissions().removeIf(p -> Permissions.USER_WRITE.equals(p.getName())
                 || Permissions.REPORT_READ.equals(p.getName()));
-        roleRepository.save(manager);
+        save(manager);
         // A release that introduces report:read: it moves to the next catalog version.
         int next = Permissions.CATALOG_VERSION + 1;
         Map<String, Integer> since = new HashMap<>(Permissions.SINCE);
@@ -107,7 +114,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         Role manager = role(DefaultRole.MANAGER.roleName());
         manager.getPermissions().removeIf(p -> Permissions.REPORT_READ.equals(p.getName()));
         manager.setSyncedCatalogVersion(0);
-        roleRepository.save(manager);
+        save(manager);
 
         dataInitializer.run(null);
 
@@ -122,7 +129,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         int newer = Permissions.CATALOG_VERSION + 1;
         Role manager = role(DefaultRole.MANAGER.roleName());
         manager.setSyncedCatalogVersion(newer);
-        roleRepository.save(manager);
+        save(manager);
 
         dataInitializer.run(null);
 
@@ -141,7 +148,7 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
         Role cashier = role(DefaultRole.CASHIER.roleName());
         Permission extra = permissionRepository.findByName(Permissions.COMPANY_WRITE).orElseThrow();
         cashier.getPermissions().add(extra);
-        roleRepository.save(cashier);
+        save(cashier);
 
         dataInitializer.run(null);
 

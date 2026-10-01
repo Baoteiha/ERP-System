@@ -27,6 +27,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.application.RefreshTokenPurger;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
@@ -86,8 +87,8 @@ class LoginHardeningTest extends AbstractIntegrationTest {
                         .content("{\"email\":\"ADMIN@esscafe.vn\",\"password\":\"whatever123\",\"fullName\":\"Dup\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONFLICT"));
-        assertThat(userRepository.findByEmail("admin@esscafe.vn")).isPresent();
-        assertThat(userRepository.findByEmail("ADMIN@esscafe.vn")).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> userRepository.findByEmail("ADMIN@esscafe.vn"))).isEmpty();
     }
 
     @Test
@@ -127,7 +128,8 @@ class LoginHardeningTest extends AbstractIntegrationTest {
 
     @Test
     void purger_deletesTokensExpiredOverAWeekAgo_andKeepsTheRest() {
-        UUID userId = userRepository.findByEmail("admin@esscafe.vn").orElseThrow().getId();
+        UUID userId = TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))
+                .orElseThrow().getId();
         Instant now = Instant.now();
         RefreshToken longGone = save(userId, now.minus(Duration.ofDays(8)));
         RefreshToken justExpired = save(userId, now.minus(Duration.ofDays(1)));

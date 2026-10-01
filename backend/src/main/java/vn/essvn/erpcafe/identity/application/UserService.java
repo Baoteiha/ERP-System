@@ -13,6 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
@@ -67,23 +68,22 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public Page<User> list(Pageable pageable) {
-        return userRepository.findByCompanyId(currentUser.require().companyId(), pageable);
+        return userRepository.findAll(pageable);
     }
 
     @Transactional(readOnly = true)
     public User get(UUID id) {
-        return userRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return userRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("User", id));
     }
 
     /** A new account holds no permissions until {@link #grantAccess}, which is where the policy applies. */
     public User create(String rawEmail, String rawPassword, String fullName) {
         String email = User.normalizeEmail(rawEmail);
-        UUID companyId = currentUser.require().companyId();
-        if (userRepository.existsByEmail(email)) {
+        if (userRepository.existsByEmailInAnyCompany(email)) {
             throw new ConflictException("Email already exists: " + email);
         }
-        User user = new User(companyId, email, passwordEncoder.encode(rawPassword), fullName);
+        User user = new User(email, passwordEncoder.encode(rawPassword), fullName);
         return userRepository.save(user);
     }
 
@@ -108,7 +108,7 @@ public class UserService {
         // locked first: a concurrent widening of the role waits for this grant, or this grant sees it
         roleRepository.lockByIdAndCompanyId(roleId, user.getCompanyId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
-        Role role = roleRepository.findByIdAndCompanyId(roleId, user.getCompanyId())
+        Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         requireCanManage(userId);
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
@@ -145,7 +145,7 @@ public class UserService {
         String email = User.normalizeEmail(rawEmail);
         User user = get(id);
         requireCanManage(id);
-        if (!user.getEmail().equals(email) && userRepository.existsByEmail(email)) {
+        if (!user.getEmail().equals(email) && userRepository.existsByEmailInAnyCompany(email)) {
             throw new ConflictException("Email already exists: " + email);
         }
         user.setEmail(email);
@@ -201,7 +201,7 @@ public class UserService {
 
     /** The permissions of the user's role at each of their branches that is still live, and those roles' names. */
     private HeldAccess heldAccessOf(UUID userId) {
-        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(currentUser.require().companyId()).stream()
+        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(TenantContext.require()).stream()
                 .map(BranchDto::id).collect(Collectors.toSet());
         List<UserBranchAccess> grants = accessRepository.findByUserId(userId).stream()
                 .filter(g -> liveBranchIds.contains(g.getBranchId()))

@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.identity.domain;
 
 import java.util.Locale;
-import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -11,7 +10,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A login account, belonging to a company. A user's operational access is
@@ -21,10 +20,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
 @Table(name = "app_user")
 @SQLDelete(sql = "UPDATE app_user SET deleted = true WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class User extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class User extends TenantOwnedEntity {
 
     @Column(name = "email", nullable = false)
     private String email;
@@ -46,8 +42,7 @@ public class User extends AuditableEntity {
         // for JPA
     }
 
-    public User(UUID companyId, String email, String passwordHash, String fullName) {
-        this.companyId = companyId;
+    public User(String email, String passwordHash, String fullName) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.fullName = fullName;
@@ -56,10 +51,6 @@ public class User extends AuditableEntity {
     /** Emails are compared case-insensitively, so they are stored trimmed and lower-case. */
     public static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getEmail() {

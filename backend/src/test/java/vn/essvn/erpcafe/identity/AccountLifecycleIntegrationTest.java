@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
@@ -47,7 +48,7 @@ class AccountLifecycleIntegrationTest extends AbstractIntegrationTest {
     }
 
     private String emailOf(String id) {
-        return userRepository.findById(UUID.fromString(id)).orElseThrow().getEmail();
+        return TenantContext.runAsSystem(() -> userRepository.findById(UUID.fromString(id))).orElseThrow().getEmail();
     }
 
     @Test

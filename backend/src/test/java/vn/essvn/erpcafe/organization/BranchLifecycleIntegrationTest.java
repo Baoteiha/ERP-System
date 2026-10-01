@@ -98,7 +98,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String userId = JsonPath.read(postJson(adminToken, "/api/v1/users",
                 "{\"email\":\"%s\",\"password\":\"password123\",\"fullName\":\"LC\"}".formatted(email)), "$.id");
         UUID companyId = branch(branchIds[0]).getCompanyId();
-        UUID roleId = roles.findByCompanyIdAndName(companyId, roleName).orElseThrow().getId();
+        UUID roleId = TenantContext.runAs(companyId, () -> roles.findByName(roleName)).orElseThrow().getId();
         for (String branchId : branchIds) {
             mockMvc.perform(post("/api/v1/users/" + userId + "/access")
                             .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken))
@@ -229,7 +229,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
         grants.save(new UserBranchAccess(UUID.fromString(user[0]), UUID.fromString(dead),
-                roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
+                TenantContext.runAs(companyId, () -> roles.findByName("OWNER")).orElseThrow().getId()));
         TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
 
         String token = accessToken(user[1], "password123");
@@ -295,7 +295,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         UUID companyId = branch(home).getCompanyId();
         // a leftover from before grants were dropped on delete: seeded straight into the table
         grants.save(new UserBranchAccess(UUID.fromString(userId), UUID.fromString(dead),
-                roles.findByCompanyIdAndName(companyId, "OWNER").orElseThrow().getId()));
+                TenantContext.runAs(companyId, () -> roles.findByName("OWNER")).orElseThrow().getId()));
         TenantContext.runAsSystem(() -> branches.delete(branch(dead)));
         String token = accessToken("opener%d@t.test".formatted(n), "password123");
 

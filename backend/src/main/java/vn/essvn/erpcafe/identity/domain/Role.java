@@ -2,7 +2,6 @@ package vn.essvn.erpcafe.identity.domain;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -13,7 +12,7 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import vn.essvn.erpcafe.common.domain.AuditableEntity;
+import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
 
 /**
  * A named bundle of {@link Permission}s (e.g. OWNER, MANAGER, CASHIER),
@@ -22,10 +21,7 @@ import vn.essvn.erpcafe.common.domain.AuditableEntity;
  */
 @Entity
 @Table(name = "role", uniqueConstraints = @UniqueConstraint(name = "uk_role_company_name", columnNames = {"company_id", "name"}))
-public class Role extends AuditableEntity {
-
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
+public class Role extends TenantOwnedEntity {
 
     @Column(name = "name", nullable = false, length = 64)
     private String name;
@@ -47,14 +43,9 @@ public class Role extends AuditableEntity {
         // for JPA
     }
 
-    public Role(UUID companyId, String name, String description) {
-        this.companyId = companyId;
+    public Role(String name, String description) {
         this.name = name;
         this.description = description;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getName() {

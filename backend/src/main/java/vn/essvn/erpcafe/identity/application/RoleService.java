@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
@@ -54,23 +55,22 @@ public class RoleService {
 
     @Transactional(readOnly = true)
     public List<Role> listForCurrentCompany() {
-        return roleRepository.findByCompanyId(currentUser.require().companyId());
+        return roleRepository.findAll();
     }
 
     @Transactional(readOnly = true)
     public Role get(UUID id) {
-        return roleRepository.findByIdAndCompanyId(id, currentUser.require().companyId())
+        return roleRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", id));
     }
 
     public Role create(String name, String description, Set<String> permissionNames) {
-        UUID companyId = currentUser.require().companyId();
-        if (roleRepository.existsByCompanyIdAndName(companyId, name)) {
+        if (roleRepository.existsByName(name)) {
             throw new ConflictException("Role already exists: " + name);
         }
         Set<Permission> permissions = resolvePermissions(permissionNames);
         AccessPolicy.requireCanEditRole(currentUser.require(), permissionNames);
-        Role role = new Role(companyId, name, description);
+        Role role = new Role(name, description);
         role.setPermissions(permissions);
         return roleRepository.save(role);
     }
@@ -111,8 +111,7 @@ public class RoleService {
     /** Renames a custom role. Default roles keep their names: the startup sync matches on them. */
     public Role rename(UUID roleId, String name, String description) {
         Role role = requireCustomRole(roleId);
-        if (!role.getName().equals(name)
-                && roleRepository.existsByCompanyIdAndName(role.getCompanyId(), name)) {
+        if (!role.getName().equals(name) && roleRepository.existsByName(name)) {
             throw new ConflictException("Role already exists: " + name);
         }
         role.setName(name);
@@ -155,7 +154,7 @@ public class RoleService {
      * The row is locked first, so a concurrent grant of the role either waits for this change or is seen by it.
      */
     private Role requireMutableRole(UUID roleId) {
-        roleRepository.lockByIdAndCompanyId(roleId, currentUser.require().companyId())
+        roleRepository.lockByIdAndCompanyId(roleId, TenantContext.require())
                 .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         Role role = get(roleId);
         if (DefaultRole.OWNER.roleName().equals(role.getName())) {

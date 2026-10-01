@@ -30,6 +30,7 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.Permissions;
+import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.domain.UserStatus;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
@@ -74,7 +75,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
         ownerId = UUID.fromString(JsonPath.read(me, "$.userId"));
         companyId = UUID.fromString(JsonPath.read(me, "$.companyId"));
         branchId = UUID.fromString(JsonPath.<List<String>>read(me, "$.branchIds").get(0));
-        User owner = userRepository.findById(ownerId).orElseThrow();
+        User owner = user(ownerId);
         ownerEmail = owner.getEmail();
         ownerPasswordHash = owner.getPasswordHash();
         ownerStatus = owner.getStatus();
@@ -187,8 +188,18 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
         return accessRepository.findByUserIdAndBranchId(userId, branch).orElseThrow().getRoleId();
     }
 
+    /** Reads a user of the seeded company, as that company. */
+    private User user(UUID id) {
+        return TenantContext.runAs(companyId, () -> userRepository.findById(id).orElseThrow());
+    }
+
+    /** Reads a role of the seeded company, as that company. */
+    private Role role(String id) {
+        return TenantContext.runAs(companyId, () -> roleRepository.findById(UUID.fromString(id)).orElseThrow());
+    }
+
     private String passwordHashOf(UUID userId) {
-        return userRepository.findById(userId).orElseThrow().getPasswordHash();
+        return user(userId).getPasswordHash();
     }
 
     @Test
@@ -225,7 +236,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(userRepository.findById(ownerId).orElseThrow().getPasswordHash()).isEqualTo(ownerPasswordHash);
+        assertThat(user(ownerId).getPasswordHash()).isEqualTo(ownerPasswordHash);
     }
 
     @Test
@@ -237,7 +248,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(userRepository.findById(ownerId).orElseThrow().getEmail()).isEqualTo(ownerEmail);
+        assertThat(user(ownerId).getEmail()).isEqualTo(ownerEmail);
     }
 
     @Test
@@ -248,7 +259,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(userRepository.findById(ownerId).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(user(ownerId).getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test
@@ -279,14 +290,14 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 "{\"name\":\"%s\",\"description\":\"d\",\"permissions\":[\"company:write\"]}".formatted(name))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(roleRepository.existsByCompanyIdAndName(companyId, name)).isFalse();
+        assertThat(TenantContext.runAs(companyId, () -> roleRepository.existsByName(name))).isFalse();
 
         String narrow = createRole(Stream.of(Permissions.SALES_READ));
         send(post("/api/v1/roles/" + narrow + "/permissions"), manager.token(),
                 "{\"permissions\":[\"company:write\"]}")
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        assertThat(roleRepository.findById(UUID.fromString(narrow)).orElseThrow().getPermissions())
+        assertThat(role(narrow).getPermissions())
                 .extracting(Permission::getName)
                 .containsExactly(Permissions.SALES_READ);
 
@@ -307,7 +318,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(roleRepository.findById(UUID.fromString(narrow)).orElseThrow().getPermissions())
+        assertThat(role(narrow).getPermissions())
                 .extracting(Permission::getName)
                 .containsExactly(Permissions.SALES_READ);
     }
@@ -322,7 +333,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(roleRepository.findById(UUID.fromString(wide)).orElseThrow().getPermissions())
+        assertThat(role(wide).getPermissions())
                 .extracting(Permission::getName)
                 .containsExactlyInAnyOrder(Permissions.SALES_READ, Permissions.COMPANY_WRITE);
     }
@@ -366,14 +377,14 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
     void managerChangingTheEmailOfAUserAtAnotherBranch_isForbidden() throws Exception {
         Login manager = manager();
         Login cashier = cashierAtAnotherBranch();
-        String email = userRepository.findById(cashier.userId()).orElseThrow().getEmail();
+        String email = user(cashier.userId()).getEmail();
 
         send(put("/api/v1/users/" + cashier.userId()), manager.token(),
                 "{\"email\":\"takeover%d@esscafe.vn\",\"fullName\":\"Taken Over\"}".formatted(SEQ.incrementAndGet()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(userRepository.findById(cashier.userId()).orElseThrow().getEmail()).isEqualTo(email);
+        assertThat(user(cashier.userId()).getEmail()).isEqualTo(email);
     }
 
     @Test
@@ -385,7 +396,7 @@ class PrivilegeEscalationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
-        assertThat(userRepository.findById(cashier.userId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(user(cashier.userId()).getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
     @Test

@@ -255,7 +255,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     }
 
     private String passwordHashOf(NewUser account) {
-        return users.findById(UUID.fromString(account.id())).orElseThrow().getPasswordHash();
+        return TenantContext.runAsSystem(() -> users.findById(UUID.fromString(account.id())).orElseThrow())
+                .getPasswordHash();
     }
 
     private ResultActions resetPassword(NewUser target) throws Exception {
@@ -382,7 +383,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     }
 
     private Set<String> permissionsOf(String roleId) {
-        return roles.findById(UUID.fromString(roleId)).orElseThrow().getPermissions().stream()
+        return TenantContext.runAsSystem(() -> roles.findById(UUID.fromString(roleId)).orElseThrow())
+                .getPermissions().stream()
                 .map(Permission::getName).collect(Collectors.toSet());
     }
 

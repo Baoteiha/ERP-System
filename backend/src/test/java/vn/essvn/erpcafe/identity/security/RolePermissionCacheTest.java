@@ -49,7 +49,7 @@ class RolePermissionCacheTest {
     private final RolePermissionCache cache = new RolePermissionCache(roles, clock);
 
     private void roleHolds(String... permissions) {
-        Role role = new Role(UUID.randomUUID(), "CASHIER", "d");
+        Role role = new Role("CASHIER", "d");
         for (String name : permissions) {
             role.getPermissions().add(new Permission(name, name));
         }
@@ -93,8 +93,8 @@ class RolePermissionCacheTest {
 
     @Test
     void aReadThatRacedAnEviction_isNotKept() {
-        Role before = new Role(UUID.randomUUID(), "CASHIER", "d");
-        Role after = new Role(UUID.randomUUID(), "CASHIER", "d");
+        Role before = new Role("CASHIER", "d");
+        Role after = new Role("CASHIER", "d");
         after.getPermissions().add(new Permission("sales:refund", "sales:refund"));
         // the edit commits, and its eviction runs, while the first read is still on its way back
         when(roles.findById(roleId)).thenAnswer(inv -> {

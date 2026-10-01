@@ -55,9 +55,8 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
         Company b = companyRepository.save(new Company("Role Other %d".formatted(n), "ROL%d".formatted(n)));
         return TenantContext.runAs(b.getId(), () -> {
             Branch branchB = branchRepository.save(new Branch("B Branch", "RLB%d".formatted(n)));
-            Role roleB = roleRepository.save(new Role(b.getId(), "B-ROLE-%d".formatted(n), "foreign"));
-            User userB = userRepository.save(
-                    new User(b.getId(), "role-foreign%d@other.test".formatted(n), "x", "B User"));
+            Role roleB = roleRepository.save(new Role("B-ROLE-%d".formatted(n), "foreign"));
+            User userB = userRepository.save(new User("role-foreign%d@other.test".formatted(n), "x", "B User"));
             accessRepository.save(new UserBranchAccess(userB.getId(), branchB.getId(), roleB.getId()));
             return new Foreign(roleB.getId(), userB.getId(), branchB.getId());
         });
@@ -92,7 +91,7 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        Role after = roleRepository.findById(f.roleId()).orElseThrow();
+        Role after = TenantContext.runAsSystem(() -> roleRepository.findById(f.roleId())).orElseThrow();
         assertThat(after.getName()).startsWith("B-ROLE-");
     }
 
@@ -104,7 +103,7 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        assertThat(roleRepository.findById(f.roleId())).isPresent();
+        assertThat(TenantContext.runAsSystem(() -> roleRepository.findById(f.roleId()))).isPresent();
     }
 
     @Test
@@ -118,7 +117,8 @@ class RoleTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
-        assertThat(roleRepository.findById(f.roleId()).orElseThrow().getPermissions()).isEmpty();
+        assertThat(TenantContext.runAsSystem(() -> roleRepository.findById(f.roleId())).orElseThrow()
+                .getPermissions()).isEmpty();
     }
 
     @Test

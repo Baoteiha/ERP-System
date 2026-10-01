@@ -192,11 +192,10 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
         // a session takes its tenant when it opens: the transaction starts inside the company's tenant
         String branchId = TenantContext.runAs(company.getId(), () -> tx.execute(statusTx -> {
             Branch branch = branchRepository.save(new Branch("Rival HQ " + n, "RHQ" + n));
-            Role role = new Role(company.getId(), "TenantOwner" + n, "Full access");
+            Role role = new Role("TenantOwner" + n, "Full access");
             role.setPermissions(new HashSet<>(permissionRepository.findAll()));
             role = roleRepository.save(role);
-            User user = userRepository.save(new User(company.getId(), email,
-                    passwordEncoder.encode("rival1234"), "Rival Owner"));
+            User user = userRepository.save(new User(email, passwordEncoder.encode("rival1234"), "Rival Owner"));
             accessRepository.save(new UserBranchAccess(user.getId(), branch.getId(), role.getId()));
             return branch.getId().toString();
         }));

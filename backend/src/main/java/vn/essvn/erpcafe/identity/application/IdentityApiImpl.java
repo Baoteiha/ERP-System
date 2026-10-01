@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -26,6 +27,6 @@ public class IdentityApiImpl implements IdentityApi {
 
     @Override
     public Optional<UUID> currentCompanyId() {
-        return currentUser.get().map(AuthPrincipal::companyId);
+        return TenantContext.current();
     }
 }

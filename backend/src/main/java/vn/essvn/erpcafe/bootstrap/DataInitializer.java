@@ -167,17 +167,13 @@ public class DataInitializer implements ApplicationRunner {
                 .orElseGet(() -> branchRepository.save(new Branch("Headquarters", "HQ")));
 
         for (DefaultRole def : DefaultRole.all()) {
-            roleRepository.findByCompanyIdAndName(company.getId(), def.roleName())
-                    .orElseGet(() -> createRole(company.getId(), def));
+            roleRepository.findByName(def.roleName()).orElseGet(() -> createRole(def));
         }
 
-        Role ownerRole = roleRepository.findByCompanyIdAndName(company.getId(), DefaultRole.OWNER.roleName())
-                .orElseThrow();
+        Role ownerRole = roleRepository.findByName(DefaultRole.OWNER.roleName()).orElseThrow();
 
         String email = User.normalizeEmail(securityProperties.bootstrap().adminEmail());
-        User admin = new User(company.getId(), email,
-                passwordEncoder.encode(password),
-                "Bootstrap Admin");
+        User admin = new User(email, passwordEncoder.encode(password), "Bootstrap Admin");
         admin = userRepository.save(admin);
         accessRepository.save(new UserBranchAccess(admin.getId(), branch.getId(), ownerRole.getId()));
 
@@ -185,8 +181,8 @@ public class DataInitializer implements ApplicationRunner {
                 email, branch.getId(), company.getId());
     }
 
-    private Role createRole(java.util.UUID companyId, DefaultRole def) {
-        Role role = new Role(companyId, def.roleName(), def.description());
+    private Role createRole(DefaultRole def) {
+        Role role = new Role(def.roleName(), def.description());
         Set<Permission> permissions = new HashSet<>();
         for (String permName : def.permissions()) {
             permissionRepository.findByName(permName).ifPresent(permissions::add);

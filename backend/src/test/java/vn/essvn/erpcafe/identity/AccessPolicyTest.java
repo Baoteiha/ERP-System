@@ -58,7 +58,7 @@ class AccessPolicyTest {
     }
 
     private static Role named(String name, String... permissions) {
-        Role role = new Role(UUID.randomUUID(), name, "test");
+        Role role = new Role(name, "test");
         role.setPermissions(Arrays.stream(permissions)
                 .map(permission -> new Permission(permission, permission))
                 .collect(Collectors.toSet()));

@@ -119,7 +119,8 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
                 () -> branchRepository.findById(UUID.fromString(own)).orElseThrow().getCompanyId());
         Branch second = TenantContext.runAs(companyA,
                 () -> branchRepository.save(new Branch("Second", "SLS%d".formatted(n))));
-        UUID adminId = userRepository.findByEmail("admin@esscafe.vn").orElseThrow().getId();
+        UUID adminId = TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))
+                .orElseThrow().getId();
         UserBranchAccess existing = accessRepository.findByUserId(adminId).get(0);
         accessRepository.save(new UserBranchAccess(adminId, second.getId(), existing.getRoleId()));
         UUID orderAtSecond = seedOpenOrder(companyA, second.getId(), n);

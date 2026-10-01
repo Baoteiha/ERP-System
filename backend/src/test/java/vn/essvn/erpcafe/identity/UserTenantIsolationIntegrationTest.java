@@ -2,6 +2,8 @@ package vn.essvn.erpcafe.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -11,9 +13,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.organization.domain.Company;
@@ -41,7 +45,8 @@ class UserTenantIsolationIntegrationTest extends AbstractIntegrationTest {
     private User seedForeignUser() {
         int n = SEQ.incrementAndGet();
         Company other = companyRepository.save(new Company("Other %d".formatted(n), "OTH%d".formatted(n)));
-        return userRepository.save(new User(other.getId(), "foreign%d@other.test".formatted(n), "x", "Foreign User"));
+        return TenantContext.runAs(other.getId(),
+                () -> userRepository.save(new User("foreign%d@other.test".formatted(n), "x", "Foreign User")));
     }
 
     @Test
@@ -64,5 +69,24 @@ class UserTenantIsolationIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/users/" + foreignId)
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken())))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void create_withAnotherCompanysEmail_isAConflictAndLeavesThatUserAlone() throws Exception {
+        User foreign = seedForeignUser();
+
+        // login finds a user by email alone, so an email may belong to one account in any company
+        mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"password123\",\"fullName\":\"Copy\"}"
+                                .formatted(foreign.getEmail())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"))
+                .andExpect(jsonPath("$.detail").value("Email already exists: " + foreign.getEmail()));
+
+        User after = TenantContext.runAsSystem(() -> userRepository.findById(foreign.getId())).orElseThrow();
+        assertThat(after.getFullName()).isEqualTo("Foreign User");
+        assertThat(after.getCompanyId()).isEqualTo(foreign.getCompanyId());
     }
 }
