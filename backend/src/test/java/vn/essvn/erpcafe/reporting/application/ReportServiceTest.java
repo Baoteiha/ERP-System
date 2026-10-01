@@ -13,9 +13,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
@@ -45,6 +48,18 @@ class ReportServiceTest {
     private final Instant to = Instant.parse("2026-03-02T00:00:00Z");
 
     private final UUID companyId = UUID.randomUUID();
+    // the company comes from the tenant context; a principal naming another one must not matter
+    private final UUID notTheTenant = UUID.randomUUID();
+
+    @BeforeEach
+    void enterTenant() {
+        TenantContext.set(companyId);
+    }
+
+    @AfterEach
+    void leaveTenant() {
+        TenantContext.clear();
+    }
 
     private void stub(UUID branch, String net, String cogs, String labor) {
         when(salesApi.summary(branch, from, to)).thenReturn(new SalesSummary(1, new BigDecimal("50000"),
@@ -59,7 +74,7 @@ class ReportServiceTest {
     void grossMarginIsNetSalesMinusCogs_netMarginSubtractsLabour() {
         stub(branchId, "42000", "10000", "7000");
         BranchContext.set(branchId);
-        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", companyId,
+        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", notTheTenant,
                 Map.of(), Set.of(), Set.of()));
         try {
             PeriodSummary summary = service.branchSummary(from, to);
@@ -76,7 +91,7 @@ class ReportServiceTest {
         UUID other = UUID.randomUUID();
         UUID cashierAt = UUID.randomUUID();
         stub(branchId, "42000", "10000", "0");
-        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", companyId,
+        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", notTheTenant,
                 Map.of(branchId, Set.of("report:read"), cashierAt, Set.of("sales:write")), Set.of(), Set.of()));
         when(organizationApi.listActiveBranches(companyId)).thenReturn(java.util.List.of(
                 new BranchDto(branchId, companyId, "Mine", "M", true, BigDecimal.ZERO),

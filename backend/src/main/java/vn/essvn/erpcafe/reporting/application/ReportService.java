@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
@@ -56,7 +57,7 @@ public class ReportService {
     /** Performance of the active branch over [from, to). */
     public PeriodSummary branchSummary(Instant from, Instant to) {
         UUID branchId = BranchContext.require();
-        UUID companyId = currentUser.require().companyId();
+        UUID companyId = TenantContext.require();
         return performance(branchId, from, to, staffApi.laborCost(companyId, branchId, from, to));
     }
 
@@ -67,11 +68,12 @@ public class ReportService {
 
     /** Side-by-side performance of the caller's active branches where their role lets them read reports. */
     public List<BranchPerformance> outletComparison(Instant from, Instant to) {
+        UUID companyId = TenantContext.require();
         AuthPrincipal caller = currentUser.require();
-        List<BranchDto> branches = organizationApi.listActiveBranches(caller.companyId()).stream()
+        List<BranchDto> branches = organizationApi.listActiveBranches(companyId).stream()
                 .filter(b -> caller.permissionsAt(b.id()).contains(REPORT_READ))
                 .toList();
-        Map<UUID, BigDecimal> labor = staffApi.laborCostByBranch(caller.companyId(),
+        Map<UUID, BigDecimal> labor = staffApi.laborCostByBranch(companyId,
                 branches.stream().map(BranchDto::id).toList(), from, to);
         return branches.stream()
                 .map(b -> new BranchPerformance(b.id(), b.name(), b.code(),
