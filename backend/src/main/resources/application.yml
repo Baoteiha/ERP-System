@@ -1,5 +1,11 @@
 server:
-  forward-headers-strategy: framework
+  # Tomcat's RemoteIpValve honours X-Forwarded-For only from trusted proxies (default: private and
+  # loopback ranges). A proxy outside those ranges must be listed in server.tomcat.remoteip.internal-proxies,
+  # otherwise every client looks like the proxy to the login throttle.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      remote-ip-header: X-Forwarded-For
 
 spring:
   application:

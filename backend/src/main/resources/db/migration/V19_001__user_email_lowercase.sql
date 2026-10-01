@@ -4,9 +4,23 @@
 -- deploy must not fail on them. Rule: within each such group the oldest account (by created_at,
 -- then id) keeps the plain lower-cased email; every later one gets "+dup<n>" appended to its
 -- local part (n = 1, 2, ... in that order), so nothing is deleted and each stays addressable.
--- An administrator can rename the suffixed accounts afterwards.
+-- An administrator can rename the suffixed accounts afterwards; each rename is logged as a NOTICE.
 -- dropped first: lower-casing one row can transiently collide with a not-yet-updated one
 ALTER TABLE app_user DROP CONSTRAINT uk_user_email;
+
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN
+        SELECT id, email, row_number() OVER (PARTITION BY lower(email) ORDER BY created_at, id) AS rn
+        FROM app_user
+    LOOP
+        IF r.rn > 1 THEN
+            RAISE NOTICE 'user % (%) is a case-insensitive duplicate and will be renamed with +dup%',
+                r.id, r.email, r.rn - 1;
+        END IF;
+    END LOOP;
+END $$;
 
 WITH ranked AS (
     SELECT id,
