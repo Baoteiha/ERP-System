@@ -78,8 +78,7 @@ public class StockService {
     public StockItem setReorderLevel(UUID ingredientId, BigDecimal reorderLevel) {
         requireIngredient(ingredientId);
         UUID branchId = activeBranch();
-        StockItem item = stockItemRepository.findByIngredientIdAndBranchId(ingredientId, branchId)
-                .orElseGet(() -> stockItemRepository.save(new StockItem(ingredientId, branchId)));
+        StockItem item = ledger.lockOrCreate(branchId, ingredientId);
         item.setReorderLevel(reorderLevel);
         return item;
     }

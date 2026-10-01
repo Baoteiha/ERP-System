@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
@@ -43,10 +44,12 @@ public class StockLedgerService {
     private final StockMovementRepository movementRepository;
     private final IngredientRepository ingredientRepository;
     private final OrganizationApi organizationApi;
+    private final EntityManager entityManager;
 
     public StockLedgerService(StockItemRepository stockItemRepository,
             StockMovementRepository movementRepository, IngredientRepository ingredientRepository,
-            OrganizationApi organizationApi) {
+            OrganizationApi organizationApi, EntityManager entityManager) {
+        this.entityManager = entityManager;
         this.organizationApi = organizationApi;
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
@@ -93,7 +96,10 @@ public class StockLedgerService {
     public CogsResult deduct(UUID branchId, List<StockLine> lines, String refType, UUID refId) {
         // Idempotency guard: if this order already deducted (e.g. a retried completion),
         // don't deduct again — return the COGS already recorded for this reference.
-        if (refId != null && movementRepository.existsByRefTypeAndRefId(refType, refId)) {
+        // The existence check covers rows deducted before ledger_reference existed; the claim is what
+        // makes two concurrent calls safe — the loser waits on the winner's commit and gets 0 rows.
+        if (refId != null && (movementRepository.existsByRefTypeAndRefId(refType, refId)
+                || !claim(refType, refId, branchId))) {
             return new CogsResult(cogsOfExisting(refType, refId));
         }
         Money total = Money.zero();
@@ -123,10 +129,12 @@ public class StockLedgerService {
      * writes a SALE_REVERSAL under {@code (reversalRefType, refId)}. The recipe is never
      * consulted — it may have changed since the sale. The returned stock is treated as a
      * receipt at the original cost, so it re-blends the moving average. A repeat call for
-     * the same reversal reference is a no-op returning zero cost.
+     * the same reversal reference is a no-op returning zero cost. The claim is keyed on the
+     * original reference, so a void and a refund of one order can never both restore stock.
      */
     public CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType) {
-        if (movementRepository.existsByRefTypeAndRefId(reversalRefType, refId)) {
+        if (movementRepository.existsByRefTypeAndRefId(reversalRefType, refId)
+                || !claim("REVERSAL:" + refType, refId, branchId)) {
             return new CogsResult(Money.zero());
         }
         List<StockMovement> depletions = movementRepository.findByRefTypeAndRefId(refType, refId).stream()
@@ -155,6 +163,18 @@ public class StockLedgerService {
             total = total.add(unitCost.multiply(quantity));
         }
         return new CogsResult(total);
+    }
+
+    // INSERT ... ON CONFLICT DO NOTHING inside the business transaction: a concurrent claimer blocks
+    // on the primary key until we commit or roll back, and a rollback releases the claim.
+    private boolean claim(String refType, UUID refId, UUID branchId) {
+        return entityManager.createNativeQuery(
+                "INSERT INTO ledger_reference (ref_type, ref_id, branch_id) VALUES (:refType, :refId, :branchId) "
+                        + "ON CONFLICT DO NOTHING")
+                .setParameter("refType", refType)
+                .setParameter("refId", refId)
+                .setParameter("branchId", branchId)
+                .executeUpdate() == 1;
     }
 
     private Money cogsOfExisting(String refType, UUID refId) {
@@ -224,11 +244,29 @@ public class StockLedgerService {
         return baseUnits;
     }
 
-    // Loads the stock row under a pessimistic write lock (SELECT ... FOR UPDATE) so
-    // concurrent receipts/depletions of the same item serialize instead of losing updates.
     private StockItem getOrCreate(UUID branchId, UUID ingredientId) {
-        return stockItemRepository.findForUpdate(ingredientId, branchId)
-                .orElseGet(() -> stockItemRepository.save(new StockItem(ingredientId, branchId)));
+        return lockOrCreate(branchId, ingredientId);
+    }
+
+    /**
+     * Loads the stock row under a pessimistic write lock (SELECT ... FOR UPDATE) so concurrent
+     * receipts/depletions of the same item serialize instead of losing updates. A missing row is
+     * inserted with ON CONFLICT DO NOTHING first, so two first-ever writers both end up locking
+     * the one row instead of one failing on the unique key.
+     */
+    public StockItem lockOrCreate(UUID branchId, UUID ingredientId) {
+        return stockItemRepository.findForUpdate(ingredientId, branchId).orElseGet(() -> {
+            entityManager.createNativeQuery(
+                    "INSERT INTO stock_item (id, version, branch_id, ingredient_id, quantity_on_hand, "
+                            + "reorder_level, avg_unit_cost, currency, created_at, updated_at) "
+                            + "VALUES (gen_random_uuid(), 0, :branchId, :ingredientId, 0, 0, 0, :currency, now(), now()) "
+                            + "ON CONFLICT (ingredient_id, branch_id) DO NOTHING")
+                    .setParameter("branchId", branchId)
+                    .setParameter("ingredientId", ingredientId)
+                    .setParameter("currency", Money.DEFAULT_CURRENCY)
+                    .executeUpdate();
+            return stockItemRepository.findForUpdate(ingredientId, branchId).orElseThrow();
+        });
     }
 
     // Weighted moving average: new cost = (value already on hand + value received) / total quantity.
