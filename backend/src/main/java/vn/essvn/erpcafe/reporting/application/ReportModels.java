@@ -10,18 +10,18 @@ public final class ReportModels {
     }
 
     /**
-     * One branch's performance over a period. Two COGS views: the order
-     * snapshot captured at completion, and the inventory ledger's depletion
-     * cost — margins use the ledger view (it also reflects reversals).
+     * One branch's performance over a period. {@code cogs} is the inventory
+     * ledger's depletion cost net of reversals; gross margin is net sales less
+     * cogs and net margin is gross margin less labour.
      */
     public record PeriodSummary(
             long orderCount,
             BigDecimal grossSales,
             BigDecimal discountTotal,
+            BigDecimal netSales,
             BigDecimal taxTotal,
-            BigDecimal revenue,
-            BigDecimal cogsOrders,
-            BigDecimal cogsDepletion,
+            BigDecimal grandTotal,
+            BigDecimal cogs,
             BigDecimal laborCost,
             BigDecimal grossMargin,
             BigDecimal netMargin) {

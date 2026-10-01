@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, catchError, map, of, switchMap } from 'rxjs';
 import { ReportingService } from '../../core/api.services';
 import { BranchPerformance, DailySales, PeriodSummary } from '../../core/models';
 import { MoneyPipe } from '../../core/util';
@@ -11,6 +13,31 @@ type RangeDays = 7 | 30 | 90;
 
 interface Bar { x: number; y: number; w: number; h: number; label: string; value: string; path: string; }
 interface GroupedBar extends Bar { series: 0 | 1; }
+
+/** Report days are cut in Vietnam time (the server's default `app.reporting.zone`, which has no DST). */
+const REPORT_UTC_OFFSET = '+07:00';
+const REPORT_UTC_OFFSET_HOURS = 7;
+const DAY_MS = 86_400_000;
+
+/** Calendar date (yyyy-mm-dd) of an instant in the reporting zone. */
+function reportDay(instant: number): string {
+  return new Date(instant + REPORT_UTC_OFFSET_HOURS * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** The last `count` report days ending today, oldest first, plus the instant bounds covering them. */
+export function reportPeriod(now: number, count: number): { days: string[]; from: Date; to: Date } {
+  const days: string[] = [];
+  for (let i = count - 1; i >= 0; i--) days.push(reportDay(now - i * DAY_MS));
+  const from = new Date(`${days[0]}T00:00:00${REPORT_UTC_OFFSET}`);
+  const to = new Date(new Date(`${days[days.length - 1]}T00:00:00${REPORT_UTC_OFFSET}`).getTime() + DAY_MS);
+  return { days, from, to };
+}
+
+/** One row per day in `days`; a day with no sales is a zero row, so a quiet day shows as a gap in the bars. */
+export function zeroFillDays(days: string[], sales: DailySales[]): DailySales[] {
+  const byDay = new Map(sales.map((d) => [d.day, d]));
+  return days.map((day) => byDay.get(day) ?? { day, orderCount: 0, revenue: '0' });
+}
 
 const CHART_W = 640;
 const CHART_H = 200;
@@ -47,26 +74,26 @@ function barPath(x: number, y: number, w: number, h: number): string {
         <div class="card"><div class="load-error" role="alert">Couldn't load the summary. <button type="button" class="btn btn-sm btn-outline" (click)="load()">Retry</button></div></div>
       } @else if (summary(); as s) {
         <div class="tiles">
-          <div class="tile grain"><div class="t-lbl">Revenue</div><div class="t-val">{{ s.revenue | money }}</div><div class="t-sub">{{ s.orderCount }} orders</div></div>
-          <div class="tile grain"><div class="t-lbl">COGS (from depletion)</div><div class="t-val">{{ s.cogsDepletion | money }}</div><div class="t-sub">orders view {{ s.cogsOrders | money }}</div></div>
+          <div class="tile grain"><div class="t-lbl">Net sales</div><div class="t-val">{{ s.netSales | money }}</div><div class="t-sub">{{ s.orderCount }} orders · {{ s.grandTotal | money }} with tax</div></div>
+          <div class="tile grain"><div class="t-lbl">COGS</div><div class="t-val">{{ s.cogs | money }}</div><div class="t-sub">stock used, net of reversals</div></div>
           <div class="tile grain"><div class="t-lbl">Labor</div><div class="t-val">{{ s.laborCost | money }}</div><div class="t-sub">completed shifts</div></div>
-          <div class="tile grain"><div class="t-lbl">Gross margin</div><div class="t-val">{{ s.grossMargin | money }}</div><div class="t-sub">revenue − COGS</div></div>
+          <div class="tile grain"><div class="t-lbl">Gross margin</div><div class="t-val">{{ s.grossMargin | money }}</div><div class="t-sub">net sales − COGS</div></div>
           <div class="tile grain"><div class="t-lbl">Net margin</div><div class="t-val" [class.neg]="isNeg(s.netMargin)">{{ s.netMargin | money }}</div><div class="t-sub">− labor</div></div>
         </div>
       }
 
       <!-- revenue by day -->
       <div class="card chart-card">
-        <div class="card-head"><h2>Revenue by day</h2></div>
+        <div class="card-head"><h2>Net sales by day</h2></div>
         @if (daysState() === 'loading') {
           <div class="loading-block"><span class="spinner"></span> Loading…</div>
         } @else if (daysState() === 'error') {
           <div class="load-error" role="alert">Couldn't load daily sales. <button type="button" class="btn btn-sm btn-outline" (click)="load()">Retry</button></div>
-        } @else if (!days().length) {
+        } @else if (!hasSales()) {
           <div class="empty"><div class="big"><app-icon name="trending-up" [size]="30" /></div>No sales in this period.</div>
         } @else {
           <div class="chart-wrap" (mouseleave)="hover.set(null)">
-            <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Bar chart of daily revenue; a data table follows.">
+            <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Bar chart of daily net sales; a data table follows.">
               @for (g of gridLines(); track g.y) {
                 <line [attr.x1]="padL" [attr.x2]="W" [attr.y1]="g.y" [attr.y2]="g.y" class="grid" />
                 <text [attr.x]="padL - 6" [attr.y]="g.y + 3" class="tick" text-anchor="end">{{ g.label }}</text>
@@ -83,8 +110,8 @@ function barPath(x: number, y: number, w: number, h: number): string {
             }
           </div>
           <table class="sr-only">
-            <caption>Daily revenue</caption>
-            <thead><tr><th scope="col">Day</th><th scope="col">Orders</th><th scope="col">Revenue</th></tr></thead>
+            <caption>Daily net sales</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">Orders</th><th scope="col">Net sales</th></tr></thead>
             <tbody>
               @for (d of days(); track d.day) {
                 <tr><td>{{ d.day }}</td><td>{{ d.orderCount }}</td><td>{{ d.revenue | money }}</td></tr>
@@ -97,9 +124,9 @@ function barPath(x: number, y: number, w: number, h: number): string {
       <!-- outlet comparison -->
       <div class="card chart-card">
         <div class="card-head">
-          <h2>Outlets — revenue vs labor</h2>
+          <h2>Outlets — net sales vs labor</h2>
           <div class="legend" aria-hidden="true">
-            <span class="chip"><i class="sw s1"></i>Revenue</span>
+            <span class="chip"><i class="sw s1"></i>Net sales</span>
             <span class="chip"><i class="sw s2"></i>Labor</span>
           </div>
         </div>
@@ -111,7 +138,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
           <div class="empty"><div class="big"><app-icon name="store" [size]="30" /></div>No active branches.</div>
         } @else {
           <div class="chart-wrap" (mouseleave)="hover.set(null)">
-            <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Grouped bar chart of revenue and labor per outlet; a data table follows.">
+            <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Grouped bar chart of net sales and labor per outlet; a data table follows.">
               @for (g of outletGrid(); track g.y) {
                 <line [attr.x1]="padL" [attr.x2]="W" [attr.y1]="g.y" [attr.y2]="g.y" class="grid" />
                 <text [attr.x]="padL - 6" [attr.y]="g.y + 3" class="tick" text-anchor="end">{{ g.label }}</text>
@@ -134,7 +161,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
               <caption class="sr-only">Outlet performance comparison</caption>
               <thead><tr>
                 <th scope="col">Branch</th><th scope="col" class="right">Orders</th>
-                <th scope="col" class="right">Revenue</th><th scope="col" class="right">COGS</th>
+                <th scope="col" class="right">Net sales</th><th scope="col" class="right">COGS</th>
                 <th scope="col" class="right">Labor</th><th scope="col" class="right">Net margin</th>
               </tr></thead>
               <tbody>
@@ -142,8 +169,8 @@ function barPath(x: number, y: number, w: number, h: number): string {
                   <tr>
                     <td><span class="name-cell"><span class="mini-coin" aria-hidden="true"><app-icon name="store" [size]="14" /></span><b>{{ o.name }}</b></span></td>
                     <td class="num">{{ o.summary.orderCount }}</td>
-                    <td class="num">{{ o.summary.revenue | money }}</td>
-                    <td class="num">{{ o.summary.cogsDepletion | money }}</td>
+                    <td class="num">{{ o.summary.netSales | money }}</td>
+                    <td class="num">{{ o.summary.cogs | money }}</td>
                     <td class="num">{{ o.summary.laborCost | money }}</td>
                     <td class="num" [class.neg]="isNeg(o.summary.netMargin)">{{ o.summary.netMargin | money }}</td>
                   </tr>
@@ -208,33 +235,46 @@ export class ReportsComponent {
   from = signal<Date>(new Date());
   to = signal<Date>(new Date());
 
-  constructor() { this.load(); }
+  private reload$ = new Subject<{ from: string; to: string; days: string[] }>();
+  hasSales = computed(() => this.days().some((d) => d.orderCount > 0));
+
+  constructor() {
+    // switchMap drops an in-flight request when the period changes, so a slow old answer can't overwrite a newer one.
+    this.reload$.pipe(
+      switchMap(({ from, to }) => this.api.summary(from, to).pipe(catchError(() => of(null)))),
+      takeUntilDestroyed(),
+    ).subscribe((s) => {
+      if (s) { this.summary.set(s); this.summaryState.set('ready'); } else this.summaryState.set('error');
+    });
+    this.reload$.pipe(
+      switchMap(({ from, to, days }) => this.api.salesByDay(from, to).pipe(
+        map((d) => zeroFillDays(days, d)),
+        catchError(() => of(null)),
+      )),
+      takeUntilDestroyed(),
+    ).subscribe((d) => {
+      if (d) { this.days.set(d); this.daysState.set('ready'); } else this.daysState.set('error');
+    });
+    this.reload$.pipe(
+      switchMap(({ from, to }) => this.api.outlets(from, to).pipe(catchError(() => of(null)))),
+      takeUntilDestroyed(),
+    ).subscribe((o) => {
+      if (o) { this.outlets.set(o); this.outletsState.set('ready'); } else this.outletsState.set('error');
+    });
+    this.load();
+  }
 
   setRange(r: RangeDays) { this.rangeDays.set(r); this.load(); }
 
   isNeg(v: string) { return Number(v) < 0; }
 
   load() {
-    const to = new Date();
-    const from = new Date(to.getTime() - this.rangeDays() * 86_400_000);
-    this.from.set(from); this.to.set(to);
-    const f = from.toISOString(), t = to.toISOString();
-
+    const period = reportPeriod(Date.now(), this.rangeDays());
+    this.from.set(period.from); this.to.set(new Date(period.to.getTime() - 1)); // `to` is exclusive; show the last day
     this.summaryState.set('loading');
-    this.api.summary(f, t).subscribe({
-      next: (s) => { this.summary.set(s); this.summaryState.set('ready'); },
-      error: () => this.summaryState.set('error'),
-    });
     this.daysState.set('loading');
-    this.api.salesByDay(f, t).subscribe({
-      next: (d) => { this.days.set(d); this.daysState.set('ready'); },
-      error: () => this.daysState.set('error'),
-    });
     this.outletsState.set('loading');
-    this.api.outlets(f, t).subscribe({
-      next: (o) => { this.outlets.set(o); this.outletsState.set('ready'); },
-      error: () => this.outletsState.set('error'),
-    });
+    this.reload$.next({ from: period.from.toISOString(), to: period.to.toISOString(), days: period.days });
   }
 
   // --- daily bars ---
@@ -271,7 +311,7 @@ export class ReportsComponent {
   // --- outlet grouped bars ---
 
   private maxOutlet = computed(() => Math.max(1,
-    ...this.outlets().flatMap((o) => [Number(o.summary.revenue), Number(o.summary.laborCost)])));
+    ...this.outlets().flatMap((o) => [Number(o.summary.netSales), Number(o.summary.laborCost)])));
 
   outletBars = computed<GroupedBar[]>(() => {
     const data = this.outlets();
@@ -285,7 +325,7 @@ export class ReportsComponent {
     data.forEach((o, i) => {
       const cx = PAD_L + i * slot + slot / 2;
       const pairs: Array<[0 | 1, string, string]> = [
-        [0, o.summary.revenue, `${o.name} · revenue`],
+        [0, o.summary.netSales, `${o.name} · net sales`],
         [1, o.summary.laborCost, `${o.name} · labor`],
       ];
       pairs.forEach(([series, value, label]) => {

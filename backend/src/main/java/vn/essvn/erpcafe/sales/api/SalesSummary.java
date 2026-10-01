@@ -3,15 +3,15 @@ package vn.essvn.erpcafe.sales.api;
 import java.math.BigDecimal;
 
 /**
- * Revenue totals over a period. {@code cogsTotal} is the order-snapshot COGS
- * captured at completion (reporting may contrast it with the inventory
- * ledger's depletion-side COGS).
+ * Sales totals over a period. {@code grossSales} is before any discount,
+ * {@code netSales} is gross less discounts (tax excluded), {@code grandTotal}
+ * is net plus tax.
  */
 public record SalesSummary(
         long orderCount,
         BigDecimal grossSales,
         BigDecimal discountTotal,
+        BigDecimal netSales,
         BigDecimal taxTotal,
-        BigDecimal revenue,
-        BigDecimal cogsTotal) {
+        BigDecimal grandTotal) {
 }

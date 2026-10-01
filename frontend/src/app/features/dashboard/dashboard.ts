@@ -1,9 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
-import { CatalogService, InventoryService, SalesService } from '../../core/api.services';
+import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
-import { OrderResponse, StockItemResponse } from '../../core/models';
+import { OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
 import { SteamComponent } from '../../shared/steam';
 
@@ -31,7 +31,7 @@ type LoadState = 'loading' | 'ready' | 'error';
           <div class="kpi-ic" style="background:var(--green-soft);color:var(--green)" aria-hidden="true">
             <app-icon name="banknote" [size]="22" />
           </div>
-          <div><div class="kpi-val">{{ ordersState() === 'ready' ? (salesToday() | money) : '—' }}</div><div class="kpi-lbl">Sales (recent orders)</div></div>
+          <div><div class="kpi-val">{{ salesState() === 'ready' && salesSummary() ? (salesSummary()!.netSales | money) : '—' }}</div><div class="kpi-lbl">Net sales today</div></div>
         </div>
         <div class="kpi grain">
           <div class="kpi-ic" style="background:var(--blue-soft);color:var(--blue)" aria-hidden="true">
@@ -154,19 +154,16 @@ export class DashboardComponent {
   private sales = inject(SalesService);
   private inventory = inject(InventoryService);
   private catalog = inject(CatalogService);
+  private reporting = inject(ReportingService);
 
   orders = signal<OrderResponse[]>([]);
   lowStock = signal<StockItemResponse[]>([]);
   productCount = signal(0);
   ordersState = signal<LoadState>('loading');
+  salesState = signal<LoadState>('loading');
+  salesSummary = signal<PeriodSummary | null>(null);
   stockState = signal<LoadState>('loading');
   productsState = signal<LoadState>('loading');
-
-  salesToday = computed(() =>
-    this.orders()
-      .filter((o) => ['PAID', 'COMPLETED'].includes(o.status))
-      .reduce((sum, o) => sum + Number(o.grandTotal || 0), 0),
-  );
 
   greeting = computed(() => {
     const h = new Date().getHours();
@@ -176,6 +173,7 @@ export class DashboardComponent {
 
   constructor() {
     if (this.auth.can('sales:read')) this.loadOrders(); else this.ordersState.set('ready');
+    if (this.auth.can('report:read')) this.loadSales(); else this.salesState.set('ready');
     if (this.auth.can('inventory:read')) this.loadStock(); else this.stockState.set('ready');
     if (this.auth.can('catalog:read')) this.loadProducts(); else this.productsState.set('ready');
   }
@@ -185,6 +183,15 @@ export class DashboardComponent {
     this.sales.listOrders(0, 25).subscribe({
       next: (p) => { this.orders.set(p.content); this.ordersState.set('ready'); },
       error: () => this.ordersState.set('error'),
+    });
+  }
+
+  /** Today's totals come from the server summary, not from adding up the recent-orders page. */
+  loadSales() {
+    this.salesState.set('loading');
+    this.reporting.summary().subscribe({
+      next: (s) => { this.salesSummary.set(s); this.salesState.set('ready'); },
+      error: () => this.salesState.set('error'),
     });
   }
 

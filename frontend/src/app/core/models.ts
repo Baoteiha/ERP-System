@@ -201,8 +201,8 @@ export interface ShiftRequest { employeeId: UUID; scheduledStart: string; schedu
 
 /* ---- reporting (phase 6) ------------------------------------------------ */
 export interface PeriodSummary {
-  orderCount: number; grossSales: string; discountTotal: string; taxTotal: string;
-  revenue: string; cogsOrders: string; cogsDepletion: string; laborCost: string;
+  orderCount: number; grossSales: string; discountTotal: string; netSales: string;
+  taxTotal: string; grandTotal: string; cogs: string; laborCost: string;
   grossMargin: string; netMargin: string;
 }
 export interface DailySales { day: string; orderCount: number; revenue: string; }

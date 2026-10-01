@@ -181,9 +181,15 @@ export class StaffService {
 export class ReportingService {
   private http = inject(HttpClient);
 
-  private range(from: string, to: string) { return new HttpParams().set('from', from).set('to', to); }
+  private range(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return params;
+  }
 
-  summary(from: string, to: string) {
+  /** No range means today in the reporting zone (the server decides). */
+  summary(from?: string, to?: string) {
     return this.http.get<M.PeriodSummary>(`${V1}/reports/summary`, { params: this.range(from, to) });
   }
   salesByDay(from: string, to: string) {

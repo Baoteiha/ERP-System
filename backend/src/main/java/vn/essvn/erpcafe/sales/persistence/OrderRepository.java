@@ -21,15 +21,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Page<Order> findByBranchIdOrderByCreatedAtDesc(UUID branchId, Pageable pageable);
 
-    /** Revenue totals over [from, to) for PAID/COMPLETED orders at a branch. */
+    /** Sales totals over [from, to) for PAID/COMPLETED orders at a branch. */
     @Query("""
             select new vn.essvn.erpcafe.sales.api.SalesSummary(
                 count(o),
                 coalesce(sum(o.subtotal), 0),
                 coalesce(sum(o.discountTotal), 0),
+                coalesce(sum(o.subtotal - o.discountTotal), 0),
                 coalesce(sum(o.taxTotal), 0),
-                coalesce(sum(o.grandTotal), 0),
-                coalesce(sum(coalesce(o.cogsTotal, 0)), 0))
+                coalesce(sum(o.grandTotal), 0))
             from Order o
             where o.branchId = :branchId
               and o.status in (vn.essvn.erpcafe.sales.domain.OrderStatus.PAID,
@@ -39,11 +39,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     SalesSummary summarize(@Param("branchId") UUID branchId,
             @Param("from") Instant from, @Param("to") Instant to);
 
-    /** Rows of (day, order count, revenue) per UTC calendar day over [from, to). */
+    /** Rows of (day, order count, net sales) per calendar day in {@code zone} over [from, to). */
     @Query(value = """
-            select cast(o.created_at at time zone 'UTC' as date) as day,
+            select cast(o.created_at at time zone :zone as date) as day,
                    count(*) as orders,
-                   coalesce(sum(o.grand_total), 0) as revenue
+                   coalesce(sum(o.subtotal - o.discount_total), 0) as net_sales
             from sales_order o
             where o.branch_id = :branchId
               and o.status in ('PAID', 'COMPLETED')
@@ -52,5 +52,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             order by day
             """, nativeQuery = true)
     List<Object[]> revenueByDay(@Param("branchId") UUID branchId,
-            @Param("from") Instant from, @Param("to") Instant to);
+            @Param("from") Instant from, @Param("to") Instant to,
+            @Param("zone") String zone);
 }

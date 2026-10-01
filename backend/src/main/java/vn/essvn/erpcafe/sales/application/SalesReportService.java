@@ -1,8 +1,9 @@
 package vn.essvn.erpcafe.sales.application;
 
 import java.math.BigDecimal;
-import java.sql.Date;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,7 +15,7 @@ import vn.essvn.erpcafe.sales.api.SalesApi;
 import vn.essvn.erpcafe.sales.api.SalesSummary;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 
-/** Implements the published {@link SalesApi} revenue aggregates. */
+/** Implements the published {@link SalesApi} sales aggregates. */
 @Service
 @Transactional(readOnly = true)
 public class SalesReportService implements SalesApi {
@@ -31,10 +32,10 @@ public class SalesReportService implements SalesApi {
     }
 
     @Override
-    public List<DailySales> salesByDay(UUID branchId, Instant from, Instant to) {
-        return orderRepository.revenueByDay(branchId, from, to).stream()
+    public List<DailySales> salesByDay(UUID branchId, Instant from, Instant to, ZoneId zone) {
+        return orderRepository.revenueByDay(branchId, from, to, zone.getId()).stream()
                 .map(row -> new DailySales(
-                        ((Date) row[0]).toLocalDate(),
+                        LocalDate.parse(row[0].toString()),
                         ((Number) row[1]).longValue(),
                         (BigDecimal) row[2]))
                 .toList();
