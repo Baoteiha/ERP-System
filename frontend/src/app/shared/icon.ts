@@ -1,5 +1,4 @@
-import { Component, Input, computed, inject, signal } from '@angular/core';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { Component, Input, computed, signal } from '@angular/core';
 
 /**
  * Inline SVG icon set — Lucide-style geometry, rounded caps/joins for an
@@ -52,30 +51,51 @@ const ICONS: Record<string, string> = {
   boxes: '<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/>',
 };
 
+interface Shape { tag: string; attrs: Record<string, string>; }
+
+/** The icon markup above, split once into shapes so the template can draw them without innerHTML. */
+const SHAPES: Record<string, Shape[]> = Object.fromEntries(
+  Object.entries(ICONS).map(([name, markup]) => [
+    name,
+    [...markup.matchAll(/<(\w+)([^>]*?)\/>/g)].map(([, tag, attrs]) => ({
+      tag,
+      attrs: Object.fromEntries([...attrs.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, k, v]) => [k, v])),
+    })),
+  ]),
+);
+
 @Component({
   selector: 'app-icon',
   standalone: true,
-  template: `<span class="app-icon" [style.width.px]="_size()" [style.height.px]="_size()" [innerHTML]="svg()"></span>`,
+  template: `
+    <span class="app-icon" [style.width.px]="_size()" [style.height.px]="_size()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" [attr.stroke-width]="_stroke()" stroke-linecap="round" stroke-linejoin="round">
+        @for (s of shapes(); track $index) {
+          @switch (s.tag) {
+            @case ('path') { <svg:path [attr.d]="s.attrs['d']" /> }
+            @case ('circle') { <svg:circle [attr.cx]="s.attrs['cx']" [attr.cy]="s.attrs['cy']" [attr.r]="s.attrs['r']" [attr.fill]="s.attrs['fill']" /> }
+            @case ('line') { <svg:line [attr.x1]="s.attrs['x1']" [attr.x2]="s.attrs['x2']" [attr.y1]="s.attrs['y1']" [attr.y2]="s.attrs['y2']" /> }
+            @case ('rect') { <svg:rect [attr.x]="s.attrs['x']" [attr.y]="s.attrs['y']" [attr.width]="s.attrs['width']" [attr.height]="s.attrs['height']" [attr.rx]="s.attrs['rx']" [attr.ry]="s.attrs['ry']" /> }
+            @case ('polyline') { <svg:polyline [attr.points]="s.attrs['points']" /> }
+          }
+        }
+      </svg>
+    </span>
+  `,
   styles: [`
     :host { display: inline-flex; align-items: center; justify-content: center; }
     .app-icon { display: inline-flex; align-items: center; justify-content: center; }
-    .app-icon ::ng-deep svg { width: 100%; height: 100%; display: block; }
+    .app-icon svg { width: 100%; height: 100%; display: block; }
   `],
 })
 export class IconComponent {
-  private san = inject(DomSanitizer);
   private _name = signal('');
   _size = signal(18);
-  private _stroke = signal(2);
+  _stroke = signal(2);
 
   @Input({ required: true }) set name(v: string) { this._name.set(v); }
   @Input() set size(v: number) { this._size.set(v); }
   @Input() set stroke(v: number) { this._stroke.set(v); }
 
-  svg = computed<SafeHtml>(() => {
-    const inner = ICONS[this._name()] ?? '';
-    return this.san.bypassSecurityTrustHtml(
-      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${this._stroke()}" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`,
-    );
-  });
+  shapes = computed(() => SHAPES[this._name()] ?? []);
 }
