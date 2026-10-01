@@ -205,5 +205,5 @@ export interface PeriodSummary {
   taxTotal: string; grandTotal: string; cogs: string; laborCost: string;
   grossMargin: string; netMargin: string;
 }
-export interface DailySales { day: string; orderCount: number; revenue: string; }
+export interface DailySales { day: string; orderCount: number; netSales: string; }
 export interface BranchPerformance { branchId: UUID; name: string; code: string; summary: PeriodSummary; }

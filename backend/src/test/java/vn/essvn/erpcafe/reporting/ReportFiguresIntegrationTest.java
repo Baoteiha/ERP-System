@@ -158,10 +158,12 @@ class ReportFiguresIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void salesByDay_groupsInVietnamTime() throws Exception {
-        freshTenant(1, "0");
+        freshTenant(1, "0.10");
         String productId = sellableProduct();
+        // gross 25,000, discount 5,000, net 20,000, tax 2,000, grand 22,000: the day figure must be the net.
         String orderId = paidOrder(
-                "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1}]}".formatted(productId), 25000);
+                "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1,\"lineDiscount\":5000}]}"
+                        .formatted(productId), 22000);
         // 17:30 UTC on 2 March is 00:30 on 3 March in Vietnam.
         jdbc.update("update sales_order set created_at = ?::timestamptz where id = ?::uuid",
                 "2026-03-02T17:30:00Z", orderId);
@@ -170,7 +172,7 @@ class ReportFiguresIntegrationTest extends AbstractIntegrationTest {
 
         List<String> days = JsonPath.read(json, "$[*].day");
         assertThat(days).containsExactly("2026-03-03");
-        assertThat(num(json, "$[0].revenue")).isEqualByComparingTo("25000");
+        assertThat(num(json, "$[0].netSales")).isEqualByComparingTo("20000");
     }
 
     @Test

@@ -33,7 +33,7 @@ public class SalesReportService implements SalesApi {
 
     @Override
     public List<DailySales> salesByDay(UUID branchId, Instant from, Instant to, ZoneId zone) {
-        return orderRepository.revenueByDay(branchId, from, to, zone.getId()).stream()
+        return orderRepository.netSalesByDay(branchId, from, to, zone.getId()).stream()
                 .map(row -> new DailySales(
                         LocalDate.parse(row[0].toString()),
                         ((Number) row[1]).longValue(),

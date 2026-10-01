@@ -51,7 +51,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             group by day
             order by day
             """, nativeQuery = true)
-    List<Object[]> revenueByDay(@Param("branchId") UUID branchId,
+    List<Object[]> netSalesByDay(@Param("branchId") UUID branchId,
             @Param("from") Instant from, @Param("to") Instant to,
             @Param("zone") String zone);
 }

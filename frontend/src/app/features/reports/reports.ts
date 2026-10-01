@@ -36,7 +36,7 @@ export function reportPeriod(now: number, count: number): { days: string[]; from
 /** One row per day in `days`; a day with no sales is a zero row, so a quiet day shows as a gap in the bars. */
 export function zeroFillDays(days: string[], sales: DailySales[]): DailySales[] {
   const byDay = new Map(sales.map((d) => [d.day, d]));
-  return days.map((day) => byDay.get(day) ?? { day, orderCount: 0, revenue: '0' });
+  return days.map((day) => byDay.get(day) ?? { day, orderCount: 0, netSales: '0' });
 }
 
 const CHART_W = 640;
@@ -82,7 +82,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
         </div>
       }
 
-      <!-- revenue by day -->
+      <!-- net sales by day -->
       <div class="card chart-card">
         <div class="card-head"><h2>Net sales by day</h2></div>
         @if (daysState() === 'loading') {
@@ -114,7 +114,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
             <thead><tr><th scope="col">Day</th><th scope="col">Orders</th><th scope="col">Net sales</th></tr></thead>
             <tbody>
               @for (d of days(); track d.day) {
-                <tr><td>{{ d.day }}</td><td>{{ d.orderCount }}</td><td>{{ d.revenue | money }}</td></tr>
+                <tr><td>{{ d.day }}</td><td>{{ d.orderCount }}</td><td>{{ d.netSales | money }}</td></tr>
               }
             </tbody>
           </table>
@@ -279,7 +279,7 @@ export class ReportsComponent {
 
   // --- daily bars ---
 
-  private maxDay = computed(() => Math.max(1, ...this.days().map((d) => Number(d.revenue))));
+  private maxDay = computed(() => Math.max(1, ...this.days().map((d) => Number(d.netSales))));
 
   dayBars = computed<Bar[]>(() => {
     const data = this.days();
@@ -290,10 +290,10 @@ export class ReportsComponent {
     const w = Math.max(3, Math.min(34, slot - 2)); // ≥2px spacer between bars
     const max = this.maxDay();
     return data.map((d, i) => {
-      const h = Math.max(1, (Number(d.revenue) / max) * plotH);
+      const h = Math.max(1, (Number(d.netSales) / max) * plotH);
       const x = PAD_L + i * slot + (slot - w) / 2;
       const y = PAD_T + plotH - h;
-      return { x, y, w, h, label: this.dayLabel(d.day, data.length), value: d.revenue, path: barPath(x, y, w, h) };
+      return { x, y, w, h, label: this.dayLabel(d.day, data.length), value: d.netSales, path: barPath(x, y, w, h) };
     });
   });
 

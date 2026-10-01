@@ -10,8 +10,8 @@ describe('report days', () => {
     expect(from.toISOString()).toBe('2026-02-28T17:00:00.000Z');
     expect(to.toISOString()).toBe('2026-03-03T17:00:00.000Z');
 
-    const filled = zeroFillDays(days, [{ day: '2026-03-02', orderCount: 2, revenue: '50000' }]);
+    const filled = zeroFillDays(days, [{ day: '2026-03-02', orderCount: 2, netSales: '50000' }]);
     expect(filled.map((d) => d.orderCount)).toEqual([0, 2, 0]);
-    expect(filled[0].revenue).toBe('0');
+    expect(filled[0].netSales).toBe('0');
   });
 });
