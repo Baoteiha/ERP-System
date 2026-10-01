@@ -172,8 +172,8 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
           @case ('availability') {
             <p class="soft">Per-branch availability and optional price overrides.</p>
             @if (loadingAvail()) { <div class="loading-block"><span class="spinner"></span></div> }
-            @else if (!branches().length) {
-              <div class="empty">No branches available — branch list needs branch:read.</div>
+            @else if (!availabilityBranches().length) {
+              <div class="empty">No branches to show — needs branch:read, and catalog:read at a branch.</div>
             }
             @else {
               <div class="table-wrap">
@@ -181,12 +181,12 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
                   <caption class="sr-only">Per-branch availability and price overrides</caption>
                   <thead><tr><th scope="col">Branch</th><th scope="col">Available</th><th scope="col">Price override</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
                   <tbody>
-                    @for (b of branches(); track b.id) {
+                    @for (b of availabilityBranches(); track b.id) {
                       <tr>
                         <td>{{ b.name }}</td>
                         <td><label class="checkbox"><input type="checkbox" [(ngModel)]="availMap[b.id].available" [attr.aria-label]="'Available at ' + b.name" /></label></td>
                         <td><input class="input price-ov" type="number" min="0" [(ngModel)]="availMap[b.id].priceOverride" placeholder="—" [attr.aria-label]="'Price override at ' + b.name" /></td>
-                        <td class="right"><button class="btn btn-sm btn-outline" (click)="saveAvail(b.id)" [disabled]="saving()">Save</button></td>
+                        <td class="right"><button class="btn btn-sm btn-outline" (click)="saveAvail(b.id)" [disabled]="saving() || !auth.canAt(b.id, 'catalog:write')">Save</button></td>
                       </tr>
                     }
                   </tbody>
@@ -265,6 +265,8 @@ export class ProductsComponent {
   ingredients = signal<IngredientResponse[]>([]);
   modifierGroups = signal<ModifierGroupResponse[]>([]);
   branches = signal<BranchResponse[]>([]);
+  /** the server answers for and changes availability only where the user's role there reads / writes the catalog */
+  availabilityBranches = computed(() => this.branches().filter((b) => this.auth.canAt(b.id, 'catalog:read')));
   loading = signal(true);
   saving = signal(false);
   loadingAvail = signal(false);
@@ -409,8 +411,8 @@ export class ProductsComponent {
 
   private buildAvailMap(p: ProductResponse) {
     this.availMap = {};
-    for (const b of this.branches()) this.availMap[b.id] = { available: true, priceOverride: null };
-    if (!this.branches().length) return;
+    for (const b of this.availabilityBranches()) this.availMap[b.id] = { available: true, priceOverride: null };
+    if (!this.availabilityBranches().length) return;
     this.loadingAvail.set(true);
     this.api.availability(p.id).subscribe({
       next: (rows: BranchAvailabilityResponse[]) => {

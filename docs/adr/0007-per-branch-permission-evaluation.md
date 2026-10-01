@@ -42,8 +42,13 @@ cashier at B who manages A could grant themselves MANAGER at B:
   within the union of the actor's.
 - An owner passes every rule; only an owner grants, revokes or manages OWNER.
 
-Code that reads several branches in one request must check each branch itself:
-the outlet comparison lists only branches whose role carries `report:read`.
+Code that reads several branches in one request, or acts at a branch named in
+the body or query rather than the header, must check that branch itself
+(`AuthPrincipal.permissionsAt`): the outlet comparison lists only branches
+whose role carries `report:read`; a product's availability is listed only
+where the role carries `catalog:read`, set only where it carries
+`catalog:write`, and priced at a branch only with `catalog:read` there (403;
+another company's branch stays 404).
 
 ## Considered options
 

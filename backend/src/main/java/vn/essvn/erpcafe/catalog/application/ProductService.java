@@ -11,6 +11,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.catalog.api.CatalogApi;
+import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
 import vn.essvn.erpcafe.catalog.domain.Product;
 import vn.essvn.erpcafe.catalog.domain.ProductBranchAvailability;
@@ -20,7 +22,9 @@ import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
+import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
@@ -29,23 +33,28 @@ import vn.essvn.erpcafe.organization.api.OrganizationApi;
 @Transactional
 public class ProductService {
 
+    private static final String CATALOG_READ = "catalog:read";
+    private static final String CATALOG_WRITE = "catalog:write";
+
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ModifierGroupRepository modifierGroupRepository;
     private final ProductBranchAvailabilityRepository availabilityRepository;
     private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
+    private final CatalogApi catalogApi;
 
     public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository,
             ModifierGroupRepository modifierGroupRepository,
             ProductBranchAvailabilityRepository availabilityRepository,
-            OrganizationApi organizationApi, CurrentUser currentUser) {
+            OrganizationApi organizationApi, CurrentUser currentUser, CatalogApi catalogApi) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.modifierGroupRepository = modifierGroupRepository;
         this.availabilityRepository = availabilityRepository;
         this.organizationApi = organizationApi;
         this.currentUser = currentUser;
+        this.catalogApi = catalogApi;
     }
 
     @Transactional(readOnly = true)
@@ -106,19 +115,21 @@ public class ProductService {
         return product;
     }
 
+    /** The product's availability rows at the branches where the caller's role reads the catalog. */
     @Transactional(readOnly = true)
     public List<ProductBranchAvailability> availabilityOf(UUID productId) {
         get(productId);
-        return availabilityRepository.findByProductId(productId);
+        AuthPrincipal caller = currentUser.require();
+        return availabilityRepository.findByProductId(productId).stream()
+                .filter(a -> caller.permissionsAt(a.getBranchId()).contains(CATALOG_READ))
+                .toList();
     }
 
     /** Sets (or updates) availability and optional price override for a product at a branch. */
     public ProductBranchAvailability setBranchAvailability(UUID productId, UUID branchId,
             boolean available, BigDecimal priceOverride) {
         Product product = get(productId);
-        if (!organizationApi.branchExistsInCompany(branchId, product.getCompanyId())) {
-            throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
-        }
+        requireAtBranch(product.getCompanyId(), branchId, CATALOG_WRITE);
         Money override = priceOverride == null ? null : Money.of(priceOverride);
         return availabilityRepository.findByProductIdAndBranchId(productId, branchId)
                 .map(existing -> {
@@ -128,6 +139,28 @@ public class ProductService {
                 })
                 .orElseGet(() -> availabilityRepository.save(
                         new ProductBranchAvailability(productId, branchId, available, override)));
+    }
+
+    /** A product's price at a branch, which needs the catalog there; company-wide when no branch is named. */
+    @Transactional(readOnly = true)
+    public PricedLine price(UUID productId, UUID branchId, Set<UUID> modifierIds) {
+        if (branchId != null) {
+            requireAtBranch(currentUser.require().companyId(), branchId, CATALOG_READ);
+        }
+        return catalogApi.priceLine(branchId, productId, modifierIds);
+    }
+
+    /**
+     * Another company's (or an inactive) branch is not found; a branch where the caller's role lacks the
+     * permission is forbidden, whichever branch the request acts in (ADR-0007).
+     */
+    private void requireAtBranch(UUID companyId, UUID branchId, String permission) {
+        if (!organizationApi.branchExistsInCompany(branchId, companyId)) {
+            throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
+        }
+        if (!currentUser.require().permissionsAt(branchId).contains(permission)) {
+            throw new ForbiddenException("You need " + permission + " at branch " + branchId);
+        }
     }
 
     private void requireCategory(UUID companyId, UUID categoryId) {

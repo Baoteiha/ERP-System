@@ -4,7 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AuthService } from '../../core/auth.service';
-import { IngredientResponse, ProductResponse } from '../../core/models';
+import { BranchResponse, IngredientResponse, ProductResponse } from '../../core/models';
 import { ProductsComponent } from './products';
 
 const money = (amount: string) => ({ amount, currency: 'VND' });
@@ -29,7 +29,7 @@ describe('ProductsComponent', () => {
     TestBed.inject(AuthService).me.set({
       userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1'], roles: [],
       permissions: ['catalog:write', 'inventory:read', 'branch:read'],
-      permissionsByBranch: { b1: ['catalog:write', 'inventory:read', 'branch:read'] },
+      permissionsByBranch: { b1: ['catalog:read', 'catalog:write', 'inventory:read', 'branch:read'] },
     });
     ctrl = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(ProductsComponent);
@@ -90,5 +90,24 @@ describe('ProductsComponent', () => {
     products.saveAvail('b1');
 
     expect(ctrl.expectOne((r) => r.method === 'PUT' && r.url === '/api/v1/products/p1/availability').request.body.priceOverride).toBe('0');
+  });
+
+  it('offers availability only where the role reads the catalog, and saving only where it writes it', () => {
+    TestBed.inject(AuthService).me.update((me) => me && {
+      ...me, branchIds: ['b1', 'b2'],
+      permissionsByBranch: { b1: ['catalog:read', 'catalog:write'], b2: ['catalog:read'] },
+    });
+    products.branches.set([
+      { id: 'b1', name: 'Main' }, { id: 'b2', name: 'Riverside' }, { id: 'b3', name: 'Airport' },
+    ] as BranchResponse[]);
+    products.openManage(latte);
+    ctrl.expectOne('/api/v1/products/p1/recipe').flush({ productId: 'p1', version: 1, lines: [] });
+    ctrl.expectOne('/api/v1/products/p1/availability').flush([]);
+    products.tab.set('availability');
+    fixture.detectChanges();
+
+    const rows = [...fixture.nativeElement.querySelectorAll('table.data tbody tr')] as HTMLTableRowElement[];
+    expect(rows.map((r) => r.cells[0].textContent?.trim())).toEqual(['Main', 'Riverside']);
+    expect(rows.map((r) => (r.querySelector('button') as HTMLButtonElement).disabled)).toEqual([false, true]);
   });
 });

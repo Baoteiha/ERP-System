@@ -60,6 +60,10 @@ export class AuthService {
   can(permission: string): boolean {
     return this.permissions().has(permission);
   }
+  /** Whether the user's role at the branch carries the permission, whichever branch is active. */
+  canAt(branchId: string, permission: string): boolean {
+    return !!this.me()?.permissionsByBranch[branchId]?.includes(permission);
+  }
   canAny(...permissions: string[]): boolean {
     const set = this.permissions();
     return permissions.some((p) => set.has(p));

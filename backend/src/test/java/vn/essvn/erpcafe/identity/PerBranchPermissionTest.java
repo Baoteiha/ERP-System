@@ -27,9 +27,14 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
+import vn.essvn.erpcafe.organization.domain.Branch;
+import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.BranchRepository;
+import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -51,6 +56,12 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
     private UserBranchAccessRepository grants;
     @Autowired
     private UserRepository users;
+    @Autowired
+    private ProductBranchAvailabilityRepository availability;
+    @Autowired
+    private CompanyRepository companies;
+    @Autowired
+    private BranchRepository branchRepository;
 
     private final List<String> createdBranches = new ArrayList<>();
     private final List<UUID> createdRoles = new ArrayList<>();
@@ -138,14 +149,19 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         return id;
     }
 
-    /** An order at the branch, paid in full by the owner, so it is COMPLETED and refundable. */
-    private String completedOrderAt(String branchId) throws Exception {
+    /** A product of the owner's company, priced 20000. */
+    private String newProduct(String branchId) throws Exception {
         int n = SEQ.incrementAndGet();
         String categoryId = JsonPath.read(json(send(post("/api/v1/categories"), admin, branchId,
                 "{\"name\":\"PB Drinks %d\",\"displayOrder\":1}".formatted(n))), "$.id");
-        String productId = JsonPath.read(json(send(post("/api/v1/products"), admin, branchId,
+        return JsonPath.read(json(send(post("/api/v1/products"), admin, branchId,
                 "{\"categoryId\":\"%s\",\"name\":\"PB Tea %d\",\"sku\":\"PBT-%d\",\"basePrice\":20000}"
                         .formatted(categoryId, n, n))), "$.id");
+    }
+
+    /** An order at the branch, paid in full by the owner, so it is COMPLETED and refundable. */
+    private String completedOrderAt(String branchId) throws Exception {
+        String productId = newProduct(branchId);
         String orderId = JsonPath.read(json(send(post("/api/v1/orders"), admin, branchId,
                 "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1}]}".formatted(productId))),
                 "$.id");
@@ -258,5 +274,71 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
         assertThat(passwordHashOf(managerAtB)).isEqualTo(before);
+    }
+
+    private ResultActions setAvailability(String token, String productId, String branchId, boolean available)
+            throws Exception {
+        return send(put("/api/v1/products/" + productId + "/availability"), token, branchA,
+                "{\"branchId\":\"%s\",\"available\":%s}".formatted(branchId, available));
+    }
+
+    private boolean availableAt(String productId, String branchId) {
+        return availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(branchId))
+                .orElseThrow().isAvailable();
+    }
+
+    @Test
+    void productAvailability_isSetOnlyWhereTheRoleWritesTheCatalog() throws Exception {
+        String productId = newProduct(branchA);
+        String unheld = createBranch(admin);
+        admin = adminToken();
+        setAvailability(admin, productId, branchB, true).andExpect(status().isOk());
+
+        // catalog:write in force at A, where the request acts, but the user is only a cashier at B
+        setAvailability(user, productId, branchB, false)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(availableAt(productId, branchB)).isTrue();
+
+        setAvailability(user, productId, unheld, false)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(availability.findByProductIdAndBranchId(UUID.fromString(productId), UUID.fromString(unheld)))
+                .isEmpty();
+
+        setAvailability(user, productId, branchA, false).andExpect(status().isOk());
+        assertThat(availableAt(productId, branchA)).isFalse();
+    }
+
+    @Test
+    void productAvailability_listsOnlyBranchesWhereTheRoleReadsTheCatalog() throws Exception {
+        String productId = newProduct(branchA);
+        String unheld = createBranch(admin);
+        admin = adminToken();
+        for (String branchId : List.of(branchA, branchB, unheld)) {
+            setAvailability(admin, productId, branchId, true).andExpect(status().isOk());
+        }
+
+        String rows = json(send(get("/api/v1/products/" + productId + "/availability"), user, branchA, null));
+
+        assertThat(JsonPath.<List<String>>read(rows, "$[*].branchId")).containsExactlyInAnyOrder(branchA, branchB);
+    }
+
+    @Test
+    void productPrice_atABranch_needsTheCatalogThere() throws Exception {
+        String productId = newProduct(branchA);
+        String unheld = createBranch(admin);
+        int n = SEQ.incrementAndGet();
+        Company other = companies.save(new Company("PB Other %d".formatted(n), "PBO%d".formatted(n)));
+        UUID foreign = branchRepository.save(new Branch(other.getId(), "PB Foreign", "PBF%d".formatted(n))).getId();
+        String price = "/api/v1/products/" + productId + "/price?branchId=";
+
+        send(get(price + branchB), user, branchA, null).andExpect(status().isOk());
+        send(get(price + unheld), user, branchA, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        send(get(price + foreign), user, branchA, null)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 }

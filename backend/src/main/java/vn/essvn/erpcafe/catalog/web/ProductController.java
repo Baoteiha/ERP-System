@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
-import vn.essvn.erpcafe.catalog.api.CatalogApi;
 import vn.essvn.erpcafe.catalog.application.ProductService;
 import vn.essvn.erpcafe.catalog.domain.ProductBranchAvailability;
 import vn.essvn.erpcafe.catalog.mapper.ProductMapper;
@@ -39,13 +38,10 @@ import vn.essvn.erpcafe.common.web.PageResponse;
 public class ProductController {
 
     private final ProductService productService;
-    private final CatalogApi catalogApi;
     private final ProductMapper productMapper;
 
-    public ProductController(ProductService productService, CatalogApi catalogApi,
-            ProductMapper productMapper) {
+    public ProductController(ProductService productService, ProductMapper productMapper) {
         this.productService = productService;
-        this.catalogApi = catalogApi;
         this.productMapper = productMapper;
     }
 
@@ -110,7 +106,7 @@ public class ProductController {
             @RequestParam(required = false) UUID branchId,
             @RequestParam(required = false) Set<UUID> modifierIds) {
         return new PriceResponse(id, branchId,
-                MoneyDto.from(catalogApi.priceLine(branchId, id, modifierIds).unitTotal()));
+                MoneyDto.from(productService.price(id, branchId, modifierIds).unitTotal()));
     }
 
     private BranchAvailabilityResponse toAvailability(ProductBranchAvailability a) {
