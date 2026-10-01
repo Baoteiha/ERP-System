@@ -22,6 +22,10 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     List<Shift> findByBranchIdAndStatusOrderByScheduledStart(UUID branchId, ShiftStatus status);
 
+    boolean existsByEmployeeIdAndStatus(UUID employeeId, ShiftStatus status);
+
+    List<Shift> findByEmployeeIdAndStatusAndScheduledStartAfter(UUID employeeId, ShiftStatus status, Instant after);
+
     /** Total captured labor cost of shifts completed in the window. */
     @Query("""
             select coalesce(sum(s.laborCost.amount), 0)

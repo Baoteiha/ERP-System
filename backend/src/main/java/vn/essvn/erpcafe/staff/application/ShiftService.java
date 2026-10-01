@@ -15,6 +15,7 @@ import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
+import vn.essvn.erpcafe.staff.domain.ShiftStatus;
 import vn.essvn.erpcafe.staff.persistence.EmployeeRepository;
 import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
 
@@ -74,6 +75,14 @@ public class ShiftService implements StaffApi {
         Shift shift = get(id);
         Employee employee = employeeRepository.findById(shift.getEmployeeId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Employee", shift.getEmployeeId()));
+        if (!employee.isActive()) {
+            throw new BusinessRuleException("Cannot clock in a deactivated employee");
+        }
+        // Friendly 422 for the usual case; uk_shift_one_open_per_employee is the real guard when
+        // two clock-ins race (that one surfaces as 409 via DataIntegrityViolationException).
+        if (shiftRepository.existsByEmployeeIdAndStatus(employee.getId(), ShiftStatus.IN_PROGRESS)) {
+            throw new BusinessRuleException("Employee already has an open shift; clock it out first");
+        }
         shift.clockIn(Instant.now(), employee.getHourlyRate());
         return shift;
     }

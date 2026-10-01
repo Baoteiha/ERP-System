@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.staff.application;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,11 +9,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.domain.Money;
-import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.staff.domain.Employee;
+import vn.essvn.erpcafe.staff.domain.Shift;
+import vn.essvn.erpcafe.staff.domain.ShiftStatus;
 import vn.essvn.erpcafe.staff.persistence.EmployeeRepository;
+import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
 
 /**
  * Employee master data within the acting user's company. Employees are never
@@ -23,10 +26,13 @@ import vn.essvn.erpcafe.staff.persistence.EmployeeRepository;
 public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
+    private final ShiftRepository shiftRepository;
     private final CurrentUser currentUser;
 
-    public EmployeeService(EmployeeRepository employeeRepository, CurrentUser currentUser) {
+    public EmployeeService(EmployeeRepository employeeRepository, ShiftRepository shiftRepository,
+            CurrentUser currentUser) {
         this.employeeRepository = employeeRepository;
+        this.shiftRepository = shiftRepository;
         this.currentUser = currentUser;
     }
 
@@ -44,9 +50,6 @@ public class EmployeeService {
     public Employee create(String fullName, String position, BigDecimal hourlyRate,
             String phone, String email) {
         UUID companyId = currentUser.require().companyId();
-        if (employeeRepository.existsByCompanyIdAndFullName(companyId, fullName)) {
-            throw new ConflictException("Employee already exists: " + fullName);
-        }
         Employee employee = new Employee(companyId, fullName, position, rate(hourlyRate));
         employee.setPhone(phone);
         employee.setEmail(email);
@@ -56,19 +59,24 @@ public class EmployeeService {
     public Employee update(UUID id, String fullName, String position, BigDecimal hourlyRate,
             String phone, String email, Boolean active) {
         Employee employee = get(id);
-        if (!employee.getFullName().equals(fullName)
-                && employeeRepository.existsByCompanyIdAndFullName(employee.getCompanyId(), fullName)) {
-            throw new ConflictException("Employee already exists: " + fullName);
-        }
         employee.setFullName(fullName);
         employee.setPosition(position);
         employee.setHourlyRate(rate(hourlyRate));
         employee.setPhone(phone);
         employee.setEmail(email);
         if (active != null) {
+            if (employee.isActive() && !active) {
+                cancelFutureShifts(employee.getId());
+            }
             employee.setActive(active);
         }
         return employee;
+    }
+
+    /** A deactivated employee must not stay on the rota; past and open shifts are history and stay. */
+    private void cancelFutureShifts(UUID employeeId) {
+        shiftRepository.findByEmployeeIdAndStatusAndScheduledStartAfter(
+                employeeId, ShiftStatus.SCHEDULED, Instant.now()).forEach(Shift::cancel);
     }
 
     private static Money rate(BigDecimal hourlyRate) {
