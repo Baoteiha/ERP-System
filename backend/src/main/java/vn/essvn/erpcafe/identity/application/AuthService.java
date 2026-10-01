@@ -28,6 +28,8 @@ import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.JwtService;
 import vn.essvn.erpcafe.identity.security.LoginAttemptService;
+import vn.essvn.erpcafe.organization.api.BranchDto;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * Authentication use cases: login, token refresh (with rotation), and logout.
@@ -49,12 +51,13 @@ public class AuthService {
     private final LoginAttemptService loginAttemptService;
     private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
+    private final OrganizationApi organizationApi;
 
     public AuthService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, JwtService jwtService,
             LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
-            SecurityProperties securityProperties) {
+            SecurityProperties securityProperties, OrganizationApi organizationApi) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -64,6 +67,7 @@ public class AuthService {
         this.loginAttemptService = loginAttemptService;
         this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
+        this.organizationApi = organizationApi;
     }
 
     /**
@@ -127,8 +131,13 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthPrincipal buildPrincipal(User user) {
         List<UserBranchAccess> accesses = accessRepository.findByUserId(user.getId());
+        // grants can outlive a branch that was deleted or deactivated: only live branches count
+        Set<UUID> liveBranchIds = organizationApi.listActiveBranches(user.getCompanyId()).stream()
+                .map(BranchDto::id).collect(Collectors.toSet());
         Set<UUID> branchIds = accesses.stream()
-                .map(UserBranchAccess::getBranchId).collect(Collectors.toSet());
+                .map(UserBranchAccess::getBranchId)
+                .filter(liveBranchIds::contains)
+                .collect(Collectors.toSet());
         List<UUID> roleIds = accesses.stream()
                 .map(UserBranchAccess::getRoleId).distinct().toList();
         List<Role> roles = roleRepository.findAllById(roleIds);

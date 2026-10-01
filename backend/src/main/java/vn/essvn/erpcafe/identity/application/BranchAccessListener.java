@@ -14,10 +14,12 @@ import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.organization.api.BranchCreated;
+import vn.essvn.erpcafe.organization.api.BranchDeactivated;
+import vn.essvn.erpcafe.organization.api.BranchDeleted;
 
 /**
  * Class: BranchAccessListener
- * Purpose: Gives a branch's creator access to it, in the transaction that created the branch.
+ * Purpose: Keeps branch access grants in step with the branch lifecycle, in the transaction that changed the branch.
  */
 @Component
 public class BranchAccessListener {
@@ -48,5 +50,19 @@ public class BranchAccessListener {
                 .map(UserBranchAccess::getRoleId));
         roleId.ifPresent(id -> accessRepository.save(
                 new UserBranchAccess(event.actorUserId(), event.branchId(), id)));
+    }
+
+    @EventListener
+    public void onBranchDeleted(BranchDeleted event) {
+        revokeAll(event.branchId());
+    }
+
+    @EventListener
+    public void onBranchDeactivated(BranchDeactivated event) {
+        revokeAll(event.branchId());
+    }
+
+    private void revokeAll(UUID branchId) {
+        accessRepository.deleteAll(accessRepository.findByBranchId(branchId));
     }
 }

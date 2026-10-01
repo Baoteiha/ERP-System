@@ -111,6 +111,42 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void deleteBranch_userWhoHadItLosesIt() throws Exception {
+        String admin = adminToken();
+        String branchId = createBranch(admin);
+        String email = userWithRole(admin, "CASHIER", branchId).split("\\|")[1];
+        assertThat(meBranches(accessToken(email, "password123"))).contains(branchId);
+
+        mockMvc.perform(delete("/api/v1/branches/" + branchId)
+                .header(HttpHeaders.AUTHORIZATION, authHeader(admin))).andExpect(status().isNoContent());
+
+        String fresh = accessToken(email, "password123");
+        assertThat(meBranches(fresh)).doesNotContain(branchId);
+        assertThat(meBranches(adminToken())).doesNotContain(branchId);
+        mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
+                .header("X-Branch-Id", branchId)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deactivateBranch_userWhoHadItLosesIt() throws Exception {
+        String admin = adminToken();
+        String branchId = createBranch(admin);
+        String email = userWithRole(admin, "CASHIER", branchId).split("\\|")[1];
+
+        mockMvc.perform(put("/api/v1/branches/" + branchId)
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Lifecycle off\",\"code\":\"%s\",\"active\":false}"
+                                .formatted(branches.findById(UUID.fromString(branchId)).orElseThrow().getCode())))
+                .andExpect(status().isOk());
+
+        String fresh = accessToken(email, "password123");
+        assertThat(meBranches(fresh)).doesNotContain(branchId);
+        mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
+                .header("X-Branch-Id", branchId)).andExpect(status().isForbidden());
+    }
+
+    @Test
     void deleteBranch_withOpenOrder_isRefused() throws Exception {
         String admin = adminToken();
         String branchId = createBranch(admin);
@@ -125,4 +161,23 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         assertThat(branches.findById(UUID.fromString(branchId))).isPresent();
     }
 
+    @Test
+    void managerCanManageUser_afterUsersOtherBranchWasDeleted() throws Exception {
+        String admin = adminToken();
+        String home = seededBranch(admin);
+        String extra = createBranch(admin);
+        String managerEmail = userWithRole(admin, "MANAGER", home).split("\\|")[1];
+        String[] user = userWithRole(admin, "CASHIER", home, extra).split("\\|");
+        String manager = accessToken(managerEmail, "password123");
+        String body = "{\"email\":\"%s\",\"fullName\":\"Renamed\"}".formatted(user[1]);
+
+        mockMvc.perform(put("/api/v1/users/" + user[0]).header(HttpHeaders.AUTHORIZATION, authHeader(manager))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/v1/branches/" + extra)
+                .header(HttpHeaders.AUTHORIZATION, authHeader(admin))).andExpect(status().isNoContent());
+
+        mockMvc.perform(put("/api/v1/users/" + user[0]).header(HttpHeaders.AUTHORIZATION, authHeader(manager))
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+    }
 }
