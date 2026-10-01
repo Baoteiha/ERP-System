@@ -20,7 +20,6 @@ export class OrganizationService {
   listCompanies(page = 0, size = 50) {
     return this.http.get<M.PageResponse<M.CompanyResponse>>(`${V1}/companies`, { params: pageParams(page, size) });
   }
-  createCompany(body: M.CompanyRequest) { return this.http.post<M.CompanyResponse>(`${V1}/companies`, body); }
   updateCompany(id: string, body: M.CompanyRequest) { return this.http.put<M.CompanyResponse>(`${V1}/companies/${id}`, body); }
   deleteCompany(id: string) { return this.http.delete<void>(`${V1}/companies/${id}`); }
 

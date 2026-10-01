@@ -180,4 +180,14 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(put("/api/v1/users/" + user[0]).header(HttpHeaders.AUTHORIZATION, authHeader(manager))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
     }
+
+    @Test
+    void tenantCannotCreateCompany() throws Exception {
+        mockMvc.perform(post("/api/v1/companies")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Another\",\"code\":\"ANO%d\"}".formatted(SEQ.incrementAndGet())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
 }

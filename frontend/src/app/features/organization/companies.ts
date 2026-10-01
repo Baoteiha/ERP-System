@@ -16,10 +16,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
   template: `
     <div class="page">
       <div class="page-head">
-        <div><h1>Companies</h1><div class="sub">Top-level tenants that own branches and master data.</div></div>
-        @if (auth.can('company:write')) {
-          <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New company</button>
-        }
+        <div><h1>Companies</h1><div class="sub">Your company, which owns its branches and master data.</div></div>
       </div>
 
       <div class="card">
@@ -42,7 +39,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
                       }
                     </td>
                   </tr>
-                } @empty { <tr><td colspan="4"><div class="empty"><div class="big"><app-icon name="building" [size]="30" /></div>No companies yet</div></td></tr> }
+                } @empty { <tr><td colspan="4"><div class="empty"><div class="big"><app-icon name="building" [size]="30" /></div>No company found</div></td></tr> }
               </tbody>
             </table>
           </div>
@@ -51,7 +48,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
     </div>
 
     @if (editing()) {
-      <app-modal [title]="form.id ? 'Edit company' : 'New company'" (close)="editing.set(null)">
+      <app-modal title="Edit company" (close)="editing.set(null)">
         <div class="field">
           <label for="co-name">Name <span class="req" aria-hidden="true">*</span></label>
           <input id="co-name" class="input" [(ngModel)]="form.name" placeholder="Ess Coffee Co." required />
@@ -92,15 +89,14 @@ export class CompaniesComponent {
     });
   }
 
-  openNew() { this.form = { name: '', code: '' }; this.editing.set({} as CompanyResponse); }
   openEdit(c: CompanyResponse) { this.form = { id: c.id, name: c.name, code: c.code }; this.editing.set(c); }
 
   save() {
     if (!this.form.name || !this.form.code) { this.toast.error('Name and code are required'); return; }
     this.saving.set(true);
     const body: CompanyRequest = { name: this.form.name, code: this.form.code };
-    const req = this.form.id ? this.api.updateCompany(this.form.id, body) : this.api.createCompany(body);
-    req.subscribe({
+    if (!this.form.id) return;
+    this.api.updateCompany(this.form.id, body).subscribe({
       next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Company saved'); this.load(); },
       error: () => this.saving.set(false),
     });

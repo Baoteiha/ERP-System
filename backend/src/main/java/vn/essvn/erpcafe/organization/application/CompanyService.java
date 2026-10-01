@@ -51,13 +51,6 @@ public class CompanyService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Company", id));
     }
 
-    public Company create(CompanyRequest request) {
-        if (companyRepository.existsByCode(request.code())) {
-            throw new ConflictException("Company code already exists: " + request.code());
-        }
-        return companyRepository.save(new Company(request.name(), request.code()));
-    }
-
     public Company update(UUID id, CompanyRequest request) {
         Company company = get(id);
         if (!company.getCode().equals(request.code()) && companyRepository.existsByCode(request.code())) {

@@ -1,10 +1,10 @@
 package vn.essvn.erpcafe.organization.web;
 
-import java.net.URI;
 import java.util.UUID;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,10 +46,10 @@ public class CompanyController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('company:write')")
-    public ResponseEntity<CompanyResponse> create(@Valid @RequestBody CompanyRequest request) {
-        CompanyResponse body = companyMapper.toResponse(companyService.create(request));
-        return ResponseEntity.created(URI.create(ApiVersions.V1 + "/companies/" + body.id())).body(body);
+    @PreAuthorize("denyAll()")
+    public ResponseEntity<Void> create() {
+        // Companies are provisioned by the platform, never by a tenant; kept only so the verb answers 403, not 405.
+        throw new AccessDeniedException("Companies cannot be created by a tenant");
     }
 
     @PutMapping("/{id}")
