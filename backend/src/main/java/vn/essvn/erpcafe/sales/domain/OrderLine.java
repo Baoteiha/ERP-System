@@ -64,7 +64,7 @@ public class OrderLine extends BaseEntity {
     private Money lineTotal;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "order_line_id")
+    @JoinColumn(name = "order_line_id", nullable = false)
     private List<OrderLineModifier> modifiers = new ArrayList<>();
 
     protected OrderLine() {

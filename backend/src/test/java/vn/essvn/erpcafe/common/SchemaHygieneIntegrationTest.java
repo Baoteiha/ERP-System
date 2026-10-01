@@ -37,7 +37,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: SchemaHygieneIntegrationTest
- * Purpose: Proves deleted names and codes can be reused while live duplicates still conflict.
+ * Purpose: Proves deleted names and codes can be reused, purchase orders list newest first, sales rows obey their constraints and V21 applies over legacy rows.
  */
 class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
 
@@ -148,6 +148,71 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(authed(post("/api/v1/suppliers")).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict());
         deleteOk("/api/v1/suppliers", id);
+    }
+
+    @Test
+    void purchaseOrderList_defaultsToNewestFirst() throws Exception {
+        int n = SEQ.incrementAndGet();
+        String ingredientId = JsonPath.read(createOk("/api/v1/ingredients",
+                "{\"name\":\"Hyg PO Bean %d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
+        String supplierId = JsonPath.read(createOk("/api/v1/suppliers", "{\"name\":\"Hyg PO Sup %d\"}".formatted(n)), "$.id");
+        String lines = "\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}]".formatted(ingredientId);
+        String older = JsonPath.read(createOk("/api/v1/purchase-orders",
+                "{\"supplierId\":\"%s\",%s}".formatted(supplierId, lines)), "$.id");
+        String newer = JsonPath.read(createOk("/api/v1/purchase-orders",
+                "{\"supplierId\":\"%s\",%s}".formatted(supplierId, lines)), "$.id");
+
+        String page = mockMvc.perform(authed(get("/api/v1/purchase-orders")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+        List<String> ids = JsonPath.read(page, "$.content[*].id");
+        assertThat(ids.indexOf(newer)).isGreaterThanOrEqualTo(0).isLessThan(ids.indexOf(older));
+    }
+
+    @Test
+    void paymentOfZero_failsTheCheck() {
+        Order order = orders.save(new Order(UUID.fromString(branchId), null, OrderType.DINE_IN, BigDecimal.ZERO));
+        createdOrders.add(order);
+
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO payment (id, version, order_id, method, type, amount, currency,"
+                + " created_at, updated_at) VALUES (?, 0, ?, 'CASH', 'PAYMENT', 0, 'VND', now(), now())",
+                UUID.randomUUID(), order.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_payment_amount_positive");
+    }
+
+    @Test
+    void migration_appliesOverLegacyRows_andFreesSoftDeletedNames() {
+        migrateTo("20.001");
+        UUID companyId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        UUID branch = UUID.randomUUID();
+        JdbcTemplate scratch = new JdbcTemplate(dataSource);
+        scratch.update("INSERT INTO " + SCHEMA + ".company (id, version, name, code, created_at, updated_at, deleted)"
+                + " VALUES (?, 0, 'Legacy', 'LEGACY', now(), now(), FALSE)", companyId);
+        scratch.update("INSERT INTO " + SCHEMA + ".branch (id, version, company_id, name, code, created_at, updated_at,"
+                + " deleted) VALUES (?, 0, ?, 'Main', 'MAIN', now(), now(), FALSE)", branch, companyId);
+        scratch.update("INSERT INTO " + SCHEMA + ".category (id, version, company_id, name, display_order, active,"
+                + " deleted, created_at, updated_at) VALUES (?, 0, ?, 'Coffee', 0, TRUE, TRUE, now(), now())",
+                categoryId, companyId);
+        scratch.update("INSERT INTO " + SCHEMA + ".sales_order (id, version, branch_id, order_type, status, currency,"
+                + " created_at, updated_at) VALUES (?, 0, ?, 'DINE_IN', 'PAID', 'VND', now(), now())", orderId, branch);
+        scratch.update("INSERT INTO " + SCHEMA + ".payment (id, version, order_id, method, type, amount, currency,"
+                + " created_at, updated_at) VALUES (?, 0, ?, 'CASH', 'PAYMENT', 100, 'VND', now(), now())",
+                UUID.randomUUID(), orderId);
+        // a detached payment: unreachable, and the NOT NULL on order_id could not apply with it present
+        scratch.update("INSERT INTO " + SCHEMA + ".payment (id, version, method, type, amount, currency, created_at,"
+                + " updated_at) VALUES (?, 0, 'CASH', 'PAYMENT', 5, 'VND', now(), now())", UUID.randomUUID());
+
+        migrateTo("21.001");
+
+        scratch.update("INSERT INTO " + SCHEMA + ".category (id, version, company_id, name, display_order, active,"
+                + " deleted, created_at, updated_at) VALUES (?, 0, ?, 'Coffee', 0, TRUE, FALSE, now(), now())",
+                UUID.randomUUID(), companyId);
+        assertThat(scratch.queryForObject("SELECT count(*) FROM " + SCHEMA + ".payment", Integer.class)).isEqualTo(1);
+        assertThat(scratch.queryForObject("SELECT count(*) FROM " + SCHEMA + ".category WHERE name = 'Coffee'",
+                Integer.class)).isEqualTo(2);
     }
 
     private void migrateTo(String version) {

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort.Direction;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,7 +46,8 @@ public class PurchaseOrderController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('purchasing:read')")
-    public PageResponse<PurchaseOrderResponse> list(Pageable pageable) {
+    public PageResponse<PurchaseOrderResponse> list(
+            @PageableDefault(sort = "createdAt", direction = Direction.DESC) Pageable pageable) {
         return PageResponse.from(purchaseOrderService.list(pageable).map(PurchaseOrderController::toResponse));
     }
 
