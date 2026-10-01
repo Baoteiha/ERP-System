@@ -7,12 +7,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.domain.Unit;
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
+import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
 import vn.essvn.erpcafe.inventory.persistence.ItemRepository;
+import vn.essvn.erpcafe.inventory.persistence.PurchaseOrderRepository;
+import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
+import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
 
 /** Ingredient master-data management within the acting user's company. */
 @Service
@@ -21,10 +26,17 @@ public class IngredientService {
 
     private final IngredientRepository ingredientRepository;
     private final ItemRepository itemRepository;
+    private final StockItemRepository stockItemRepository;
+    private final StockMovementRepository movementRepository;
+    private final PurchaseOrderRepository purchaseOrderRepository;
     private final CurrentUser currentUser;
 
     public IngredientService(IngredientRepository ingredientRepository, ItemRepository itemRepository,
-            CurrentUser currentUser) {
+            StockItemRepository stockItemRepository, StockMovementRepository movementRepository,
+            PurchaseOrderRepository purchaseOrderRepository, CurrentUser currentUser) {
+        this.stockItemRepository = stockItemRepository;
+        this.movementRepository = movementRepository;
+        this.purchaseOrderRepository = purchaseOrderRepository;
         this.ingredientRepository = ingredientRepository;
         this.itemRepository = itemRepository;
         this.currentUser = currentUser;
@@ -60,7 +72,9 @@ public class IngredientService {
             throw new ConflictException("Ingredient already exists: " + name);
         }
         ingredient.setName(name);
-        ingredient.setBaseUnit(canonicalUnit(baseUnit));
+        String newBaseUnit = canonicalUnit(baseUnit);
+        guardBaseUnitChange(ingredient, newBaseUnit);
+        ingredient.setBaseUnit(newBaseUnit);
         ingredient.setCategory(category);
         ingredient.setActive(active);
         return ingredient;
@@ -72,6 +86,26 @@ public class IngredientService {
     // one canonical spelling; unrecognised text is rejected rather than guessed.
     private static String canonicalUnit(String baseUnit) {
         return Unit.parse(baseUnit).symbol();
+    }
+
+    // Stock and movement quantities are denominated in the base unit, so relabelling it would
+    // silently rescale history. A different dimension can never be right; within one dimension the
+    // change is only safe while nothing has ever been counted in the old unit.
+    private void guardBaseUnitChange(Ingredient ingredient, String newSymbol) {
+        Unit current = Unit.parse(ingredient.getBaseUnit());
+        Unit requested = Unit.parse(newSymbol);
+        if (current == requested) {
+            return;
+        }
+        if (current.dimension() != requested.dimension()) {
+            throw new BusinessRuleException("Base unit cannot change from %s to %s: they measure different things"
+                    .formatted(current.symbol(), requested.symbol()));
+        }
+        UUID id = ingredient.getId();
+        if (stockItemRepository.existsNonZeroStock(id) || movementRepository.existsByIngredientId(id)) {
+            throw new ConflictException(
+                    "Base unit cannot change once the ingredient has stock or movements");
+        }
     }
 
     // Stale-form guard: the client echoes the version it loaded. If the row has changed
@@ -91,6 +125,12 @@ public class IngredientService {
         if (itemRepository.existsByCompanyIdAndIngredientId(ingredient.getCompanyId(), id)) {
             throw new ConflictException(
                     "Ingredient is still referenced by supplier items; delete or repoint those first");
+        }
+        if (stockItemRepository.existsNonZeroStock(id)) {
+            throw new ConflictException("Ingredient still has stock at a branch; bring it to zero first");
+        }
+        if (purchaseOrderRepository.existsOpenLine(id, PurchaseOrderStatus.CANCELLED)) {
+            throw new ConflictException("Ingredient is on an open purchase order; receive or cancel it first");
         }
         ingredientRepository.delete(ingredient);
     }

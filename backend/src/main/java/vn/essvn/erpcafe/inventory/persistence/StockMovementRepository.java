@@ -33,4 +33,6 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, UU
     List<StockMovement> findByRefTypeAndRefId(String refType, UUID refId);
 
     boolean existsByRefTypeAndRefId(String refType, UUID refId);
+
+    boolean existsByIngredientId(UUID ingredientId);
 }

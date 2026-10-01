@@ -43,11 +43,11 @@ class InventoryOptimisticLockTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.version").value(v0 + 1));
 
         // Same (now stale) version → 409, the newer change is protected.
-        mockMvc.perform(putIngredient(token, id, n, "L", v0))
+        mockMvc.perform(putIngredient(token, id, n, "g", v0))
                 .andExpect(status().isConflict());
 
         // Current version → succeeds again.
-        mockMvc.perform(putIngredient(token, id, n, "L", v0 + 1))
+        mockMvc.perform(putIngredient(token, id, n, "g", v0 + 1))
                 .andExpect(status().isOk());
     }
 

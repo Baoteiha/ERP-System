@@ -28,4 +28,8 @@ public interface StockItemRepository extends JpaRepository<StockItem, UUID> {
 
     @Query("SELECT s FROM StockItem s WHERE s.branchId = :branchId AND s.quantityOnHand < s.reorderLevel")
     List<StockItem> findLowStock(@Param("branchId") UUID branchId);
+
+    /** True when any branch still holds (or owes) some of the ingredient. */
+    @Query("SELECT COUNT(s) > 0 FROM StockItem s WHERE s.ingredientId = :ingredientId AND s.quantityOnHand <> 0")
+    boolean existsNonZeroStock(@Param("ingredientId") UUID ingredientId);
 }

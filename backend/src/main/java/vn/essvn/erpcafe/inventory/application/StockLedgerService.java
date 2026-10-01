@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.domain.Unit;
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
@@ -219,9 +220,12 @@ public class StockLedgerService {
     }
 
     private static StockLine toBaseUnit(StockLine line, Unit baseUnit) {
-        if (baseUnit == null || line.unit() == null || line.unit().isBlank()) {
-            // No base unit to convert to (ingredient row missing) or no unit supplied
-            // (caller already speaks base units): pass through unchanged.
+        if (baseUnit == null) {
+            // Missing, soft-deleted or foreign ingredient: guessing here would book stock against nothing.
+            throw new BusinessRuleException("Ingredient not found: " + line.ingredientId());
+        }
+        if (line.unit() == null || line.unit().isBlank()) {
+            // No unit supplied: the caller already speaks base units.
             return line;
         }
         Unit from = Unit.parse(line.unit());

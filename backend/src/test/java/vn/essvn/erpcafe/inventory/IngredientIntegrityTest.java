@@ -1,8 +1,12 @@
 package vn.essvn.erpcafe.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
@@ -19,8 +23,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.application.StockLedgerService;
+import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -33,6 +39,9 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
 
     @Autowired
     private StockLedgerService ledger;
+
+    @Autowired
+    private IngredientRepository ingredients;
 
     private String token;
     private String branchId;
@@ -82,10 +91,23 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    private void adjust(String ingredientId, int delta) throws Exception {
+        create("/api/v1/stock/adjust", "{\"ingredientId\":\"%s\",\"quantityDelta\":%d}".formatted(ingredientId, delta));
+    }
+
     private BigDecimal avgCost(String ingredientId) throws Exception {
         String json = mockMvc.perform(authed(get("/api/v1/stock"))).andReturn().getResponse().getContentAsString();
         List<Object> vals = JsonPath.read(json, "$[?(@.ingredientId=='%s')].avgUnitCost.amount".formatted(ingredientId));
         return new BigDecimal(String.valueOf(vals.get(0)));
+    }
+
+    private MockHttpServletRequestBuilder changeUnit(String id, String name, String unit) {
+        return authed(put("/api/v1/ingredients/" + id)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"%s\",\"baseUnit\":\"%s\",\"active\":true}".formatted(name, unit));
+    }
+
+    private String nameOf(String id) {
+        return ingredients.findById(UUID.fromString(id)).orElseThrow().getName();
     }
 
     @Test
@@ -98,5 +120,92 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
         receiveAll(sentPurchaseOrder(id, "1000", "0.24"), "1000");
 
         assertThat(avgCost(id)).isEqualByComparingTo("0.24");
+    }
+
+    @Test
+    void baseUnit_withStockOnHandCannotChange() throws Exception {
+        String id = ingredient("ml");
+        adjust(id, 10);
+
+        mockMvc.perform(changeUnit(id, nameOf(id), "l"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(ingredients.findById(UUID.fromString(id)).orElseThrow().getBaseUnit()).isEqualTo("ml");
+    }
+
+    @Test
+    void baseUnit_withAnyMovementCannotChangeEvenAtZeroStock() throws Exception {
+        String id = ingredient("g");
+        adjust(id, 10);
+        adjust(id, -10);
+
+        mockMvc.perform(changeUnit(id, nameOf(id), "kg"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+    }
+
+    @Test
+    void baseUnit_toAnotherDimensionIsRefusedEvenWithoutMovements() throws Exception {
+        String id = ingredient("g");
+
+        mockMvc.perform(changeUnit(id, nameOf(id), "ml"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+
+        assertThat(ingredients.findById(UUID.fromString(id)).orElseThrow().getBaseUnit()).isEqualTo("g");
+    }
+
+    @Test
+    void baseUnit_withinTheSameDimensionChangesWhenNothingWasEverStocked() throws Exception {
+        String id = ingredient("g");
+
+        mockMvc.perform(changeUnit(id, nameOf(id), "kg"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.baseUnit").value("kg"));
+    }
+
+    @Test
+    void delete_withStockAtABranchIsRefused() throws Exception {
+        String id = ingredient("g");
+        adjust(id, 5);
+
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+    }
+
+    @Test
+    void delete_withAnOpenPurchaseOrderLineIsRefused() throws Exception {
+        String id = ingredient("g");
+        sentPurchaseOrder(id, "500", "0.20");
+
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+    }
+
+    @Test
+    void delete_withNoStockAndNoOpenOrderSucceeds() throws Exception {
+        String id = ingredient("g");
+
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id))).andExpect(status().isNoContent());
+
+        assertThat(ingredients.findById(UUID.fromString(id))).isEmpty();
+    }
+
+    @Test
+    void deduct_againstASoftDeletedIngredientNamesItInTheRefusal() throws Exception {
+        String id = ingredient("g");
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id))).andExpect(status().isNoContent());
+
+        assertThatThrownBy(() -> ledger.deduct(UUID.fromString(branchId),
+                List.of(new StockLine(UUID.fromString(id), BigDecimal.ONE, "kg")), "TEST_DEDUCT", UUID.randomUUID()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining(id);
     }
 }
