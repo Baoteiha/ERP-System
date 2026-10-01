@@ -1,0 +1,100 @@
+# The tenant seam: Hibernate's `@TenantId` scopes every company-owned row
+
+Every row a **Company** owns carries `company_id`, and the application no
+longer scopes it by hand. Company-owned entities extend `TenantOwnedEntity`
+(`@TenantId @Column(name = "company_id")`): branch, category, product,
+modifier_group, ingredient, supplier, item, role, app_user and employee.
+`Shift` is branch-scoped but has carried its company since V20, so its own
+`company_id` is a `@TenantId` too. Branch-scoped tables without `company_id`
+(orders, stock, purchase orders) keep their **Branch** scoping
+(`findByIdAndBranchId`).
+
+How the company reaches Hibernate:
+
+- `TenantContext` holds the company the current thread acts for.
+  `JwtAuthenticationFilter` sets it from the access token's company before any
+  lookup (the grant cache already reads branches through it) and clears it in
+  `finally`, next to `BranchContext`. `require()` answers 401 without one.
+- `TenantIdentifierResolver` gives that company to each Hibernate session when
+  it opens; `HibernateTenantConfig` registers it
+  (`hibernate.tenant_identifier_resolver`).
+- **Reads.** Hibernate adds `company_id = :tenant` to every HQL/Criteria query
+  and, in Hibernate 7, to id lookups as well: `findById`, `existsById` and
+  `findAllById` of another company's row come back empty
+  (`TenantSeamTest`), so no scoping repository base class is needed. Another
+  company's id is simply not found → 404. A query rooted at a tenant entity
+  scopes what it selects through it: a modifier is found through its group
+  (`ModifierRepository.findThroughGroup`).
+- **Writes.** A new row takes its company from `TenantContext` at persist, so
+  `getCompanyId()` is readable at once (an event published in the same
+  transaction carries it). Hibernate checks at insert that it is the session's
+  company and refuses any other ("assigned tenant id differs from current
+  tenant id"); `company_id` is not updatable and has no setter. A tenant-owned
+  row is therefore only ever written inside its own company — outside one, the
+  insert is refused.
+- **No tenant.** A session opened with no company gets an identifier that
+  matches none (`TenantIdentifierResolver.NO_TENANT`): it sees no tenant-owned
+  row. The seam fails closed.
+- **System scope.** `TenantContext.runAsSystem` gives the session a root
+  identifier, for which `isRoot` lifts the filter. Only work that runs before
+  any company is known uses it: login and refresh (`AuthService`: the user by
+  email or by the refresh token's user id) and startup (`DataInitializer`: the
+  permission catalog sync across every company). Every query there names its
+  row (email, token hash, user id, company id). The first company's own rows
+  are seeded inside that company (`TenantContext.runAs`).
+
+A session takes its tenant when it opens, which Spring does at transaction
+begin. `runAsSystem`/`runAs` must therefore wrap a transaction, never run inside
+one: `AuthService` and `DataInitializer` open theirs with a `TransactionTemplate`
+inside the scope.
+
+What the seam does not see is SQL Hibernate does not write. These stay
+explicitly scoped, and row-level security (Task 31) is their backstop:
+
+- `RoleRepository.lockByIdAndCompanyId` — `SELECT … FOR UPDATE` on `role`,
+  names the company.
+- `UserRepository.existsByEmailInAnyCompany` — deliberately crosses companies:
+  login finds a user by email alone, so an email is unique system-wide.
+- `StockLedgerService` — `INSERT … ON CONFLICT` into `ledger_reference` and
+  `stock_item`, both branch-scoped tables, keyed by the branch.
+- `TenantRlsAspect` — `set_config('app.company_id', …)`.
+
+Published module APIs that take a `companyId` (`OrganizationApi`, `StaffApi`,
+`InventoryApi.validateConsumption`, `IngredientReferenceCheck`) keep it: a
+caller may run as the system (login reads the user's live branches through
+`listActiveBranches`). Inside a tenant the seam has already narrowed the rows
+to that company; the named company still decides, so the answer is the same in
+either scope.
+
+## Considered options
+
+- **`findByIdAndCompanyId` at every call site (before).** Each new query was a
+  chance to forget the company, and the code review's IDORs were exactly that.
+- **A plain Hibernate `@Filter`.** Opt-in per session: a session that never
+  enables it sees every company. The `@TenantId` filter is enabled by Hibernate
+  itself for every session, and a session cannot open without an identifier.
+- **A scoping repository base class.** Only needed if `@TenantId` did not
+  filter id lookups; in Hibernate 7 it does.
+- **No company means every company.** Convenient for startup and tests, but
+  any path that forgot the tenant would see all of them. Rejected: the system
+  scope is named, narrow and explicit.
+- **Row-level security alone.** It also covers native SQL, but needs the
+  non-superuser role and a per-transaction setting (Task 31), and reports a
+  forgotten scope only as missing rows in production. Both stay: the seam in
+  the application, RLS as the backstop.
+
+## Consequences
+
+- Services no longer pass a company to repositories; a new query on a
+  tenant-owned entity is scoped without anyone remembering to.
+- Work handed to another thread (a pool, `@Async`) does not carry the tenant
+  and sees nothing until it sets one (`TenantContext.runAs`).
+- Tests that seed another company write inside it
+  (`TenantContext.runAs(companyB, …)`) and read rows back as the system
+  (`runAsSystem`). MockMvc runs the JWT filter on the test thread, and the
+  filter clears the tenant, so a request is never made inside such a block.
+- Task 31 sets `app.company_id` from `TenantContext` at transaction begin and
+  runs the system scope on a BYPASSRLS owner connection.
+- The remaining `CurrentUser` uses outside identity are for the user id and
+  permissions, not the company (`IdentityApi.currentCompanyId` already reads
+  `TenantContext`); Task 32 moves them behind `IdentityApi`.
