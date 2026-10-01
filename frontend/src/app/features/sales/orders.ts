@@ -57,10 +57,11 @@ import { IconComponent } from '../../shared/icon';
             </div>
 
             <div class="totals">
-              <div><span>Subtotal</span><b>{{ o.subtotal | money:o.currency }}</b></div>
-              <div><span>Discount</span><b>{{ o.discountTotal | money:o.currency }}</b></div>
+              <div><span>Gross</span><b>{{ o.subtotal | money:o.currency }}</b></div>
+              <div><span>Discounts</span><b>-{{ o.discountTotal | money:o.currency }}</b></div>
+              <div><span>Net</span><b>{{ net(o) | money:o.currency }}</b></div>
               <div><span>Tax</span><b>{{ o.taxTotal | money:o.currency }}</b></div>
-              <div class="grand"><span>Grand total</span><b>{{ o.grandTotal | money:o.currency }}</b></div>
+              <div class="grand"><span>Total</span><b>{{ o.grandTotal | money:o.currency }}</b></div>
             </div>
 
             <div class="section-title">Lines</div>
@@ -163,6 +164,9 @@ export class OrdersComponent {
   saving = signal(false);
   paying = signal<OrderResponse | null>(null);
   payment: { method: PaymentMethod; amount: string } = { method: 'CASH', amount: '' };
+
+  /** Gross less every discount; the tax on the slip is charged on this. */
+  net(o: OrderResponse) { return (Number(o.subtotal) - Number(o.discountTotal)).toFixed(4); }
 
   constructor() { this.load(); }
 
