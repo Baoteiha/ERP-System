@@ -105,6 +105,26 @@ class PricingRulesIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void inactiveProduct_isRefusedAtTheTill() throws Exception {
+        String productId = newProduct(uniq());
+        send(put("/api/v1/products/" + productId),
+                "{\"categoryId\":\"%s\",\"name\":\"Off\",\"sku\":\"OFF-%s\",\"basePrice\":25000,\"active\":false}"
+                        .formatted(JsonPath.read(mockMvc.perform(authed(get("/api/v1/products/" + productId)))
+                                .andReturn().getResponse().getContentAsString(), "$.categoryId"), uniq()))
+                .andExpect(status().isOk());
+
+        order(productId).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
+    void productUnavailableAtBranch_isRefusedAtTheTill() throws Exception {
+        String productId = newProduct(uniq());
+        setAvailability(productId, false, "null");
+
+        order(productId).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
     void branchOverride_priceTheLineAndTheEndpointAlike() throws Exception {
         String productId = newProduct(uniq());
         setAvailability(productId, true, "28000");
@@ -146,6 +166,20 @@ class PricingRulesIntegrationTest extends AbstractIntegrationTest {
         attach(productId, group[0]);
 
         order(productId).andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+    }
+
+    @Test
+    void inactiveModifier_isRefused() throws Exception {
+        String s = uniq();
+        String productId = newProduct(s);
+        String[] group = newGroup(s, 0, 1);
+        attach(productId, group[0]);
+        var modifier = modifiers.findById(UUID.fromString(group[1])).orElseThrow();
+        modifier.setActive(false);
+        modifiers.save(modifier);
+
+        order(productId, group[1]).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
     }
 

@@ -96,8 +96,18 @@ public class CatalogApiImpl implements CatalogApi {
             throw ResourceNotFoundException.of("Branch", branchId);
         }
 
+        if (!product.isActive()) {
+            throw new BusinessRuleException("Product is inactive: " + product.getName());
+        }
+        ProductBranchAvailability availability = branchId == null ? null
+                : availabilityRepository.findByProductIdAndBranchId(productId, branchId).orElse(null);
+        if (availability != null && !availability.isAvailable()) {
+            throw new BusinessRuleException("Product is not available at this branch: " + product.getName());
+        }
+
         List<Modifier> chosen = selectModifiers(product, modifierIds);
-        Money base = baseFor(product, branchId);
+        Money base = availability != null && availability.getPriceOverride() != null
+                ? availability.getPriceOverride() : product.getBasePrice();
         List<PricedModifier> modifiers = new ArrayList<>();
         Money unitTotal = base;
         for (Modifier m : chosen) {
@@ -117,6 +127,9 @@ public class CatalogApiImpl implements CatalogApi {
         for (ModifierGroup group : product.getModifierGroups()) {
             List<Modifier> inGroup = group.getModifiers().stream()
                     .filter(m -> selected.contains(m.getId())).toList();
+            inGroup.stream().filter(m -> !m.isActive()).findFirst().ifPresent(m -> {
+                throw new BusinessRuleException("Modifier is inactive: " + m.getName());
+            });
             if (inGroup.size() < group.getMinSelect() || inGroup.size() > group.getMaxSelect()) {
                 throw new BusinessRuleException(
                         "Group '%s' requires between %d and %d selections (got %d)"
@@ -129,16 +142,6 @@ public class CatalogApiImpl implements CatalogApi {
             throw new BusinessRuleException("Modifiers not offered by this product: " + unaccounted);
         }
         return chosen;
-    }
-
-    // A branch's price override wins over the company-wide base price.
-    private Money baseFor(Product product, UUID branchId) {
-        if (branchId == null) {
-            return product.getBasePrice();
-        }
-        return availabilityRepository.findByProductIdAndBranchId(product.getId(), branchId)
-                .map(ProductBranchAvailability::getPriceOverride)
-                .orElse(product.getBasePrice());
     }
 
     private UUID companyId() {
