@@ -181,43 +181,40 @@ public class Order extends BranchScopedEntity {
     /** Cancels an open order, paying every tender back in the method it came in. */
     public void cancel() {
         requireOpen("cancel");
-        for (Payment p : List.copyOf(payments)) {
-            if (p.getType() == PaymentType.PAYMENT) {
-                recordRefund(p.getMethod(), p.getAmount());
-            }
-        }
+        refundEachTender();
         this.status = OrderStatus.CANCELLED;
     }
 
     /** Reverses a paid/completed order as a mistake. Returns true if stock was already deducted. */
-    public boolean voidOrder(PaymentMethod refundMethod) {
+    public boolean voidOrder() {
         if (status != OrderStatus.PAID && status != OrderStatus.COMPLETED) {
             throw new BusinessRuleException("Only PAID or COMPLETED orders can be voided (was %s)".formatted(status));
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.VOID;
         this.reversedAt = Instant.now();
-        refundAll(refundMethod);
+        refundEachTender();
         return wasCompleted;
     }
 
     /** Refunds a paid/completed order. Returns true if stock was already deducted. */
-    public boolean refund(PaymentMethod refundMethod) {
+    public boolean refund() {
         if (status != OrderStatus.PAID && status != OrderStatus.COMPLETED) {
             throw new BusinessRuleException("Only PAID or COMPLETED orders can be refunded (was %s)".formatted(status));
         }
         boolean wasCompleted = status == OrderStatus.COMPLETED;
         this.status = OrderStatus.REFUNDED;
         this.reversedAt = Instant.now();
-        refundAll(refundMethod);
+        refundEachTender();
         return wasCompleted;
     }
 
-    /** Pays back what is held, never more than the grand total. */
-    private void refundAll(PaymentMethod method) {
-        BigDecimal held = amountPaid().getAmount().min(grandTotal);
-        if (held.signum() > 0) {
-            recordRefund(method, Money.of(held, currency));
+    /** Pays every tender back in the method and amount it came in. */
+    private void refundEachTender() {
+        for (Payment p : List.copyOf(payments)) {
+            if (p.getType() == PaymentType.PAYMENT) {
+                recordRefund(p.getMethod(), p.getAmount());
+            }
         }
     }
 

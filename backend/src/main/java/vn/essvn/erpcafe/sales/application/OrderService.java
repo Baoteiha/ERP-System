@@ -35,7 +35,6 @@ import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.Payment;
-import vn.essvn.erpcafe.sales.domain.PaymentMethod;
 import vn.essvn.erpcafe.sales.domain.PaymentType;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 
@@ -175,18 +174,18 @@ public class OrderService {
         return order;
     }
 
-    public Order voidOrder(UUID orderId, PaymentMethod refundMethod) {
+    public Order voidOrder(UUID orderId) {
         Order order = get(orderId);
-        boolean stockWasDeducted = order.voidOrder(refundMethod);
+        boolean stockWasDeducted = order.voidOrder();
         if (stockWasDeducted) {
             inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_VOID);
         }
         return order;
     }
 
-    public Order refund(UUID orderId, PaymentMethod refundMethod) {
+    public Order refund(UUID orderId) {
         Order order = get(orderId);
-        boolean stockWasDeducted = order.refund(refundMethod);
+        boolean stockWasDeducted = order.refund();
         if (stockWasDeducted) {
             inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_REFUND);
         }

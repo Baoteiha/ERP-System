@@ -221,18 +221,63 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("1000");
     }
 
+    /** Two lattes less 8,000 of discounts plus 10% tax is 46,200; paid 30,000 by card and 16,200 in cash. */
+    private String splitTenderOrder() throws Exception {
+        setBranchTaxRate("0.1");
+        String json = create("/api/v1/orders",
+                ("{\"orderType\":\"DINE_IN\",\"orderDiscount\":3000,"
+                        + "\"lines\":[{\"productId\":\"%s\",\"quantity\":2,\"lineDiscount\":5000}]}")
+                        .formatted(productId));
+        String orderId = JsonPath.read(json, "$.id");
+        pay(orderId, "CARD", 30000).andExpect(status().isOk());
+        pay(orderId, "CASH", 16200).andExpect(status().isOk());
+        return orderId;
+    }
+
     @Test
-    void voidOfCompletedOrder_refundsTheGrandTotal() throws Exception {
+    void voidOfCompletedOrder_refundsEachTenderInItsOwnMethod() throws Exception {
         setup();
-        String orderId = JsonPath.read(order(""), "$.id");
-        pay(orderId, "CASH", 25000).andExpect(status().isOk());
+        String orderId = splitTenderOrder();
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/void"), token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("VOID"))
-                .andExpect(jsonPath("$.payments.length()").value(2))
-                .andExpect(jsonPath("$.payments[1].type").value("REFUND"))
-                .andExpect(jsonPath("$.payments[1].amount.amount").value(25000));
+                .andExpect(jsonPath("$.payments.length()").value(4))
+                .andExpect(jsonPath("$.payments[2].type").value("REFUND"))
+                .andExpect(jsonPath("$.payments[2].method").value("CARD"))
+                .andExpect(jsonPath("$.payments[2].amount.amount").value(30000))
+                .andExpect(jsonPath("$.payments[3].type").value("REFUND"))
+                .andExpect(jsonPath("$.payments[3].method").value("CASH"))
+                .andExpect(jsonPath("$.payments[3].amount.amount").value(16200))
+                .andExpect(jsonPath("$.amountPaid").value(0));
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void refundOfCompletedOrder_refundsEachTenderInItsOwnMethod() throws Exception {
+        setup();
+        String orderId = splitTenderOrder();
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/refund"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andExpect(jsonPath("$.payments.length()").value(4))
+                .andExpect(jsonPath("$.payments[2].method").value("CARD"))
+                .andExpect(jsonPath("$.payments[2].amount.amount").value(30000))
+                .andExpect(jsonPath("$.payments[3].method").value("CASH"))
+                .andExpect(jsonPath("$.payments[3].amount.amount").value(16200));
+    }
+
+    @Test
+    void orderListing_secondPageHoldsTheOlderOrders() throws Exception {
+        setup();
+        String older = JsonPath.read(order(""), "$.id");
+        String newer = JsonPath.read(order(""), "$.id");
+        mockMvc.perform(authed(get("/api/v1/orders?page=0&size=1"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(newer));
+        mockMvc.perform(authed(get("/api/v1/orders?page=1&size=1"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(older));
     }
 
     @Test

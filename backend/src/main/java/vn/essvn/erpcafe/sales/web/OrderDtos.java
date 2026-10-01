@@ -38,10 +38,6 @@ public final class OrderDtos {
             @NotNull @Positive BigDecimal amount) {
     }
 
-    public record RefundRequest(
-            PaymentMethod method) {
-    }
-
     // --- responses ---
 
     public record ModifierResponse(UUID modifierId, String name, MoneyDto priceDelta) {

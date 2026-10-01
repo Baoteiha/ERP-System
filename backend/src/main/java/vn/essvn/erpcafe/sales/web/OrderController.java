@@ -27,14 +27,12 @@ import vn.essvn.erpcafe.sales.application.SalesInputs.PlacedOrder;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.Payment;
-import vn.essvn.erpcafe.sales.domain.PaymentMethod;
 import vn.essvn.erpcafe.sales.web.OrderDtos.CreateOrderRequest;
 import vn.essvn.erpcafe.sales.web.OrderDtos.LineResponse;
 import vn.essvn.erpcafe.sales.web.OrderDtos.ModifierResponse;
 import vn.essvn.erpcafe.sales.web.OrderDtos.OrderResponse;
 import vn.essvn.erpcafe.sales.web.OrderDtos.PaymentRequest;
 import vn.essvn.erpcafe.sales.web.OrderDtos.PaymentResponse;
-import vn.essvn.erpcafe.sales.web.OrderDtos.RefundRequest;
 
 /**
  * POS orders for the active branch (requires {@code X-Branch-Id}):
@@ -108,18 +106,14 @@ public class OrderController {
 
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAuthority('sales:refund')")
-    public OrderResponse voidOrder(@PathVariable UUID id, @RequestBody(required = false) RefundRequest request) {
-        return toResponse(orderService.voidOrder(id, refundMethod(request)));
+    public OrderResponse voidOrder(@PathVariable UUID id) {
+        return toResponse(orderService.voidOrder(id));
     }
 
     @PostMapping("/{id}/refund")
     @PreAuthorize("hasAuthority('sales:refund')")
-    public OrderResponse refund(@PathVariable UUID id, @RequestBody(required = false) RefundRequest request) {
-        return toResponse(orderService.refund(id, refundMethod(request)));
-    }
-
-    private static PaymentMethod refundMethod(RefundRequest request) {
-        return request != null && request.method() != null ? request.method() : PaymentMethod.CASH;
+    public OrderResponse refund(@PathVariable UUID id) {
+        return toResponse(orderService.refund(id));
     }
 
     // --- mapping ---
