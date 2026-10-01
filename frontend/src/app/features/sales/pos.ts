@@ -1,9 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { CatalogService, OrganizationService, SalesService } from '../../core/api.services';
+import { catchError, debounceTime, map, of, switchMap, tap } from 'rxjs';
+import { CatalogService, SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
-import { CategoryResponse, LineRequest, ModifierGroupResponse, OrderResponse, OrderType, PaymentMethod, ProductResponse } from '../../core/models';
+import { CategoryResponse, CreateOrderRequest, MenuModifierGroup, MenuProduct, Money, OrderResponse, OrderType, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
@@ -11,7 +13,7 @@ import { IconComponent } from '../../shared/icon';
 import { SteamComponent } from '../../shared/steam';
 
 interface CartLine {
-  product: ProductResponse;
+  product: MenuProduct;
   quantity: number;
   modifierIds: string[];
   lineDiscount: string;
@@ -36,7 +38,7 @@ interface CartLine {
         </div>
 
         <div class="toolbar">
-          <input class="input search" [(ngModel)]="search" placeholder="Search products or SKU" aria-label="Search products or SKU" />
+          <input class="input search" [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Search products or SKU" aria-label="Search products or SKU" />
           <div class="category-strip">
             <button [class.active]="categoryId() === 'all'" (click)="categoryId.set('all')">All</button>
             @for (c of categories(); track c.id) {
@@ -49,10 +51,10 @@ interface CartLine {
         @else {
           <div class="product-grid">
             @for (p of filteredProducts(); track p.id) {
-              <button class="product-tile paper-card" [disabled]="!p.active" [class.dusty]="!p.active" (click)="addProduct(p)">
+              <button class="product-tile paper-card" (click)="addProduct(p)">
                 <span class="sku">{{ p.sku }}</span>
                 <b>{{ p.name }}</b>
-                <span class="price"><app-icon name="tag" [size]="12" aria-hidden="true" /> {{ p.basePrice | money }}</span>
+                <span class="price"><app-icon name="tag" [size]="12" aria-hidden="true" /> {{ p.effectivePrice | money }}</span>
               </button>
             } @empty { <div class="empty"><div class="big"><app-icon name="bean" [size]="30" /></div>No products match</div> }
           </div>
@@ -74,7 +76,7 @@ interface CartLine {
               <div class="line-main">
                 <div>
                   <b>{{ line.product.name }}</b>
-                  @if (line.modifierIds.length) { <div class="soft">{{ modifierNames(line.modifierIds).join(', ') }}</div> }
+                  @if (line.modifierIds.length) { <div class="soft">{{ modifierNames(line).join(', ') }}</div> }
                 </div>
                 <button class="btn btn-sm btn-ghost btn-icon" (click)="removeLine(idx)" [attr.aria-label]="'Remove ' + line.product.name"><app-icon name="close" [size]="16" /></button>
               </div>
@@ -85,9 +87,9 @@ interface CartLine {
                 <button class="btn btn-sm btn-outline" [class.needs-opts]="unmetGroups(line).length" (click)="configure(idx)">
                   {{ unmetGroups(line).length ? 'Choose options' : 'Modifiers' }}
                 </button>
-                <input class="input discount" type="number" min="0" [(ngModel)]="line.lineDiscount" placeholder="Discount" [attr.aria-label]="'Discount for ' + line.product.name" />
+                <input class="input discount" type="number" min="0" [ngModel]="line.lineDiscount" (ngModelChange)="setLineDiscount(idx, $event)" placeholder="Discount" [attr.aria-label]="'Discount for ' + line.product.name" />
               </div>
-              <div class="line-total">{{ lineTotal(line) | money }}</div>
+              <div class="line-total">{{ lineTotalAt(idx) | money }}</div>
             </div>
           } @empty {
             <div class="empty">
@@ -98,17 +100,17 @@ interface CartLine {
         </div>
 
         <div class="checkout">
-          <div><span>Subtotal</span><b>{{ subtotal() | money }}</b></div>
-          <div><span>Line discounts</span><b>{{ lineDiscountTotal() | money }}</b></div>
+          <div><span>Subtotal</span><b>{{ displayQuote()?.subtotal | money }}</b></div>
+          <div><span>Discounts</span><b>{{ displayQuote()?.discountTotal | money }}</b></div>
           <div>
             <label for="pos-discount">Order discount</label>
-            <input id="pos-discount" class="input money-input" type="number" min="0" [(ngModel)]="orderDiscount" />
+            <input id="pos-discount" class="input money-input" type="number" min="0" [ngModel]="orderDiscount()" (ngModelChange)="setOrderDiscount($event)" />
           </div>
           <div>
             <span>Tax ({{ taxPercent() }}%)</span>
-            <b>{{ taxAmount() | money }}</b>
+            <b>{{ displayQuote()?.taxTotal | money }}</b>
           </div>
-          <div class="grand"><span>Total</span><b>{{ grandTotal() | money }}</b></div>
+          <div class="grand"><span>Total</span><b>{{ displayQuote()?.grandTotal | money }}</b></div>
         </div>
         </div>
 
@@ -121,8 +123,8 @@ interface CartLine {
             <option value="CARD">Card</option>
             <option value="EWALLET">E-wallet</option>
           </select>
-          <button class="btn btn-primary" (click)="submit()" [disabled]="saving() || cart().length === 0 || !ticketValid() || !auth.can('sales:write')">
-            @if (saving()) { <span class="spinner"></span> } Pay {{ grandTotal() | money }}
+          <button class="btn btn-primary" (click)="submit()" [disabled]="saving() || !payable() || !auth.can('sales:write')">
+            @if (saving()) { <span class="spinner"></span> } Pay {{ displayQuote()?.grandTotal | money }}
           </button>
         </div>
       </aside>
@@ -260,13 +262,12 @@ export class PosComponent {
   auth = inject(AuthService);
   private catalog = inject(CatalogService);
   private sales = inject(SalesService);
-  private organization = inject(OrganizationService);
   private toast = inject(ToastService);
   private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
 
   categories = signal<CategoryResponse[]>([]);
-  products = signal<ProductResponse[]>([]);
-  modifierGroups = signal<ModifierGroupResponse[]>([]);
+  products = signal<MenuProduct[]>([]);
   cart = signal<CartLine[]>([]);
   loading = signal(true);
   saving = signal(false);
@@ -274,51 +275,80 @@ export class PosComponent {
   categoryId = signal<string>('all');
   configuringIndex = signal<number | null>(null);
   createdOrder = signal<OrderResponse | null>(null);
-  search = '';
-  /** The active branch's rate (a fraction); the server applies it, this only previews the total. */
-  taxRate = signal('0');
-  orderDiscount = '0';
+  search = signal('');
+  orderDiscount = signal('0');
   paymentMethod: PaymentMethod = 'CASH';
 
   filteredProducts = computed(() => {
-    const q = this.search.trim().toLowerCase();
+    const q = this.search().trim().toLowerCase();
     return this.products().filter((p) =>
       (this.categoryId() === 'all' || p.categoryId === this.categoryId()) &&
       (!q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
     );
   });
-  subtotal = computed(() => this.cart().reduce((sum, line) => sum + Number(line.product.basePrice.amount) * line.quantity + this.modifierTotal(line) * line.quantity, 0).toString());
-  lineDiscountTotal = computed(() => this.cart().reduce((sum, line) => sum + Number(line.lineDiscount || 0), 0).toString());
-  grandTotal = computed(() => {
-    const taxable = Math.max(0, Number(this.subtotal()) - Number(this.lineDiscountTotal()) - Number(this.orderDiscount || 0));
-    return (taxable + taxable * Number(this.taxRate() || 0)).toString();
-  });
-  taxPercent = computed(() => String(Math.round(Number(this.taxRate() || 0) * 10000) / 100));
-  taxAmount = computed(() => {
-    const taxable = Math.max(0, Number(this.subtotal()) - Number(this.lineDiscountTotal()) - Number(this.orderDiscount || 0));
-    return (taxable * Number(this.taxRate() || 0)).toString();
+
+  ticketValid = computed(() => this.cart().every((l) => this.unmetGroups(l).length === 0));
+
+  /** What the server is asked to price; null while there is nothing sellable to price. */
+  private quoteRequest = computed<CreateOrderRequest | null>(() => {
+    if (!this.cart().length || !this.ticketValid()) return null;
+    return {
+      orderType: this.orderType(),
+      orderDiscount: this.orderDiscount() || '0',
+      lines: this.cart().map((line) => ({
+        productId: line.product.id,
+        quantity: line.quantity,
+        modifierIds: line.modifierIds,
+        lineDiscount: line.lineDiscount || '0',
+      })),
+    };
   });
 
-  constructor() { this.load(); }
+  /** The server's answer and the request it answered; the totals on screen are never computed here. */
+  private quoted = signal<{ request: CreateOrderRequest; order: OrderResponse } | null>(null);
+  /** The last priced ticket, shown even for the moment before a newer quote lands. */
+  displayQuote = computed(() => this.quoted()?.order ?? null);
+  /** The quote for exactly what is in the cart now, or null while a newer one is pending. */
+  currentQuote = computed(() => {
+    const q = this.quoted();
+    return q && q.request === this.quoteRequest() ? q.order : null;
+  });
+  payable = computed(() => this.currentQuote() !== null);
+  taxPercent = computed(() => String(Math.round(Number(this.displayQuote()?.taxRate || 0) * 10000) / 100));
+
+  /** One id per attempt to sell the current cart: a retry of a lost create then returns the same order. */
+  private clientRequestId: string | null = null;
+  /** The order created for this attempt while it awaits payment, so a retry pays it instead of creating another. */
+  private awaitingPayment: OrderResponse | null = null;
+
+  constructor() {
+    this.load();
+    toObservable(this.quoteRequest).pipe(
+      // a changed cart is a different sale: it gets its own request id and order
+      tap(() => { this.clientRequestId = null; this.awaitingPayment = null; }),
+      debounceTime(250),
+      // switchMap cancels the quote still in flight, so a slow old answer never overwrites a newer one
+      switchMap((request) => request === null
+        ? of(null)
+        : this.sales.quote(request).pipe(
+            map((order) => ({ request, order })),
+            catchError(() => of(null)),
+          )),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((quoted) => this.quoted.set(quoted));
+  }
 
   load() {
     this.loading.set(true);
-    const branchId = this.auth.activeBranchId();
-    if (this.auth.can('branch:read') && branchId) {
-      this.organization.listBranches(0, 100, true).subscribe({
-        next: (page) => this.taxRate.set(page.content.find((b) => b.id === branchId)?.taxRate ?? '0'),
-      });
-    }
     this.catalog.listCategories().subscribe({ next: (items) => this.categories.set(items.filter((c) => c.active)) });
-    this.catalog.listModifierGroups().subscribe({ next: (items) => this.modifierGroups.set(items) });
-    this.catalog.listProducts(0, 500).subscribe({
-      next: (page) => { this.products.set(page.content); this.loading.set(false); },
+    this.catalog.menu().subscribe({
+      next: (items) => { this.products.set(items); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
   }
 
-  addProduct(product: ProductResponse) {
-    if (!product.modifierGroupIds.length) {
+  addProduct(product: MenuProduct) {
+    if (!product.modifierGroups.length) {
       const existingIdx = this.cart().findIndex((line) =>
         line.product.id === product.id &&
         line.modifierIds.length === 0 &&
@@ -332,41 +362,48 @@ export class PosComponent {
 
     this.cart.update((cart) => [...cart, { product, quantity: 1, modifierIds: [], lineDiscount: '0' }]);
     const idx = this.cart().length - 1;
-    if (product.modifierGroupIds.length) this.configuringIndex.set(idx);
+    if (product.modifierGroups.length) this.configuringIndex.set(idx);
   }
   removeLine(idx: number) { this.cart.update((cart) => cart.filter((_, i) => i !== idx)); }
   changeQty(idx: number, delta: number) {
     this.cart.update((cart) => cart.map((line, i) => i === idx ? { ...line, quantity: Math.max(1, line.quantity + delta) } : line));
   }
+  setLineDiscount(idx: number, value: string | number | null) {
+    this.cart.update((cart) => cart.map((line, i) => i === idx ? { ...line, lineDiscount: String(value ?? '') } : line));
+  }
+  setOrderDiscount(value: string | number | null) { this.orderDiscount.set(String(value ?? '')); }
   clearCart() { this.cart.set([]); }
   configure(idx: number) { this.configuringIndex.set(idx); }
   currentLine() { const idx = this.configuringIndex(); return idx === null ? null : this.cart()[idx] ?? null; }
-  groupsFor(product: ProductResponse) { return this.modifierGroups().filter((g) => product.modifierGroupIds.includes(g.id)); }
-  modifierNames(ids: string[]) { return ids.map((id) => this.modifierGroups().flatMap((g) => g.modifiers).find((m) => m.id === id)?.name ?? id.slice(0, 6)); }
+  groupsFor(product: MenuProduct) { return product.modifierGroups; }
+  modifierNames(line: CartLine) {
+    const modifiers = line.product.modifierGroups.flatMap((g) => g.modifiers);
+    return line.modifierIds.map((id) => modifiers.find((m) => m.id === id)?.name ?? id.slice(0, 6));
+  }
+
+  /** The server's total for the line, once a quote that includes it has landed. */
+  lineTotalAt(idx: number): Money | null {
+    const quote = this.displayQuote();
+    return quote && quote.lines.length === this.cart().length ? quote.lines[idx].lineTotal : null;
+  }
 
   /** Modifier groups of a line that still need choices (selected < min). */
-  unmetGroups(line: CartLine): ModifierGroupResponse[] {
+  unmetGroups(line: CartLine): MenuModifierGroup[] {
     return this.groupsFor(line.product).filter((g) => this.isUnmet(line, g));
   }
-  isUnmet(line: CartLine, group: ModifierGroupResponse): boolean {
+  isUnmet(line: CartLine, group: MenuModifierGroup): boolean {
     const chosen = group.modifiers.filter((m) => line.modifierIds.includes(m.id)).length;
     return chosen < group.minSelect;
   }
-  ticketValid = computed(() => this.cart().every((l) => this.unmetGroups(l).length === 0));
 
   /** Plain-language selection rule for a group ("Choose exactly 1"). */
-  selectionHint(g: ModifierGroupResponse): string {
+  selectionHint(g: MenuModifierGroup): string {
     if (g.minSelect <= 0) return g.maxSelect > 0 ? `Optional · up to ${g.maxSelect}` : 'Optional';
     if (g.minSelect === g.maxSelect) return `Choose exactly ${g.minSelect}`;
     return `Choose ${g.minSelect}–${g.maxSelect}`;
   }
-  modifierTotal(line: CartLine) {
-    const modifiers = this.modifierGroups().flatMap((g) => g.modifiers);
-    return line.modifierIds.reduce((sum, id) => sum + Number(modifiers.find((m) => m.id === id)?.priceDelta.amount ?? 0), 0);
-  }
-  lineTotal(line: CartLine) { return Math.max(0, (Number(line.product.basePrice.amount) + this.modifierTotal(line)) * line.quantity - Number(line.lineDiscount || 0)).toString(); }
 
-  toggleModifier(modifierId: string, group: ModifierGroupResponse) {
+  toggleModifier(modifierId: string, group: MenuModifierGroup) {
     const idx = this.configuringIndex();
     if (idx === null) return;
     this.cart.update((cart) => cart.map((line, i) => {
@@ -390,36 +427,47 @@ export class PosComponent {
       if (idx >= 0) this.configuringIndex.set(idx);
       return;
     }
-    const lines: LineRequest[] = this.cart().map((line) => ({
-      productId: line.product.id,
-      quantity: line.quantity,
-      modifierIds: line.modifierIds,
-      lineDiscount: line.lineDiscount || '0',
-    }));
-    if (!lines.length) return;
+    const request = this.quoteRequest();
+    if (!request || !this.payable()) return;
     this.saving.set(true);
-    this.sales.createOrder({ orderType: this.orderType(), orderDiscount: this.orderDiscount || '0', lines }).subscribe({
+    if (this.awaitingPayment) {
+      this.pay(this.awaitingPayment);
+      return;
+    }
+    this.clientRequestId ??= crypto.randomUUID();
+    this.sales.createOrder({ ...request, clientRequestId: this.clientRequestId }).subscribe({
       next: (order) => {
         // a zero-total ticket is already completed at creation; there is nothing to pay
         if (order.status !== 'OPEN') {
-          this.saving.set(false);
-          this.createdOrder.set(order);
-          this.toast.success(`Paid ${formatMoney(order.grandTotal, order.currency)}`);
+          this.paid(order);
           return;
         }
-        this.sales.addPayment(order.id, { method: this.paymentMethod, amount: order.grandTotal }).subscribe({
-          next: (paid) => { this.saving.set(false); this.createdOrder.set(paid); this.toast.success(`Paid ${formatMoney(paid.grandTotal, paid.currency)}`); },
-          error: () => this.saving.set(false),
-        });
+        this.awaitingPayment = order;
+        this.pay(order);
       },
       error: () => this.saving.set(false),
     });
   }
 
+  private pay(order: OrderResponse) {
+    this.sales.addPayment(order.id, { method: this.paymentMethod, amount: order.grandTotal }).subscribe({
+      next: (paid) => this.paid(paid),
+      error: () => this.saving.set(false),
+    });
+  }
+
+  private paid(order: OrderResponse) {
+    this.clientRequestId = null;
+    this.awaitingPayment = null;
+    this.saving.set(false);
+    this.createdOrder.set(order);
+    this.toast.success(`Paid ${formatMoney(order.grandTotal, order.currency)}`);
+  }
+
   newOrder() {
     this.createdOrder.set(null);
     this.clearCart();
-    this.orderDiscount = '0';
+    this.orderDiscount.set('0');
     this.router.navigateByUrl('/pos');
   }
 }

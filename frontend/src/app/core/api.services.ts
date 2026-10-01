@@ -68,6 +68,7 @@ export class CatalogService {
   listProducts(page = 0, size = 100) {
     return this.http.get<M.PageResponse<M.ProductResponse>>(`${V1}/products`, { params: pageParams(page, size) });
   }
+  menu() { return this.http.get<M.MenuProduct[]>(`${V1}/menu`); }
   getProduct(id: string) { return this.http.get<M.ProductResponse>(`${V1}/products/${id}`); }
   createProduct(b: M.CreateProductRequest) { return this.http.post<M.ProductResponse>(`${V1}/products`, b); }
   updateProduct(id: string, b: M.UpdateProductRequest) { return this.http.put<M.ProductResponse>(`${V1}/products/${id}`, b); }
@@ -153,6 +154,7 @@ export class SalesService {
   }
   getOrder(id: string) { return this.http.get<M.OrderResponse>(`${V1}/orders/${id}`); }
   createOrder(b: M.CreateOrderRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders`, b); }
+  quote(b: M.CreateOrderRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/quote`, b); }
   addPayment(id: string, b: M.PaymentRequest) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/payments`, b); }
   complete(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/complete`, {}); }
   cancel(id: string) { return this.http.post<M.OrderResponse>(`${V1}/orders/${id}/cancel`, {}); }

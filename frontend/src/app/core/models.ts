@@ -170,7 +170,17 @@ export type OrderStatus = 'OPEN' | 'PAID' | 'COMPLETED' | 'CANCELLED' | 'VOID' |
 export interface LineRequest { productId: UUID; quantity: number; modifierIds?: UUID[]; lineDiscount?: string; }
 export interface CreateOrderRequest {
   orderType: OrderType; orderDiscount?: string; lines: LineRequest[];
+  /** The till's id for this attempt; a repeat of the same id returns the first order instead of a second. */
+  clientRequestId?: UUID;
 }
+
+/** The branch menu the till sells from: effectivePrice is what the branch charges, modifiers are the active ones. */
+export interface MenuModifier { id: UUID; name: string; priceDelta: Money; }
+export interface MenuModifierGroup { id: UUID; name: string; minSelect: number; maxSelect: number; modifiers: MenuModifier[]; }
+export interface MenuProduct {
+  id: UUID; categoryId: UUID; name: string; sku: string; effectivePrice: Money; modifierGroups: MenuModifierGroup[];
+}
+
 export interface PaymentRequest { method: PaymentMethod; amount: string; }
 export interface RefundRequest { method?: PaymentMethod; }
 
