@@ -12,6 +12,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
@@ -24,6 +27,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import vn.essvn.erpcafe.identity.application.RefreshTokenPurger;
+import vn.essvn.erpcafe.identity.domain.RefreshToken;
+import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.JwtAuthenticationFilter;
 import vn.essvn.erpcafe.identity.security.JwtService;
@@ -40,6 +46,10 @@ class LoginHardeningTest extends AbstractIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
+    @Autowired
+    private RefreshTokenPurger purger;
     @Autowired
     private ObjectProvider<FilterRegistrationBean<?>> filterRegistrations;
 
@@ -113,6 +123,29 @@ class LoginHardeningTest extends AbstractIntegrationTest {
         assertThat(attempt("spray-another@esscafe.vn", "wrong", address)).isEqualTo(429);
         // a different address is unaffected
         assertThat(attempt("admin@esscafe.vn", "admin1234", uniqueAddress())).isEqualTo(200);
+    }
+
+    @Test
+    void purger_deletesTokensExpiredOverAWeekAgo_andKeepsTheRest() {
+        UUID userId = userRepository.findByEmail("admin@esscafe.vn").orElseThrow().getId();
+        Instant now = Instant.now();
+        RefreshToken longGone = save(userId, now.minus(Duration.ofDays(8)));
+        RefreshToken justExpired = save(userId, now.minus(Duration.ofDays(1)));
+        RefreshToken live = save(userId, now.plus(Duration.ofDays(1)));
+
+        purger.purgeExpired();
+
+        assertThat(refreshTokenRepository.findById(longGone.getId())).isEmpty();
+        assertThat(refreshTokenRepository.findById(justExpired.getId())).isPresent();
+        assertThat(refreshTokenRepository.findById(live.getId())).isPresent();
+        refreshTokenRepository.delete(justExpired);
+        refreshTokenRepository.delete(live);
+    }
+
+    private RefreshToken save(UUID userId, Instant expiresAt) {
+        String hash = "%064d".formatted(SEQ.incrementAndGet() + System.nanoTime());
+        return refreshTokenRepository.save(new RefreshToken(userId, hash.substring(0, 64), expiresAt,
+                UUID.randomUUID()));
     }
 
     @Test
