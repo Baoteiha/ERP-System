@@ -1,4 +1,4 @@
-import { Injectable, Injector, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, defer, firstValueFrom, from, of, tap, timeout } from 'rxjs';
@@ -30,7 +30,7 @@ export class AuthService {
   constructor() {
     // another tab refreshed or logged out: follow its tokens instead of using (and burning) stale ones
     // signals only, never storage writes, so tabs cannot echo each other
-    window.addEventListener('storage', (e) => {
+    const onStorage = (e: StorageEvent) => {
       if (e.key === null) {
         this.syncTokensFromStorage();
         this.activeBranchId.set(localStorage.getItem(BRANCH_KEY));
@@ -42,7 +42,10 @@ export class AuthService {
         this.activeBranchId.set(e.newValue);
       }
       if (!this.accessToken()) this.dropIdentity();
-    });
+    };
+    window.addEventListener('storage', onStorage);
+    // a destroyed injector (a torn-down test bed) must not keep answering other tabs
+    inject(DestroyRef).onDestroy(() => window.removeEventListener('storage', onStorage));
   }
 
   can(permission: string): boolean {
