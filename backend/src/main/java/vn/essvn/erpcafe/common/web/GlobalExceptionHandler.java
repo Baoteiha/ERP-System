@@ -73,7 +73,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * The exception message would name the entity class, so the detail is fixed. The raw JPA
-     * exception is included because an explicit flush inside an aspect surfaces it untranslated.
+     * exception is included because Hibernate's automatic flush, triggered by a native query
+     * in an aspect, surfaces it untranslated.
      */
     @ExceptionHandler({OptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
     ProblemDetail handleOptimisticLock(Exception ex) {

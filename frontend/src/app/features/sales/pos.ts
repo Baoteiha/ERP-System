@@ -387,6 +387,13 @@ export class PosComponent {
     this.saving.set(true);
     this.sales.createOrder({ orderType: this.orderType(), taxRate: this.taxRate || '0', orderDiscount: this.orderDiscount || '0', lines }).subscribe({
       next: (order) => {
+        // a zero-total ticket is already completed at creation; there is nothing to pay
+        if (order.status !== 'OPEN') {
+          this.saving.set(false);
+          this.createdOrder.set(order);
+          this.toast.success(`Paid ${formatMoney(order.grandTotal, order.currency)}`);
+          return;
+        }
         this.sales.addPayment(order.id, { method: this.paymentMethod, amount: order.grandTotal }).subscribe({
           next: (paid) => { this.saving.set(false); this.createdOrder.set(paid); this.toast.success(`Paid ${formatMoney(paid.grandTotal, paid.currency)}`); },
           error: () => this.saving.set(false),

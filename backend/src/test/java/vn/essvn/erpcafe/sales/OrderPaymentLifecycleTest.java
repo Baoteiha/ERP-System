@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,12 +89,6 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
 
         return new String[] { ingredientId, productId };
-    }
-
-    /** Reads a numeric JSON field as BigDecimal. The (Object) cast forces String.valueOf(Object)
-     *  — otherwise JsonPath.read's generic return type makes javac pick String.valueOf(char[]). */
-    private static BigDecimal num(String json, String path) {
-        return new BigDecimal(String.valueOf((Object) JsonPath.read(json, path)));
     }
 
     private BigDecimal stockQty(String ingredientId) throws Exception {
@@ -212,14 +207,21 @@ class OrderPaymentLifecycleTest extends AbstractIntegrationTest {
         }
         start.countDown();
         List<Integer> codes = new ArrayList<>();
-        for (Future<Integer> f : results) {
-            codes.add(f.get());
+        try {
+            for (Future<Integer> f : results) {
+                codes.add(f.get(30, TimeUnit.SECONDS));
+            }
+        } finally {
+            pool.shutdownNow();
         }
-        pool.shutdown();
 
         assertThat(codes).containsOnlyOnce(200);
         assertThat(codes).filteredOn(c -> c != 200).allMatch(c -> c == 409 || c == 422);
         assertThat(movements.findByRefTypeAndRefId("ORDER", UUID.fromString(orderId))).hasSize(1);
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("982");
+        // the loser's payment was rolled back with its transaction
+        mockMvc.perform(authed(get("/api/v1/orders/" + orderId), token))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.payments.length()").value(1));
     }
 }
