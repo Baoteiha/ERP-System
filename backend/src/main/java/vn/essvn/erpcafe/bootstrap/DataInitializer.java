@@ -3,6 +3,7 @@ package vn.essvn.erpcafe.bootstrap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,8 +11,10 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Permission;
@@ -35,6 +38,11 @@ import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
  *
  * <p>As the app's wiring root, this class is permitted to touch multiple modules'
  * repositories directly (the one sanctioned exception to module boundaries).
+ *
+ * <p>Startup acts for no request, so the catalog sync runs as the system across every company
+ * ({@link TenantContext#runAsSystem}); the first company's own rows are written inside that
+ * company's tenant, the only way a tenant-owned row is ever written. Each step opens its own
+ * transaction, because a session takes its tenant when it opens.
  */
 @Component
 public class DataInitializer implements ApplicationRunner {
@@ -49,11 +57,13 @@ public class DataInitializer implements ApplicationRunner {
     private final BranchRepository branchRepository;
     private final PasswordEncoder passwordEncoder;
     private final SecurityProperties securityProperties;
+    private final TransactionTemplate transactions;
 
     public DataInitializer(PermissionRepository permissionRepository, RoleRepository roleRepository,
             UserRepository userRepository, UserBranchAccessRepository accessRepository,
             CompanyRepository companyRepository, BranchRepository branchRepository,
-            PasswordEncoder passwordEncoder, SecurityProperties securityProperties) {
+            PasswordEncoder passwordEncoder, SecurityProperties securityProperties,
+            PlatformTransactionManager transactionManager) {
         this.permissionRepository = permissionRepository;
         this.roleRepository = roleRepository;
         this.userRepository = userRepository;
@@ -62,14 +72,20 @@ public class DataInitializer implements ApplicationRunner {
         this.branchRepository = branchRepository;
         this.passwordEncoder = passwordEncoder;
         this.securityProperties = securityProperties;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
-        syncPermissions();
-        if (userRepository.count() == 0) {
-            seedTenant();
+        boolean empty = asSystem(() -> {
+            syncPermissions();
+            return userRepository.count() == 0;
+        });
+        if (empty) {
+            String password = bootstrapPassword();
+            Company company = asSystem(this::findOrCreateCompany);
+            TenantContext.runAs(company.getId(),
+                    () -> transactions.executeWithoutResult(status -> seedTenant(company, password)));
         }
         syncDefaultRolePermissions(Permissions.CATALOG_VERSION, Permissions.SINCE);
     }
@@ -87,8 +103,12 @@ public class DataInitializer implements ApplicationRunner {
      * @param catalogVersion the catalog version being synced to ({@link Permissions#CATALOG_VERSION})
      * @param sinceVersion permission name → the catalog version that introduced it ({@link Permissions#SINCE})
      */
-    @Transactional
     public void syncDefaultRolePermissions(int catalogVersion, Map<String, Integer> sinceVersion) {
+        TenantContext.runAsSystem(() -> transactions.executeWithoutResult(
+                status -> syncEachDefaultRole(catalogVersion, sinceVersion)));
+    }
+
+    private void syncEachDefaultRole(int catalogVersion, Map<String, Integer> sinceVersion) {
         for (Role role : roleRepository.findAll()) {
             DefaultRole def = DefaultRole.all().stream()
                     .filter(d -> d.roleName().equals(role.getName()))
@@ -122,10 +142,26 @@ public class DataInitializer implements ApplicationRunner {
         });
     }
 
-    private void seedTenant() {
-        Company company = companyRepository.findAll().stream().findFirst()
-                .orElseGet(() -> companyRepository.save(new Company("ESS Cafe", "ESS")));
+    // the transaction opens inside the system scope, so its session takes that scope
+    private <T> T asSystem(Supplier<T> work) {
+        return TenantContext.runAsSystem(() -> transactions.execute(status -> work.get()));
+    }
 
+    private Company findOrCreateCompany() {
+        return companyRepository.findAll().stream().findFirst()
+                .orElseGet(() -> companyRepository.save(new Company("ESS Cafe", "ESS")));
+    }
+
+    private String bootstrapPassword() {
+        String password = securityProperties.bootstrap().adminPassword();
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.security.bootstrap.admin-password is required to seed an empty database");
+        }
+        return password;
+    }
+
+    private void seedTenant(Company company, String password) {
         Branch branch = branchRepository.findAll().stream()
                 .filter(b -> b.getCompanyId().equals(company.getId()))
                 .findFirst()
@@ -140,11 +176,6 @@ public class DataInitializer implements ApplicationRunner {
                 .orElseThrow();
 
         String email = User.normalizeEmail(securityProperties.bootstrap().adminEmail());
-        String password = securityProperties.bootstrap().adminPassword();
-        if (password == null || password.isBlank()) {
-            throw new IllegalStateException(
-                    "app.security.bootstrap.admin-password is required to seed an empty database");
-        }
         User admin = new User(company.getId(), email,
                 passwordEncoder.encode(password),
                 "Bootstrap Admin");

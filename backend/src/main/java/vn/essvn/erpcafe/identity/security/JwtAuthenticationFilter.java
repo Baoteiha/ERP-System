@@ -24,6 +24,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.Permissions;
 import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
 
@@ -76,6 +77,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
+            // set first: every lookup below, and the whole request after it, reads only this company's rows
+            TenantContext.set(claims.companyId());
             // the token's branch roles count only while still granted: a revoke or a closed branch ends them at once
             Map<UUID, UUID> current = grantCache.current(claims.userId(), claims.companyId());
             Map<UUID, UUID> roleByBranch = new HashMap<>();
@@ -107,6 +110,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             BranchContext.clear();
+            TenantContext.clear();
             SecurityContextHolder.clearContext();
         }
     }

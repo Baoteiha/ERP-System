@@ -6,11 +6,15 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.UnauthorizedException;
 import vn.essvn.erpcafe.config.SecurityProperties;
@@ -27,9 +31,12 @@ import vn.essvn.erpcafe.identity.security.UserGrantCache;
  * Authentication use cases: login, token refresh (with rotation), and logout.
  * Access tokens are stateless JWTs; refresh tokens are opaque, stored hashed,
  * and revocable.
+ *
+ * <p>Login and refresh run as the system ({@link TenantContext#runAsSystem}): the user, and so the
+ * company, is unknown until the email or the token's user is looked up. Every query they make names
+ * its row explicitly (email, user, token hash, company).
  */
 @Service
-@Transactional
 public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -44,11 +51,13 @@ public class AuthService {
     private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
     private final UserGrantCache grantCache;
+    private final TransactionTemplate transactions;
 
     public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, JwtService jwtService,
             LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
-            SecurityProperties securityProperties, UserGrantCache grantCache) {
+            SecurityProperties securityProperties, UserGrantCache grantCache,
+            PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
@@ -57,6 +66,7 @@ public class AuthService {
         this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
         this.grantCache = grantCache;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -64,6 +74,10 @@ public class AuthService {
      * address; it only ever feeds the failed-attempt throttle.
      */
     public TokenPair login(String email, String rawPassword, String clientKey) {
+        return asSystem(() -> verifyAndIssue(email, rawPassword, clientKey));
+    }
+
+    private TokenPair verifyAndIssue(String email, String rawPassword, String clientKey) {
         String normalizedEmail = User.normalizeEmail(email);
         loginAttemptService.checkNotBlocked(normalizedEmail, clientKey);
 
@@ -86,6 +100,10 @@ public class AuthService {
     }
 
     public TokenPair refresh(String rawRefreshToken) {
+        return asSystem(() -> rotate(rawRefreshToken));
+    }
+
+    private TokenPair rotate(String rawRefreshToken) {
         // We store only the SHA-256 hash, so look up by hash — a DB leak never exposes usable tokens.
         String hash = sha256(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
@@ -113,9 +131,15 @@ public class AuthService {
         return issueTokens(user, stored.getFamilyId());
     }
 
+    @Transactional
     public void logout(String rawRefreshToken) {
         refreshTokenRepository.findByTokenHash(sha256(rawRefreshToken))
                 .ifPresent(RefreshToken::revoke);
+    }
+
+    // the transaction opens inside the system scope, so its session takes that scope
+    private TokenPair asSystem(Supplier<TokenPair> work) {
+        return TenantContext.runAsSystem(() -> transactions.execute(status -> work.get()));
     }
 
     /** What a user's access token asserts: the role they hold at each live branch, read afresh. */
