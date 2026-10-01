@@ -126,6 +126,12 @@ public class Product extends AuditableEntity {
         this.basePrice = basePrice;
     }
 
+    /** The price a branch charges: its override when it set one, otherwise the company-wide base price. */
+    public Money priceAt(ProductBranchAvailability availability) {
+        return availability != null && availability.getPriceOverride() != null
+                ? availability.getPriceOverride() : basePrice;
+    }
+
     public boolean isActive() {
         return active;
     }

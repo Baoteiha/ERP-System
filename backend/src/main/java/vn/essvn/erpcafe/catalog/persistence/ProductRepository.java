@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.catalog.persistence;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,6 +15,8 @@ import vn.essvn.erpcafe.catalog.domain.Product;
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     Page<Product> findByCompanyId(UUID companyId, Pageable pageable);
+
+    List<Product> findByCompanyIdAndActiveTrueOrderByName(UUID companyId);
 
     /** Tenant-scoped lookup: empty (→ 404) for another company's id. */
     Optional<Product> findByIdAndCompanyId(UUID id, UUID companyId);

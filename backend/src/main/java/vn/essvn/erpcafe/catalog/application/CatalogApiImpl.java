@@ -106,8 +106,7 @@ public class CatalogApiImpl implements CatalogApi {
         }
 
         List<Modifier> chosen = selectModifiers(product, modifierIds);
-        Money base = availability != null && availability.getPriceOverride() != null
-                ? availability.getPriceOverride() : product.getBasePrice();
+        Money base = product.priceAt(availability);
         List<PricedModifier> modifiers = new ArrayList<>();
         Money unitTotal = base;
         for (Modifier m : chosen) {

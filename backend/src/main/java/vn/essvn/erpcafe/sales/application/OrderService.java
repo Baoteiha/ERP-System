@@ -74,6 +74,18 @@ public class OrderService {
     }
 
     public Order create(CreateOrderInput input) {
+        Order saved = orderRepository.save(build(input));
+        saved.markPaidIfSettled(); // a zero-total ticket has nothing to collect
+        return finishIfPaid(saved);
+    }
+
+    /** Prices a ticket exactly as {@link #create} would, without saving it: the till's live totals. */
+    @Transactional(readOnly = true)
+    public Order quote(CreateOrderInput input) {
+        return build(input);
+    }
+
+    private Order build(CreateOrderInput input) {
         UUID branchId = activeBranch();
         UUID cashierId = identityApi.currentUserId().orElse(null);
         // the rate is the branch's setting, never the client's: a till cannot undercharge tax
@@ -86,9 +98,7 @@ public class OrderService {
             order.addLine(priced, li.quantity(), li.lineDiscount());
         }
         order.applyOrderDiscount(input.orderDiscount());
-        Order saved = orderRepository.save(order);
-        saved.markPaidIfSettled(); // a zero-total ticket has nothing to collect
-        return finishIfPaid(saved);
+        return order;
     }
 
     public Order addPayment(UUID orderId, PaymentInput input) {

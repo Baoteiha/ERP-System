@@ -64,13 +64,23 @@ public class OrderController {
     @PostMapping
     @PreAuthorize("hasAuthority('sales:write')")
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request) {
+        OrderResponse body = toResponse(orderService.create(toInput(request)));
+        return ResponseEntity.created(URI.create(ApiVersions.V1 + "/orders/" + body.id())).body(body);
+    }
+
+    /** The order the same body would create, priced and totalled but not saved. */
+    @PostMapping("/quote")
+    @PreAuthorize("hasAuthority('sales:write')")
+    public OrderResponse quote(@Valid @RequestBody CreateOrderRequest request) {
+        return toResponse(orderService.quote(toInput(request)));
+    }
+
+    private static CreateOrderInput toInput(CreateOrderRequest request) {
         List<LineInput> lines = request.lines().stream()
                 .map(l -> new LineInput(l.productId(), l.quantity(),
                         l.modifierIds() == null ? Set.of() : l.modifierIds(), l.lineDiscount()))
                 .toList();
-        OrderResponse body = toResponse(orderService.create(
-                new CreateOrderInput(request.orderType(), request.orderDiscount(), lines)));
-        return ResponseEntity.created(URI.create(ApiVersions.V1 + "/orders/" + body.id())).body(body);
+        return new CreateOrderInput(request.orderType(), request.orderDiscount(), lines);
     }
 
     @PostMapping("/{id}/payments")
