@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,13 +20,16 @@ import vn.essvn.erpcafe.catalog.domain.Modifier;
 import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
 import vn.essvn.erpcafe.catalog.domain.Product;
 import vn.essvn.erpcafe.catalog.domain.Recipe;
+import vn.essvn.erpcafe.catalog.domain.ProductBranchAvailability;
 import vn.essvn.erpcafe.catalog.persistence.ModifierRepository;
+import vn.essvn.erpcafe.catalog.persistence.ProductBranchAvailabilityRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * Implements the published {@link CatalogApi}. Runs inside a read-only
@@ -40,26 +42,19 @@ public class CatalogApiImpl implements CatalogApi {
     private final ProductRepository productRepository;
     private final RecipeRepository recipeRepository;
     private final ModifierRepository modifierRepository;
-    private final PricingService pricingService;
+    private final ProductBranchAvailabilityRepository availabilityRepository;
+    private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
 
     public CatalogApiImpl(ProductRepository productRepository, RecipeRepository recipeRepository,
-            ModifierRepository modifierRepository, PricingService pricingService, CurrentUser currentUser) {
+            ModifierRepository modifierRepository, ProductBranchAvailabilityRepository availabilityRepository,
+            OrganizationApi organizationApi, CurrentUser currentUser) {
         this.currentUser = currentUser;
         this.productRepository = productRepository;
         this.recipeRepository = recipeRepository;
         this.modifierRepository = modifierRepository;
-        this.pricingService = pricingService;
-    }
-
-    @Override
-    public boolean productExists(UUID productId) {
-        return productRepository.existsByIdAndCompanyId(productId, companyId());
-    }
-
-    @Override
-    public Money priceOf(UUID productId, UUID branchId, Set<UUID> modifierIds) {
-        return pricingService.priceOf(productId, branchId, modifierIds);
+        this.availabilityRepository = availabilityRepository;
+        this.organizationApi = organizationApi;
     }
 
     @Override
@@ -70,8 +65,8 @@ public class CatalogApiImpl implements CatalogApi {
         }
         BigDecimal qty = BigDecimal.valueOf(quantity);
 
-        // Accumulate net consumption per (ingredient, unit). We key on unit too because unit
-        // conversion (g<->kg) isn't handled yet — same ingredient in different units stays separate.
+        // Accumulate net consumption per (ingredient, unit). Units are not converted here (the
+        // inventory ledger converts to the base unit once), so the same ingredient in two units stays separate.
         Map<String, IngredientConsumption> acc = new LinkedHashMap<>();
         // Base recipe: each line scaled by the number of units ordered.
         recipe.getLines().forEach(line ->
@@ -92,46 +87,58 @@ public class CatalogApiImpl implements CatalogApi {
     }
 
     @Override
-    public PricedLine priceLine(UUID productId, UUID branchId, Set<UUID> modifierIds) {
-        Product product = productRepository.findByIdAndCompanyId(productId, companyId())
+    public PricedLine priceLine(UUID branchId, UUID productId, Set<UUID> modifierIds) {
+        UUID companyId = companyId();
+        Product product = productRepository.findByIdAndCompanyId(productId, companyId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
-        // Base = branch override or company base price, WITHOUT modifiers (empty set).
-        Money base = pricingService.priceOf(productId, branchId, Set.of());
+        // No branch means a company-wide quote (catalog browsing): base price, no availability rules.
+        if (branchId != null && !organizationApi.branchExistsInCompany(branchId, companyId)) {
+            throw ResourceNotFoundException.of("Branch", branchId);
+        }
 
+        List<Modifier> chosen = selectModifiers(product, modifierIds);
+        Money base = baseFor(product, branchId);
         List<PricedModifier> modifiers = new ArrayList<>();
         Money unitTotal = base;
-        if (modifierIds != null) {
-            for (UUID modifierId : modifierIds) {
-                Modifier m = modifierRepository.findByIdAndCompanyId(modifierId, companyId())
-                        .orElseThrow(() -> ResourceNotFoundException.of("Modifier", modifierId));
-                modifiers.add(new PricedModifier(m.getId(), m.getName(), m.getPriceDelta()));
-                unitTotal = unitTotal.add(m.getPriceDelta());
-            }
+        for (Modifier m : chosen) {
+            modifiers.add(new PricedModifier(m.getId(), m.getName(), m.getPriceDelta()));
+            unitTotal = unitTotal.add(m.getPriceDelta());
         }
         return new PricedLine(productId, product.getName(), base, modifiers, unitTotal);
     }
 
-    @Override
-    public void validateModifierSelection(UUID productId, Set<UUID> modifierIds) {
-        Product product = productRepository.findByIdAndCompanyId(productId, companyId())
-                .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
-        Set<UUID> selected = modifierIds == null ? Set.of() : new HashSet<>(modifierIds);
+    // Resolves the selection against the product's own groups, so an id from anywhere else
+    // (another product's group, another company) is simply "not offered" and never leaks existence.
+    private List<Modifier> selectModifiers(Product product, Set<UUID> modifierIds) {
+        Set<UUID> selected = modifierIds == null ? Set.of() : modifierIds;
+        List<Modifier> chosen = new ArrayList<>();
         Set<UUID> unaccounted = new HashSet<>(selected);
 
         for (ModifierGroup group : product.getModifierGroups()) {
-            Set<UUID> groupModifierIds = group.getModifiers().stream()
-                    .map(Modifier::getId).collect(Collectors.toSet());
-            long chosen = selected.stream().filter(groupModifierIds::contains).count();
-            if (chosen < group.getMinSelect() || chosen > group.getMaxSelect()) {
+            List<Modifier> inGroup = group.getModifiers().stream()
+                    .filter(m -> selected.contains(m.getId())).toList();
+            if (inGroup.size() < group.getMinSelect() || inGroup.size() > group.getMaxSelect()) {
                 throw new BusinessRuleException(
                         "Group '%s' requires between %d and %d selections (got %d)"
-                                .formatted(group.getName(), group.getMinSelect(), group.getMaxSelect(), chosen));
+                                .formatted(group.getName(), group.getMinSelect(), group.getMaxSelect(), inGroup.size()));
             }
-            unaccounted.removeAll(groupModifierIds);
+            inGroup.forEach(m -> unaccounted.remove(m.getId()));
+            chosen.addAll(inGroup);
         }
         if (!unaccounted.isEmpty()) {
             throw new BusinessRuleException("Modifiers not offered by this product: " + unaccounted);
         }
+        return chosen;
+    }
+
+    // A branch's price override wins over the company-wide base price.
+    private Money baseFor(Product product, UUID branchId) {
+        if (branchId == null) {
+            return product.getBasePrice();
+        }
+        return availabilityRepository.findByProductIdAndBranchId(product.getId(), branchId)
+                .map(ProductBranchAvailability::getPriceOverride)
+                .orElse(product.getBasePrice());
     }
 
     private UUID companyId() {

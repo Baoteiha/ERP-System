@@ -75,7 +75,7 @@ class CatalogFlowIntegrationTest extends AbstractIntegrationTest {
 
         // modifier group + a "Large" modifier (+5000, +7g coffee)
         String groupId = id(postJson("/api/v1/modifier-groups", token,
-                "{\"name\":\"Size%d\",\"minSelect\":1,\"maxSelect\":1}".formatted(n)));
+                "{\"name\":\"Size%d\",\"minSelect\":0,\"maxSelect\":1}".formatted(n)));
         String modifierId = id(postJson("/api/v1/modifier-groups/" + groupId + "/modifiers", token,
                 ("{\"name\":\"Large\",\"priceDelta\":5000,\"displayOrder\":1,"
                         + "\"recipeDeltas\":[{\"ingredientId\":\"%s\",\"quantity\":7,\"unit\":\"g\"}]}").formatted(ING1)));

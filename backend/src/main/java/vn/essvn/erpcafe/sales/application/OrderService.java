@@ -82,8 +82,7 @@ public class OrderService {
         Order order = new Order(branchId, cashierId, input.orderType(), branch.taxRate());
 
         for (LineInput li : input.lines()) {
-            catalogApi.validateModifierSelection(li.productId(), li.modifierIds());
-            PricedLine priced = catalogApi.priceLine(li.productId(), branchId, li.modifierIds());
+            PricedLine priced = catalogApi.priceLine(branchId, li.productId(), li.modifierIds());
             order.addLine(priced, li.quantity(), li.lineDiscount());
         }
         order.applyOrderDiscount(input.orderDiscount());
