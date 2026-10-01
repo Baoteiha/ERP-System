@@ -11,6 +11,7 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.inventory.api.IngredientReferenceCheck;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
@@ -30,10 +31,13 @@ public class IngredientService {
     private final StockMovementRepository movementRepository;
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final CurrentUser currentUser;
+    private final List<IngredientReferenceCheck> referenceChecks;
 
     public IngredientService(IngredientRepository ingredientRepository, ItemRepository itemRepository,
             StockItemRepository stockItemRepository, StockMovementRepository movementRepository,
-            PurchaseOrderRepository purchaseOrderRepository, CurrentUser currentUser) {
+            PurchaseOrderRepository purchaseOrderRepository, CurrentUser currentUser,
+            List<IngredientReferenceCheck> referenceChecks) {
+        this.referenceChecks = referenceChecks;
         this.stockItemRepository = stockItemRepository;
         this.movementRepository = movementRepository;
         this.purchaseOrderRepository = purchaseOrderRepository;
@@ -131,6 +135,11 @@ public class IngredientService {
         }
         if (purchaseOrderRepository.existsOpenLine(id, PurchaseOrderStatus.CANCELLED)) {
             throw new ConflictException("Ingredient is on an open purchase order; receive or cancel it first");
+        }
+        // Other modules (catalog recipes and modifier deltas) report their own references through
+        // the port; a deleted ingredient would leave them pointing at nothing and fail every sale.
+        if (referenceChecks.stream().anyMatch(c -> c.isReferenced(ingredient.getCompanyId(), id))) {
+            throw new ConflictException("Ingredient is still used by a recipe or modifier; remove it there first");
         }
         ingredientRepository.delete(ingredient);
     }

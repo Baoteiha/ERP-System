@@ -190,6 +190,42 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void delete_usedByAProductRecipeIsRefused() throws Exception {
+        String id = ingredient("g");
+        int n = SEQ.incrementAndGet();
+        String categoryId = JsonPath.read(create("/api/v1/categories",
+                "{\"name\":\"IntCat%d\",\"displayOrder\":1}".formatted(n)), "$.id");
+        String productId = JsonPath.read(create("/api/v1/products",
+                "{\"categoryId\":\"%s\",\"name\":\"IntProd%d\",\"sku\":\"INT%d\",\"basePrice\":1000}"
+                        .formatted(categoryId, n, n)), "$.id");
+        mockMvc.perform(authed(put("/api/v1/products/" + productId + "/recipe")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[{\"ingredientId\":\"%s\",\"quantity\":5,\"unit\":\"g\"}]}".formatted(id)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+    }
+
+    @Test
+    void delete_usedByAModifierRecipeDeltaIsRefused() throws Exception {
+        String id = ingredient("g");
+        String groupId = JsonPath.read(create("/api/v1/modifier-groups",
+                "{\"name\":\"IntGrp%d\",\"minSelect\":0,\"maxSelect\":1}".formatted(SEQ.incrementAndGet())), "$.id");
+        create("/api/v1/modifier-groups/" + groupId + "/modifiers",
+                "{\"name\":\"Extra\",\"priceDelta\":0,\"displayOrder\":1,\"recipeDeltas\":[{\"ingredientId\":\"%s\",\"quantity\":7,\"unit\":\"g\"}]}"
+                        .formatted(id));
+
+        mockMvc.perform(authed(delete("/api/v1/ingredients/" + id)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        assertThat(ingredients.findById(UUID.fromString(id))).isPresent();
+    }
+
+    @Test
     void delete_withNoStockAndNoOpenOrderSucceeds() throws Exception {
         String id = ingredient("g");
 
