@@ -58,7 +58,7 @@ import { IconComponent } from '../../shared/icon';
 
             <div class="totals">
               <div><span>Gross</span><b>{{ o.subtotal | money:o.currency }}</b></div>
-              <div><span>Discounts</span><b>-{{ o.discountTotal | money:o.currency }}</b></div>
+              <div><span>Discounts</span><b>{{ minus(o) }}{{ o.discountTotal | money:o.currency }}</b></div>
               <div><span>Net</span><b>{{ net(o) | money:o.currency }}</b></div>
               <div><span>Tax</span><b>{{ o.taxTotal | money:o.currency }}</b></div>
               <div class="grand"><span>Total</span><b>{{ o.grandTotal | money:o.currency }}</b></div>
@@ -167,6 +167,8 @@ export class OrdersComponent {
 
   /** Gross less every discount; the tax on the slip is charged on this. */
   net(o: OrderResponse) { return (Number(o.subtotal) - Number(o.discountTotal)).toFixed(4); }
+
+  minus(o: OrderResponse) { return Number(o.discountTotal) > 0 ? '-' : ''; }
 
   constructor() { this.load(); }
 

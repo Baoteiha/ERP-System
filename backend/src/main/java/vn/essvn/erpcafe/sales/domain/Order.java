@@ -219,7 +219,7 @@ public class Order extends BranchScopedEntity {
         }
     }
 
-    // --- totals: gross = subtotal; net = gross - discounts; tax on net; every figure rounded once, here ---
+    // --- totals: gross = subtotal; net = gross - discounts; tax on net; only tax needs rounding, done here; the rest is normalised by Money ---
 
     private BigDecimal lineDiscounts() {
         return lines.stream().map(l -> l.getLineDiscount().getAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);

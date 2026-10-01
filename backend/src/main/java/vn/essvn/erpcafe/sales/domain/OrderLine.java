@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.sales.domain;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -115,7 +116,7 @@ public class OrderLine extends BaseEntity {
     }
 
     public List<OrderLineModifier> getModifiers() {
-        return modifiers;
+        return Collections.unmodifiableList(modifiers);
     }
 
     public Set<UUID> modifierIds() {

@@ -53,15 +53,14 @@ class OrderTotalsTest {
     }
 
     @Test
-    void halfEvenAtTheScaleBoundary() {
-        Order order = order("0.00005");
-        order.addLine(priced("1.5"), 1, BigDecimal.ZERO); // 1.5 × 0.00005 = 0.000075 → 0.0001 (not a tie)
-        order.applyOrderDiscount(BigDecimal.ZERO);
-        assertThat(order.getTaxTotal()).isEqualTo(new BigDecimal("0.0001"));
+    void tieOnTheMoneyScale_roundsHalfEven() {
+        Order down = order("0.1");
+        down.addLine(priced("0.0005"), 1, BigDecimal.ZERO); // tax 0.00005 is a tie: 0 is even, HALF_UP would give 0.0001
+        assertThat(down.getTaxTotal()).isEqualTo(new BigDecimal("0.0000"));
 
-        Order tie = order("0.00005");
-        tie.addLine(priced("0.5"), 1, BigDecimal.ZERO); // 0.000025 → 0.0000
-        assertThat(tie.getTaxTotal()).isEqualTo(new BigDecimal("0.0000"));
+        Order up = order("0.1");
+        up.addLine(priced("0.0015"), 1, BigDecimal.ZERO); // tax 0.00015 is a tie: 2 is even, HALF_DOWN would give 0.0001
+        assertThat(up.getTaxTotal()).isEqualTo(new BigDecimal("0.0002"));
     }
 
     @Test
