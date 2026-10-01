@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.catalog.domain.Category;
 import vn.essvn.erpcafe.catalog.persistence.CategoryRepository;
+import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -18,10 +19,13 @@ import vn.essvn.erpcafe.identity.security.CurrentUser;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final ProductRepository productRepository;
     private final CurrentUser currentUser;
 
-    public CategoryService(CategoryRepository categoryRepository, CurrentUser currentUser) {
+    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository,
+            CurrentUser currentUser) {
         this.categoryRepository = categoryRepository;
+        this.productRepository = productRepository;
         this.currentUser = currentUser;
     }
 
@@ -57,6 +61,10 @@ public class CategoryService {
     }
 
     public void delete(UUID id) {
-        categoryRepository.delete(get(id));
+        Category category = get(id);
+        if (productRepository.existsByCompanyIdAndCategoryId(category.getCompanyId(), id)) {
+            throw new ConflictException("Category still has products; move or delete them first");
+        }
+        categoryRepository.delete(category);
     }
 }

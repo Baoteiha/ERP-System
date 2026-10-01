@@ -93,6 +93,16 @@ class CatalogManagementIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void deletingACategoryWithProducts_isRefused() throws Exception {
+        String categoryId = category();
+        product(categoryId);
+
+        mockMvc.perform(authed(delete("/api/v1/categories/" + categoryId)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONFLICT"));
+        mockMvc.perform(authed(get("/api/v1/categories/" + categoryId))).andExpect(status().isOk());
+    }
+
+    @Test
     void editingAModifierPrice_isUsedByTheNextOrder() throws Exception {
         String groupId = group();
         String modifierId = modifier(groupId, 5000);
