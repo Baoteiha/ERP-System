@@ -325,7 +325,12 @@ export class PosComponent {
     this.load();
     toObservable(this.quoteRequest).pipe(
       // a changed cart is a different sale: it gets its own request id and order
-      tap(() => { this.clientRequestId = null; this.awaitingPayment = null; }),
+      tap(() => {
+        // the unpaid order made for the old cart must not linger OPEN at the branch
+        if (this.awaitingPayment) this.sales.cancel(this.awaitingPayment.id).subscribe({ error: () => undefined });
+        this.clientRequestId = null;
+        this.awaitingPayment = null;
+      }),
       debounceTime(250),
       // switchMap cancels the quote still in flight, so a slow old answer never overwrites a newer one
       switchMap((request) => request === null

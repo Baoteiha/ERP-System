@@ -147,4 +147,23 @@ describe('PosComponent', () => {
 
     expect(ctrl.expectOne(isPost('/api/v1/orders')).request.body.clientRequestId).not.toBe(first.request.body.clientRequestId);
   });
+
+  it('cancels the unpaid order when the cart changes after a failed payment', () => {
+    pos.addProduct(latte);
+    nextQuote().flush(quoteOf('28000'));
+    pos.submit();
+    ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o1', status: 'OPEN', grandTotal: '28000', currency: 'VND' });
+    ctrl.expectOne('/api/v1/orders/o1/payments').flush({ code: 'X' }, { status: 500, statusText: 'Server Error' });
+
+    pos.addProduct(mocha);
+    TestBed.tick();
+
+    const cancel = ctrl.expectOne(isPost('/api/v1/orders/o1/cancel'));
+    cancel.flush({ id: 'o1', status: 'CANCELLED', grandTotal: '28000', currency: 'VND' });
+    ctrl.expectNone(isPost('/api/v1/orders'));
+    vi.advanceTimersByTime(250);
+    ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(quoteOf('58000'));
+    pos.submit();
+    ctrl.expectOne(isPost('/api/v1/orders'));
+  });
 });
