@@ -57,9 +57,13 @@ public class StockLedgerService {
         this.ingredientRepository = ingredientRepository;
     }
 
-    /** Receives stock (e.g. from a purchase order): raises quantity and blends the moving-average cost. */
-    public StockItem receive(UUID branchId, UUID ingredientId, BigDecimal quantity, Money unitCost,
-            String refType, UUID refId) {
+    /**
+     * Receives stock (e.g. from a purchase order): raises quantity and blends the moving-average cost.
+     * {@code quantity} is in {@code unit} (blank = base unit); {@code unitCost} is always per base unit.
+     */
+    public StockItem receive(UUID branchId, UUID ingredientId, BigDecimal quantity, String unit,
+            Money unitCost, String refType, UUID refId) {
+        quantity = toBase(branchId, ingredientId, quantity, unit);
         StockItem item = getOrCreate(branchId, ingredientId);
         BigDecimal existingQty = item.getQuantityOnHand();
         BigDecimal newQty = existingQty.add(quantity);
@@ -72,8 +76,9 @@ public class StockLedgerService {
         return item;
     }
 
-    /** Manual stock count correction (signed). Cost is unchanged. */
-    public StockItem adjust(UUID branchId, UUID ingredientId, BigDecimal quantityDelta, String note) {
+    /** Manual stock count correction (signed, in {@code unit}; blank = base unit). Cost is unchanged. */
+    public StockItem adjust(UUID branchId, UUID ingredientId, BigDecimal quantityDelta, String unit, String note) {
+        quantityDelta = toBase(branchId, ingredientId, quantityDelta, unit);
         StockItem item = getOrCreate(branchId, ingredientId);
         item.setQuantityOnHand(item.getQuantityOnHand().add(quantityDelta));
         record(ingredientId, branchId, MovementType.ADJUSTMENT, quantityDelta, item.getAvgUnitCost(),
@@ -81,8 +86,9 @@ public class StockLedgerService {
         return item;
     }
 
-    /** Records waste/spoilage: reduces quantity by the given positive amount. */
-    public StockItem waste(UUID branchId, UUID ingredientId, BigDecimal quantity, String note) {
+    /** Records waste/spoilage: reduces quantity by the given positive amount in {@code unit} (blank = base unit). */
+    public StockItem waste(UUID branchId, UUID ingredientId, BigDecimal quantity, String unit, String note) {
+        quantity = toBase(branchId, ingredientId, quantity, unit);
         StockItem item = getOrCreate(branchId, ingredientId);
         item.setQuantityOnHand(item.getQuantityOnHand().subtract(quantity));
         record(ingredientId, branchId, MovementType.WASTE, quantity.negate(), item.getAvgUnitCost(),
@@ -209,36 +215,58 @@ public class StockLedgerService {
      * collapsing them means one lock and one movement row instead of two.
      */
     private List<StockLine> normalize(UUID branchId, List<StockLine> lines) {
-        Map<UUID, Unit> baseUnits = baseUnitsOf(branchId, lines);
+        Map<UUID, Unit> baseUnits = baseUnitsOf(branchId, lines.stream().map(StockLine::ingredientId).toList());
         Map<UUID, StockLine> merged = new TreeMap<>();
         for (StockLine line : lines) {
-            StockLine converted = toBaseUnit(line, baseUnits.get(line.ingredientId()));
+            Unit base = requireBase(baseUnits, line.ingredientId());
+            StockLine converted = new StockLine(line.ingredientId(),
+                    convert(line.quantity(), line.unit(), base), base.symbol());
             merged.merge(converted.ingredientId(), converted,
                     (a, b) -> new StockLine(a.ingredientId(), a.quantity().add(b.quantity()), a.unit()));
         }
         return List.copyOf(merged.values());
     }
 
-    private static StockLine toBaseUnit(StockLine line, Unit baseUnit) {
-        if (baseUnit == null) {
+    /**
+     * The one place a quantity becomes base-unit stock: deduct, receive, adjust, waste and the
+     * receiving outstanding check all convert through here. A blank unit means the caller already
+     * speaks base units; a unit of another dimension is rejected, never guessed. The ingredient
+     * must belong to the company that owns the branch — a foreign one is treated like a missing one.
+     */
+    public BigDecimal toBase(UUID branchId, UUID ingredientId, BigDecimal quantity, String unit) {
+        Unit base = requireBase(baseUnitsOf(branchId, List.of(ingredientId)), ingredientId);
+        return convert(quantity, unit, base);
+    }
+
+    /** Re-rates a cost given per {@code unit} to per base unit; the price counterpart of {@link #toBase}. */
+    public BigDecimal toBaseRate(UUID branchId, UUID ingredientId, BigDecimal ratePerUnit, String unit) {
+        Unit base = requireBase(baseUnitsOf(branchId, List.of(ingredientId)), ingredientId);
+        if (unit == null || unit.isBlank() || Unit.parse(unit) == base) {
+            return ratePerUnit;
+        }
+        return Unit.convertRate(ratePerUnit, Unit.parse(unit), base);
+    }
+
+    private static Unit requireBase(Map<UUID, Unit> baseUnits, UUID ingredientId) {
+        Unit base = baseUnits.get(ingredientId);
+        if (base == null) {
             // Missing, soft-deleted or foreign ingredient: guessing here would book stock against nothing.
-            throw new BusinessRuleException("Ingredient not found: " + line.ingredientId());
+            throw new BusinessRuleException("Ingredient not found: " + ingredientId);
         }
-        if (line.unit() == null || line.unit().isBlank()) {
-            // No unit supplied: the caller already speaks base units.
-            return line;
+        return base;
+    }
+
+    private static BigDecimal convert(BigDecimal quantity, String unit, Unit base) {
+        if (unit == null || unit.isBlank()) {
+            return quantity;
         }
-        Unit from = Unit.parse(line.unit());
-        if (from == baseUnit) {
-            return line;
-        }
-        return new StockLine(line.ingredientId(), Unit.convert(line.quantity(), from, baseUnit), baseUnit.symbol());
+        return Unit.convert(quantity, Unit.parse(unit), base);
     }
 
     // Only ingredients of the company that owns the branch: a foreign ingredient id is treated
     // exactly like a missing one (no base unit to convert to).
-    private Map<UUID, Unit> baseUnitsOf(UUID branchId, List<StockLine> lines) {
-        List<UUID> ids = lines.stream().map(StockLine::ingredientId).distinct().toList();
+    private Map<UUID, Unit> baseUnitsOf(UUID branchId, List<UUID> ingredientIds) {
+        List<UUID> ids = ingredientIds.stream().distinct().toList();
         Map<UUID, Unit> baseUnits = new HashMap<>();
         UUID companyId = organizationApi.companyIdOf(branchId).orElse(null);
         if (companyId == null) {

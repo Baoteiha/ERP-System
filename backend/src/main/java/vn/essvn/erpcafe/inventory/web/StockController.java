@@ -63,13 +63,13 @@ public class StockController {
     @PostMapping("/adjust")
     @PreAuthorize("hasAuthority('inventory:write')")
     public StockItemResponse adjust(@Valid @RequestBody AdjustRequest request) {
-        return toStockItem(stockService.adjust(request.ingredientId(), request.quantityDelta(), request.note()));
+        return toStockItem(stockService.adjust(request.ingredientId(), request.quantityDelta(), request.unit(), request.note()));
     }
 
     @PostMapping("/waste")
     @PreAuthorize("hasAuthority('inventory:write')")
     public StockItemResponse waste(@Valid @RequestBody WasteRequest request) {
-        return toStockItem(stockService.waste(request.ingredientId(), request.quantity(), request.note()));
+        return toStockItem(stockService.waste(request.ingredientId(), request.quantity(), request.unit(), request.note()));
     }
 
     @PutMapping("/reorder-level")

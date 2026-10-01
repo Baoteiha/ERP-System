@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
-import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
@@ -125,28 +124,20 @@ public class PurchaseOrderService {
                 throw new BusinessRuleException("Received quantity must be positive");
             }
             BigDecimal costOverride = receipt.unitCostOverride();
-            // A delivery may be counted in any unit of the ingredient's dimension (ADR-0006):
-            // convert the quantity — and the per-received-unit cost override — to the base
-            // unit BEFORE the outstanding comparison and the ledger, which both speak base
-            // units. A wrong-dimension unit is rejected by Unit.convert, never guessed.
-            if (receipt.unit() != null && !receipt.unit().isBlank()) {
-                Unit from = Unit.parse(receipt.unit());
-                Unit base = ingredientRepository.findByIdAndCompanyId(line.getIngredientId(), currentUser.require().companyId())
-                        .map(i -> Unit.parse(i.getBaseUnit()))
-                        .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", line.getIngredientId()));
-                if (from != base) {
-                    qty = Unit.convert(qty, from, base);
-                    if (costOverride != null) {
-                        costOverride = Unit.convertRate(costOverride, from, base);
-                    }
-                }
+            // A delivery may be counted in any unit of the ingredient's dimension (ADR-0006). The
+            // outstanding check speaks base units, so convert through the ledger's single path; the
+            // cost override is per received unit and is re-rated per base unit the same way.
+            UUID branchId = order.getBranchId();
+            BigDecimal baseQty = ledger.toBase(branchId, line.getIngredientId(), qty, receipt.unit());
+            if (costOverride != null) {
+                costOverride = ledger.toBaseRate(branchId, line.getIngredientId(), costOverride, receipt.unit());
             }
-            if (qty.compareTo(line.outstandingQty()) > 0) {
+            if (baseQty.compareTo(line.outstandingQty()) > 0) {
                 throw new BusinessRuleException("Received quantity exceeds outstanding for line " + line.getId());
             }
             Money unitCost = costOverride != null ? Money.of(costOverride) : line.getUnitCost();
-            line.receive(qty);
-            ledger.receive(order.getBranchId(), line.getIngredientId(), qty, unitCost, REF_TYPE, order.getId());
+            line.receive(baseQty);
+            ledger.receive(branchId, line.getIngredientId(), qty, receipt.unit(), unitCost, REF_TYPE, order.getId());
         }
         order.refreshReceiptStatus();
         return order;

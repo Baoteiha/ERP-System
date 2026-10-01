@@ -91,8 +91,8 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
     void deduct_repeatReturnsTheSameCostWhenAModifierMadeOneLineNetNegative() throws Exception {
         UUID beans = seedGramIngredient();
         UUID syrup = seedGramIngredient();
-        ledger.receive(branchId, beans, new BigDecimal("1000"), Money.of(new BigDecimal("0.20")), "TEST_PO", null);
-        ledger.receive(branchId, syrup, new BigDecimal("1000"), Money.of(new BigDecimal("0.10")), "TEST_PO", null);
+        ledger.receive(branchId, beans, new BigDecimal("1000"), null, Money.of(new BigDecimal("0.20")), "TEST_PO", null);
+        ledger.receive(branchId, syrup, new BigDecimal("1000"), null, Money.of(new BigDecimal("0.10")), "TEST_PO", null);
         UUID refId = UUID.randomUUID();
         // 100 g beans taken, 50 g syrup given back (a modifier removing more than the recipe uses):
         // 100 x 0.20 - 50 x 0.10 = 15.

@@ -37,12 +37,14 @@ public final class StockDtos {
     public record AdjustRequest(
             @NotNull UUID ingredientId,
             @NotNull BigDecimal quantityDelta,
+            String unit,
             String note) {
     }
 
     public record WasteRequest(
             @NotNull UUID ingredientId,
             @NotNull @Positive BigDecimal quantity,
+            String unit,
             String note) {
     }
 

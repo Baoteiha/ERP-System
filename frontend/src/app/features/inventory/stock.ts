@@ -5,6 +5,7 @@ import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { IngredientResponse, MovementResponse, StockItemResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { unitsFor } from '../../core/units';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -91,17 +92,25 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
       <app-modal [title]="modalTitle()" (close)="mode.set(null)">
         <div class="field">
           <label for="stock-ingredient">Ingredient <span class="req" aria-hidden="true">*</span></label>
-          <select id="stock-ingredient" class="select" [(ngModel)]="action.ingredientId" required>
+          <select id="stock-ingredient" class="select" [(ngModel)]="action.ingredientId" (ngModelChange)="onIngredientChange()" required>
             <option value="">Select ingredient</option>
             @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }} ({{ i.baseUnit }})</option> }
           </select>
         </div>
         @if (mode() === 'adjust') {
           <div class="field"><label for="stock-qty-delta">Quantity delta</label><input id="stock-qty-delta" class="input" type="number" step="0.001" [(ngModel)]="action.quantityDelta" placeholder="-2.5 or 10" /></div>
+          <div class="field"><label for="stock-unit-adjust">Unit</label>
+            <select id="stock-unit-adjust" class="select" [(ngModel)]="action.unit">
+              @for (u of unitOptions(); track u.value) { <option [value]="u.value">{{ u.label }}</option> }
+            </select></div>
           <div class="field"><label for="stock-note-adjust">Note</label><input id="stock-note-adjust" class="input" [(ngModel)]="action.note" /></div>
         }
         @if (mode() === 'waste') {
           <div class="field"><label for="stock-qty-waste">Quantity wasted</label><input id="stock-qty-waste" class="input" type="number" min="0" step="0.001" [(ngModel)]="action.quantity" /></div>
+          <div class="field"><label for="stock-unit-waste">Unit</label>
+            <select id="stock-unit-waste" class="select" [(ngModel)]="action.unit">
+              @for (u of unitOptions(); track u.value) { <option [value]="u.value">{{ u.label }}</option> }
+            </select></div>
           <div class="field"><label for="stock-note-waste">Note</label><input id="stock-note-waste" class="input" [(ngModel)]="action.note" /></div>
         }
         @if (mode() === 'reorder') {
@@ -157,7 +166,7 @@ export class StockComponent {
   saving = signal(false);
   view = signal<'all' | 'low'>('all');
   mode = signal<StockMode | null>(null);
-  action = { ingredientId: '', quantityDelta: '', quantity: '', reorderLevel: '', note: '' };
+  action = { ingredientId: '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
 
   filtered = computed(() => this.view() === 'low' ? this.stock().filter((s) => s.belowReorderLevel) : this.stock());
 
@@ -206,8 +215,14 @@ export class StockComponent {
 
   openAction(mode: StockMode) {
     this.mode.set(mode);
-    this.action = { ingredientId: this.selectedIngredientId() ?? '', quantityDelta: '', quantity: '', reorderLevel: '', note: '' };
+    this.action = { ingredientId: this.selectedIngredientId() ?? '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
+    this.onIngredientChange();
   }
+
+  /** Only units of the ingredient's own dimension; the base unit is the default. */
+  unitOptions() { return unitsFor(this.baseUnitOf(this.action.ingredientId)); }
+  onIngredientChange() { this.action.unit = this.baseUnitOf(this.action.ingredientId) ?? ''; }
+  private baseUnitOf(id: string) { return this.ingredients().find((i) => i.id === id)?.baseUnit; }
 
   modalTitle() {
     if (this.mode() === 'adjust') return 'Adjust stock';
@@ -220,8 +235,8 @@ export class StockComponent {
     this.saving.set(true);
     const mode = this.mode();
     const req =
-      mode === 'adjust' ? this.api.adjust({ ingredientId: this.action.ingredientId, quantityDelta: this.action.quantityDelta, note: this.action.note }) :
-      mode === 'waste' ? this.api.waste({ ingredientId: this.action.ingredientId, quantity: this.action.quantity, note: this.action.note }) :
+      mode === 'adjust' ? this.api.adjust({ ingredientId: this.action.ingredientId, quantityDelta: this.action.quantityDelta, unit: this.action.unit || undefined, note: this.action.note }) :
+      mode === 'waste' ? this.api.waste({ ingredientId: this.action.ingredientId, quantity: this.action.quantity, unit: this.action.unit || undefined, note: this.action.note }) :
       this.api.setReorderLevel({ ingredientId: this.action.ingredientId, reorderLevel: this.action.reorderLevel });
     req.subscribe({
       next: () => { this.saving.set(false); this.mode.set(null); this.toast.success('Stock updated'); this.load(); this.loadMovements(); },

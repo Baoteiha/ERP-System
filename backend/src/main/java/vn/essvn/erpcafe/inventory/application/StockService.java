@@ -62,17 +62,17 @@ public class StockService {
                 : movementRepository.findByBranchIdAndIngredientIdOrderByCreatedAtDesc(branchId, ingredientId, pageable);
     }
 
-    public StockItem adjust(UUID ingredientId, BigDecimal quantityDelta, String note) {
+    public StockItem adjust(UUID ingredientId, BigDecimal quantityDelta, String unit, String note) {
         requireIngredient(ingredientId);
-        return ledger.adjust(activeBranch(), ingredientId, quantityDelta, note);
+        return ledger.adjust(activeBranch(), ingredientId, quantityDelta, unit, note);
     }
 
-    public StockItem waste(UUID ingredientId, BigDecimal quantity, String note) {
+    public StockItem waste(UUID ingredientId, BigDecimal quantity, String unit, String note) {
         if (quantity.signum() <= 0) {
             throw new BusinessRuleException("Waste quantity must be positive");
         }
         requireIngredient(ingredientId);
-        return ledger.waste(activeBranch(), ingredientId, quantity, note);
+        return ledger.waste(activeBranch(), ingredientId, quantity, unit, note);
     }
 
     public StockItem setReorderLevel(UUID ingredientId, BigDecimal reorderLevel) {

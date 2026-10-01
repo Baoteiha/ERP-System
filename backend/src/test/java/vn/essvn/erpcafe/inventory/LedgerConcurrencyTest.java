@@ -97,7 +97,7 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     void twoDeductionsOfOneReference_recordASingleSetOfMovements() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
-            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"),
+            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
                     vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null);
             UUID orderId = UUID.randomUUID();
 
@@ -133,7 +133,7 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     void voidAndRefundOfOneOrderAtOnce_restoreStockOnlyOnce() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
-            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"),
+            ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("1000"), null,
                     vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null);
             UUID orderId = UUID.randomUUID();
             ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", orderId);

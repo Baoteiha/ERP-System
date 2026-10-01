@@ -141,8 +141,8 @@ export interface MovementResponse {
   id: UUID; ingredientId: UUID; branchId: UUID; type: string; quantity: string;
   unitCost?: Money; refType?: string; refId?: UUID; note?: string; occurredAt: string; actor: string;
 }
-export interface AdjustRequest { ingredientId: UUID; quantityDelta: string; note?: string; }
-export interface WasteRequest { ingredientId: UUID; quantity: string; note?: string; }
+export interface AdjustRequest { ingredientId: UUID; quantityDelta: string; unit?: string; note?: string; }
+export interface WasteRequest { ingredientId: UUID; quantity: string; unit?: string; note?: string; }
 export interface ReorderLevelRequest { ingredientId: UUID; reorderLevel: string; }
 
 export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
