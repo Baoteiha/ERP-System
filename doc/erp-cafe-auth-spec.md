@@ -1,6 +1,7 @@
 # ERP Cafe — Authentication & Authorization Spec
 
-**Status:** as-built, describing the system at commit `411f1e7`.
+**Status:** as-built, brought up to date on 2026-10-02 after the code-review fixes
+on branch `fix/code-review` (it described commit `411f1e7` before them).
 
 This documents what exists today, ahead of a possible migration to an external
 identity provider. It is a description, not a proposal: where the code and its
@@ -15,12 +16,13 @@ many café companies, each with several branches.
 Three questions have to be answered on every request:
 
 1. **Who are you?** — resolved from a signed access token.
-2. **What may you do?** — a flat set of permission strings carried in that token.
+2. **What may you do?** — the permissions of the role you hold at the branch you act in; the token names the role per branch, and the permissions are read from the role (ADR-0007).
 3. **Where may you do it?** — which company, and which branch of it.
 
-Questions 1 and 2 are solved centrally and consistently. Question 3 is solved
-centrally for *branch* and by per-service convention for *company*, which is the
-origin of most defects in §9.
+Questions 1 and 2 are solved centrally and consistently. Question 3 was solved
+centrally for *branch* and by per-service convention for *company*, which was the
+origin of most defects in §9; the company is now scoped by one mechanism (the
+tenant seam, ADR-0008) with row-level security behind it.
 
 ## 2. Current state
 
@@ -30,14 +32,16 @@ origin of most defects in §9.
 | Stateless JWT access tokens (HS256) | ✅ |
 | Opaque, hashed, rotating refresh tokens | ✅ |
 | Refresh-token families with reuse detection | ✅ |
-| Per-branch role grants | ✅ |
+| Per-branch role grants, evaluated at the branch a request acts in | ✅ ADR-0007 |
 | Fine-grained permissions at the endpoint | ✅ |
 | Branch header validated against granted access | ✅ |
 | Account lifecycle: enable/disable, profile edit | ✅ |
 | Password change (self) and reset (admin) | ✅ |
 | Role lifecycle: create, rename, delete | ✅ |
 | Failed-login throttling | ✅ shared by every instance (`login_attempt`) |
-| Company scoping below the service layer | ⚠️ convention, applied in every module today |
+| Tokens end when access changes | ✅ `auth_version` and the grant caches (AUTH-G08) |
+| Refresh token in an HttpOnly cookie | ✅ AUTH-102 |
+| Company scoping below the service layer | ✅ Hibernate `@TenantId` (ADR-0008) plus row-level security on every tenant table, enforced for the non-superuser `erp_app` role |
 | MFA / passwordless / SSO federation | ⬜ none |
 | Forgotten-password self-service (email flow) | ✅ single-use emailed link; off in prod until a real mail adapter exists |
 | Key rotation | ✅ a key set with key ids; any configured key verifies, the active one signs |
@@ -47,17 +51,21 @@ origin of most defects in §9.
 
 | Entity | Table | Notes |
 |---|---|---|
-| `User` | `app_user` | `companyId`, `email`, `passwordHash`, `fullName`, `status`. Email is unique **globally**, not per company. Soft-deletable, versioned |
+| `User` | `app_user` | `companyId`, `email` (stored lowercase), `passwordHash`, `fullName`, `status`, `auth_version`. Email is unique **globally**, not per company (AUTH-G13). Soft-deletable, versioned |
 | `UserStatus` | — | `ACTIVE`, `DISABLED` |
 | `Role` | `role` | `companyId`, `name`, `description`, and a many-to-many to `Permission` (EAGER). Unique on `(company_id, name)` |
 | `Permission` | `permission` | `name` (globally unique), `description`. Reference data synced from code at startup; never created at runtime |
 | `UserBranchAccess` | `user_branch_access` | Grants one user one role at one branch. Unique on `(user_id, branch_id)` — **one role per user per branch** |
-| `RefreshToken` | `refresh_token` | `userId`, `tokenHash` (SHA-256, unique), `expiresAt`, `revoked`, `familyId`. Every token descended from one login shares a family |
+| `RefreshToken` | `refresh_token` | `userId`, `tokenHash` (SHA-256, unique), `expiresAt`, `revoked`, `familyId`. Every token descended from one login shares a family. Rows expired for over 7 days are purged daily |
+| `AuthEvent` | `auth_event` | The audit trail (AUTH-107) |
+| `LoginAttempt` | `login_attempt` | The login throttle's counters (AUTH-101); owner-only |
+| `PasswordResetToken` | `password_reset_token` | Hashed, single-use reset links (AUTH-108) |
 
 The model is **RBAC with a branch dimension**. A user holds a role *per branch*,
-so the same person can be MANAGER at one branch and CASHIER at another. The
-effective permission set on a token is the **union** across all their grants —
-see AUTH-G07 for the consequence.
+so the same person can be MANAGER at one branch and CASHIER at another. A request
+is authorized with the permissions of the role at the branch it names in
+`X-Branch-Id`; only the company-level permissions (`company:*`, `user:*`,
+`role:*`) are weighed across every branch the user holds (ADR-0007, AUTH-G07).
 
 ## 4. Permission catalog
 
@@ -121,17 +129,24 @@ All endpoints under `/api/v1/auth`. Login, refresh, and logout are `permitAll`;
 
 `POST /api/v1/auth/login` with `{email, password}`.
 
-Looks the user up by email, verifies the password with BCrypt, rejects a
-`DISABLED` account, and issues a token pair. Failure is a single generic
+Looks the user up by email (case-insensitively; emails are stored lowercase),
+verifies the password with BCrypt, rejects a `DISABLED` account (422), and
+issues a token pair. Failure is a single generic
 "Invalid email or password" for both unknown email and wrong password, so the
 endpoint does not disclose which emails exist.
 
-Failed attempts are counted by `LoginAttemptService` in a sliding window keyed
-by **email and client address**. Past the threshold the endpoint returns **429**
-until the window lapses; a successful login clears the counter. Keying on both
+Failed attempts (a wrong password, or a disabled account) are counted by
+`LoginAttemptService` in a window that opens at the first failure, keyed by
+**email and client address**. Past the threshold the endpoint returns **429**
+until the window lapses; a successful login clears the email-and-address
+counter (the address counter is left to expire). Keying on both
 is deliberate: an email-only key would let anyone lock a known user out of their
 own account. Defaults are 10 failures per 15 minutes, overridable with
-`app.security.login.max-failures` and `app.security.login.window`. A second
+`app.security.login.max-failures` and `app.security.login.window`. The client
+address is the TCP peer, or `X-Forwarded-For` only when the peer is a trusted
+proxy (private and loopback ranges by default; others must be listed in
+`server.tomcat.remoteip.internal-proxies`, see `backend/ARCHITECTURE.md` §10;
+`ForwardedAddressThrottleHttpTest`). A second
 counter keyed by the address alone (default 20, `max-failures-per-address`)
 stops one client spraying guesses across many emails.
 
@@ -206,8 +221,8 @@ filter stays off (stateless, no session).
 `POST /api/v1/auth/refresh` with the `erpcafe_refresh` cookie and the
 `X-Requested-With: erpcafe` header; there is no request body, and one sent is
 ignored. Without the header: 403 `FORBIDDEN`. Without the cookie: 401
-`UNAUTHORIZED`. Looks up by hash, rejects expired, **revokes the presented
-token**, and mints a fresh pair carrying the same family id: a new access token
+`UNAUTHORIZED`. Looks up by hash (unknown: 422), rejects expired or a disabled account (422),
+**revokes the presented token**, and mints a fresh pair carrying the same family id: a new access token
 in the body and the rotated refresh token in a new `Set-Cookie`. Single-use
 rotation, so a stolen token is invalidated the moment the legitimate client next
 refreshes.
@@ -245,10 +260,12 @@ replacement would outlive the revocation.
 | `PUT /api/v1/roles/{id}` | `role:write` | Rename a custom role |
 | `DELETE /api/v1/roles/{id}` | `role:write` | Delete a custom role nobody holds |
 
-Every credential or status change moves the user's auth version, so the access
-tokens they hold answer 401 at once (AUTH-G08), and disabling or a password
-change or reset also revokes their outstanding refresh tokens, so the account
-cannot sign back in by refreshing.
+A status change (enable or disable), a password change and a reset move the
+user's auth version, so the access tokens they hold answer 401 at once
+(AUTH-G08); disabling, a password change or reset also revokes their
+outstanding refresh tokens, so the account cannot sign back in by refreshing.
+An email edit moves no version and revokes nothing, but closes any open reset
+link (AUTH-108).
 
 Guards: you cannot change your own status, since disabling yourself is the one
 change you could not undo. The seeded default roles cannot be renamed or deleted,
@@ -352,7 +369,8 @@ the difference large enough to tell which emails have an account.
 For every request, in order:
 
 1. **`JwtAuthenticationFilter`** (registered before `UsernamePasswordAuthenticationFilter`)
-   parses the `Authorization: Bearer` token into an `AuthPrincipal`.
+   parses the `Authorization: Bearer` token into an `AuthPrincipal`, and sets
+   the token's company as the request's `TenantContext` (ADR-0008).
    Invalid or expired → **401** with a problem+json body; so is a token whose
    `av` is no longer the user's auth version, and one naming another role at
    the `X-Branch-Id` branch than the user now holds there.
@@ -368,20 +386,28 @@ For every request, in order:
    too, which is how a closed active branch first shows (closing it ends the
    holder's token), once however many requests fail together, and not again
    for a branch it has already left.
-3. **Authorities** are built as the permission strings verbatim, plus each role
-   name prefixed `ROLE_`.
+3. **Authorities** are the permission strings in force verbatim, plus each role
+   name prefixed `ROLE_`. The permissions in force come from the role the user
+   holds at the branch named in `X-Branch-Id` (all held branches when none is
+   named), plus the company-level ones from any held branch (ADR-0007). The
+   token carries role ids, resolved through `UserGrantCache` (30 s) and
+   `RolePermissionCache` (60 s).
 4. **`@PreAuthorize("hasAuthority('x:y')")`** on controller methods enforces the
    permission for that endpoint.
-5. **Services** read the tenant from `CurrentUser.require().companyId()` and the
-   branch from `BranchContext.require()`, and are individually responsible for
-   applying them to their queries.
-6. **`finally`** clears both `BranchContext` and the `SecurityContext`.
+5. **Services** take the company from `TenantContext`, which Hibernate applies to
+   every query and insert of company-owned rows (ADR-0008), and the branch from
+   `BranchContext.require()`, which they apply to branch-scoped queries
+   themselves.
+6. **`finally`** clears `BranchContext`, `TenantContext` and the `SecurityContext`.
 
-Step 5 is the weak joint: it is a convention, not a mechanism. Every module
-applies it today, and each has a tenant isolation test pinning that, but nothing
-stops the next service from forgetting. Row-level security is the intended
-backstop, per ADR-0003; it is enabled on `ingredient` only, and stays dormant
-until the app connects as a non-superuser database role.
+Company scoping is a mechanism now, not a convention: a company-owned entity
+extends `TenantOwnedEntity`, and another company's id is simply not found (404).
+Branch scoping (orders, stock, purchase orders) is still applied by each service
+through `BranchContext`, pinned by each module's tenant isolation test.
+Row-level security is the backstop (ADR-0003): migration V22 enables it on every
+tenant table, and the app connects as `erp_app`, a role that cannot bypass it
+(`RlsEverywhereTest`, `AppDatabaseRoleTest`). Login, refresh, logout, startup and
+the cross-company checks run as the schema owner through `SystemTransactions`.
 
 ## 8. Configuration
 
@@ -410,8 +436,11 @@ app:
       max-failures-per-address: 20   # optional, default 20
 ```
 
-Sessions are stateless, CSRF is disabled (token auth, no cookies), and passwords
-are hashed with BCrypt at Spring's default strength.
+Sessions are stateless and passwords are hashed with BCrypt at Spring's default
+strength. Spring's CSRF filter is off: the access token travels in a header, and
+the one cookie, the refresh token's, is guarded by `SameSite=Strict` and the
+`X-Requested-With` header (AUTH-102). Production supplies the secrets and the
+database credentials in its environment: see `backend/ARCHITECTURE.md` §10.
 
 ## 9. Known gaps and defects
 
@@ -438,7 +467,18 @@ from one that was never real.
 | AUTH-G14 | No authentication audit trail: logins, refreshes, grants and revocations were not recorded as durable events | `auth_event` and `GET /api/v1/auth-events` (AUTH-107); `AuthGapsIntegrationTest`, `RlsEverywhereTest` |
 | AUTH-G18 | The login throttle was per instance and in memory: it reset on restart and was not shared across replicas | Counters in the `login_attempt` table; `AuthGapsIntegrationTest`, `LoginAttemptServiceTest` |
 | AUTH-G12 | No forgotten-password self-service: a user locked out with no admin available had no email-based recovery | Single-use emailed reset link (AUTH-108); `AuthGapsIntegrationTest`, `forgot-password.spec.ts`, `reset-password.spec.ts` |
+| AUTH-G07 | **Permissions unioned across branches**: a MANAGER at A and CASHIER at B carried the manager set at both | Permissions are weighed at the branch a request names; the token carries role ids per branch (ADR-0007). Only `company:*`, `user:*` and `role:*` are weighed across every branch held, until company-wide grants exist. `PerBranchPermissionTest#refund_isWeighedAgainstTheRoleAtTheActiveBranch`, `#companyLevelAdministration_isWeighedAgainstEveryBranchHeld`, `#grantingYourselfMoreAtABranch_isJudgedAtThatBranch` |
+| AUTH-G19 | A new branch had no one who could reach it | The creator gets OWNER there from live grants, on an active new branch only. `BranchLifecycleIntegrationTest#ownerCreatesBranch_ownerSeesItInNextMe`, `#nonOwnerCreatesBranch_getsOwnRoleThere_orIsRefusedWithoutHeader`, `#creatingAnInactiveBranch_writesNoGrant` |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
+
+**Fixed without a gap id.** A MANAGER could escalate to OWNER by granting
+themselves the role, resetting or demoting an owner, or widening a role beyond
+their own permissions: `AccessPolicy` now judges each rule at the branch it
+affects (`PrivilegeEscalationIntegrationTest`, `AccessPolicyTest`). The app
+used to start with no profile and the committed dev JWT secret: it has no default
+profile now, and `JwtSecretGuard` refuses a committed secret outside `dev` and
+`test` (`JwtSecretGuardTest`). `X-Forwarded-For` is honoured only from trusted proxies
+(`ForwardedAddressThrottleHttpTest`).
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
 exists; the reconciliation is `syncDefaultRolePermissions` and covers OWNER,
@@ -448,10 +488,8 @@ MANAGER and CASHIER.
 
 | ID | Gap | Severity |
 |---|---|---|
-| AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies. **Deferred (ruling, Task 36):** one email across companies needs a company choice at sign-in, and conflicts with the planned move to an identity provider (§10), where an account is the IdP's subject rather than a company's row; it is settled there | 🟡 low |
 | AUTH-G12 (rest) | No password complexity policy beyond an 8-character floor. The emailed reset (AUTH-108) closed the recovery half; it is off in prod until a real mail adapter exists | 🟡 low |
-| AUTH-G19 | **A new branch has no one who can reach it.** All access is per branch, so creating a branch grants nobody access to it, including the owner who created it. Harmless today because permissions are unioned, but it is a hard blocker for AUTH-G07 | 🟠 medium |
 
 ## 10. Migration notes
 
@@ -482,14 +520,11 @@ provider answers *who is this*, never *which rows may they see*.
 
 ## 11. Open questions
 
-- **Per-branch permission evaluation** (AUTH-G07). Should the active branch
-  narrow the effective permission set? Correct, but it means permissions can no
-  longer be a static claim. It is also **blocked by AUTH-G19**: with permissions
-  narrowed per branch, an owner would have no way to grant themselves access at a
-  branch they cannot yet reach. A company-wide grant, most simply a nullable
-  `branch_id` on `user_branch_access`, has to land first. That same nullable
-  grant answers what permissions apply on branchless endpoints such as
-  `/users` and `/roles`.
+- **Company-wide grants.** Permissions are evaluated per branch (AUTH-G07 and
+  G19 are closed), but `company:*`, `user:*` and `role:*` are still the union over
+  every branch held, since companies, users and roles belong to no branch. A
+  nullable `branch_id` on `user_branch_access` would give them a proper source,
+  and would supersede ADR-0007.
 - **Shared-terminal authentication.** A till is shared across shifts, so
   device-bound passkeys and per-user TOTP fit back-office users and not
   front-of-house. Likely two flows: full OIDC for back office, a device-bound

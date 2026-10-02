@@ -1,6 +1,7 @@
 # ERP Transformation Plan — ERP-Cafe → general business ERP
 
-**Status:** proposed roadmap, 2026-08-24.
+**Status:** proposed roadmap, 2026-08-24; Phases 0 and 1 brought up to date on 2026-10-02
+after the code-review fixes (marked *Done* below).
 **Working assumptions** (revise here if wrong):
 
 1. The target is a **multi-tenant SaaS product** — many customer companies on one
@@ -37,7 +38,7 @@ without leaving the system broken.
 | `purchasing` | supplier / PO / receiving — fully general |
 | `sales` | order-to-cash skeleton — general |
 | `staff` | employees, shifts, labor cost — general HR-lite |
-| `reporting` | cross-module composition over `api/` facades — general |
+| `reporting` | a read model fed by domain events, plus facade calls for branches — general (ADR-0009) |
 | `common` | Money, Unit, Dimension, auditing, optimistic locking, BranchContext |
 
 ### Café-specific (the first vertical)
@@ -47,6 +48,10 @@ without leaving the system broken.
 - POS-flavored flows: shift clock on shared terminals, cashier role shape.
 
 ### Known debts the plan must clear (from this session's reviews)
+
+*Written on 2026-08-24. Every item below except the G07–G14 line was cleared by
+Phase 0 and the code-review fixes; the auth spec §9 records which gaps remain
+(G13 and the rest of G12).*
 
 - **Live:** `StockLedgerService.normalize` sums quantities across units
   (stock/COGS corruption); G06 permission backfill (managers 403 after
@@ -58,6 +63,8 @@ without leaving the system broken.
   ADR-0001, spec edits) also uncommitted.
 - **Auth spec §9:** G07–G14 (permission union across branches, revocation
   lag, static HS256 secret, no rate limiting/lockout/reset, no audit trail).
+  All closed in the monolith except G13 (email unique across companies, deferred
+  to Phase 2) and the password-policy remainder of G12.
 
 ## 3. Phases
 
@@ -78,32 +85,55 @@ without leaving the system broken.
 - Map `DataIntegrityViolationException` → 409.
 
 **Exit:** full suite green, working tree clean, inventory spec statuses true.
+*Done:* `normalize` converts through `Unit` (ADR-0006), V8 and the `Item`
+feature landed with receiving through the line's unit, G06 reconciles all
+default roles, and the inventory spec's statuses were rewritten after the
+code-review fixes.
 
-### Phase 1 — Enterprise tenancy (make the isolation structural)
+### Phase 1 — Enterprise tenancy (make the isolation structural) — *Done*, with changes
+
+*Where the build differs from the list below: the scoped repository base types
+were replaced by Hibernate's `@TenantId` (ADR-0008); `TenantRlsAspect` by
+`TenantTransactionManager`, which sets `app.company_id` as every transaction
+begins; and Spring Modulith was not adopted — module boundaries are pinned with
+ArchUnit and events travel through an outbox of our own (ADR-0009, amending
+ADR-0004).*
 
 *Goal: cross-tenant access becomes unwritable, not just fixed. This is the
 enterprise table-stakes phase — G01–G05 fixes were point repairs; this makes
 the class impossible.*
 
 - **Non-superuser app DB role** (migration + config). Prerequisite for
-  everything RLS; without it, policies are theatre.
+  everything RLS; without it, policies are theatre. *Done: `erp_app`, V22;
+  `AppDatabaseRoleTest`.*
 - Move `TenantRlsAspect` → `common`, widen pointcut to all application
   services; RLS policies (V7_002 pattern) on **every** tenant table —
   company-scoped tables on `company_id`, branch-scoped via their branch.
+  *Done: V22 forces RLS on every tenant table; `RlsEverywhereTest`.*
 - **Scoped repository base types** (`CompanyScopedRepository`,
   `BranchScopedRepository`) that do not expose bare `findById`/`findAll`;
-  migrate all repositories.
+  migrate all repositories. *Done differently: `@TenantId` on
+  `TenantOwnedEntity` scopes every company-owned read and write, and another
+  company's id is not found (ADR-0008, `TenantSeamTest`). Branch-scoped tables
+  keep `findByIdAndBranchId`.*
 - **ArchUnit guardrails:** every endpoint has `@PreAuthorize` with a string
   from `Permissions.ALL`; no repository outside the scoped base types; unique
-  test-data prefixes.
+  test-data prefixes. *Done in part: `ArchitectureTest` pins module boundaries,
+  the tenant-scope entry points and a permission on every controller method.
+  Test-data prefixes are not enforced.*
 - **Adopt Spring Modulith** (ADR-0004): boundary verification tests over the
   existing packages, per-module integration tests, event registry wired —
-  the seams every later extraction will cut along.
+  the seams every later extraction will cut along. *Not adopted as a
+  dependency: boundary verification is `ArchitectureTest`, and events are the
+  `domain_event` outbox with its dispatcher (ADR-0009).*
 - One seam-level isolation test: seed two companies, assert every scoped
   repository returns nothing cross-tenant (replaces per-service tests).
+  *Done at the seam (`TenantSeamTest`); each module also keeps its own isolation
+  test.*
 
 **Exit:** RLS active in dev (non-superuser) and CI; an unscoped query fails a
-build or returns zero foreign rows at runtime.
+build or returns zero foreign rows at runtime. *Met: a company-owned query with
+no company in force sees no rows, and the app role cannot bypass RLS.*
 
 ### Phase 2 — Enterprise identity (Zitadel)
 
@@ -142,7 +172,8 @@ database, events over RabbitMQ).*
   (organization, identity, inventory, purchasing, sales, staff, reporting) +
   `verticals/fnb` (menu, modifiers, recipe→**BOM** specialization). Recipe
   explosion becomes the F&B adapter of a general BOM/consumption seam on
-  `InventoryApi`.
+  `InventoryApi`. *Started: `inventory.api.ConsumptionResolver`, implemented by
+  catalog, with versioned recipes (ADR-0010).*
 - Rename judiciously where café language leaks into core (branch→location is
   the main candidate); keep table names stable, rename at the API/UI layer
   first.
@@ -194,8 +225,8 @@ pharmacies are the Vietnamese SME candidates; retail stresses the least.)
 - Roles are **data** (custom roles are core); permission *catalog* is code.
 - No per-ingredient unit conversion table (ADR-0001); packaging is not a unit.
 - PO lines **snapshot** quantity/unit/cost; itemId is provenance.
-- Tenancy enforcement is layered: scoped repositories (L1) + RLS (L2);
-  filters establish context, the data layer enforces it.
+- Tenancy enforcement is layered: Hibernate `@TenantId` (L1, ADR-0008) + RLS
+  (L2); filters establish context, the data layer enforces it.
 - Zitadel over Keycloak/OpenFGA; org-per-company; grants stay local.
 
 ## 5. Open questions (answer before the phase that needs them)

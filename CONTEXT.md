@@ -14,6 +14,15 @@ One customer of the system — a café chain. Every piece of master data belongs
 exactly one, and nothing is ever visible across the boundary.
 _Avoid_: tenant, organization, account
 
+**Tenant context**:
+The Company the current request or job acts for, held for the thread and applied
+to every read and write of company-owned rows. A request takes it from its access
+token and clears it when it ends; background work enters it explicitly, or enters
+the system scope, which sees every company and is used only for login, refresh,
+logout, startup and cross-company checks. "Tenant" appears in the code for this
+seam only; the thing itself is a **Company**.
+_Avoid_: tenant (for the company itself), organization scope
+
 **Branch**:
 One physical café. Stock is held per branch; master data is not.
 _Avoid_: store, location, outlet, site
@@ -95,6 +104,14 @@ that ingredient's base unit. The ledger of these is the source of truth for stoc
 mistakes are corrected by a further movement, never by rewriting one.
 _Avoid_: transaction, entry, adjustment (an adjustment is one *kind* of movement)
 
+**Ledger reference**:
+The `(type, id)` of the business document a movement belongs to — an order, a
+purchase order. The ledger records each reference once, so deducting for the same
+order twice, or reversing it twice, changes nothing the second time. A reversal
+is written under a reference of its own and returns what the original movements
+recorded.
+_Avoid_: idempotency key, source document
+
 **Stock item**:
 An ingredient's current balance at one branch — quantity on hand, reorder level,
 and moving-average cost. A cached rollup of the movements, never authoritative
@@ -126,3 +143,12 @@ closed vocabulary, stored as its canonical symbol and checked at save to measure
 the same thing as the ingredient's base unit. The ledger converts it to the base
 unit when the sale deducts.
 _Avoid_: consumption unit
+
+### Sales and reporting
+
+**Net sales**:
+What an order sold for after discounts and before tax: its gross subtotal less its
+line and order discounts. The grand total is net sales plus tax. A sale counts on
+the day it completes, a void or refund takes it back on the day it happens, and
+days are cut in the reporting zone (Asia/Ho_Chi_Minh by default).
+_Avoid_: revenue, turnover, subtotal (the subtotal is the gross figure)

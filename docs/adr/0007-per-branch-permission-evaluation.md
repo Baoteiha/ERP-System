@@ -106,6 +106,16 @@ made just before it, and a grant sees the permissions just added.
   — at once on the instance that made it — and leaves the token valid.
   Logging in or refreshing re-reads the user's grants, so a new token and the
   check always agree.
+- With several instances, another instance can serve stale grants for up to
+  30 seconds after a grant or revoke (`UserGrantCache.TTL`), and a role's old
+  permissions for up to 60 seconds after an edit (`RolePermissionCache.TTL`).
+  A refresh brings a token up to date: it is issued from freshly read grants, so
+  it never names a revoked grant, and an instance that finds a token newer than
+  its copy of the user (a higher auth version, or another role at the branch
+  than the copy holds) reads the user's grants afresh once instead of refusing
+  it. A token issued before the change is not newer evidence, so it can pass on
+  another instance until the TTL runs out; a role's edited permissions are read
+  from the role, so only the 60 seconds bring them in.
 - What the caches cannot follow ends the token instead (AUTH-G08): a status
   change, a password change or reset, and a branch closing (whose grants go
   with it) move the user's `auth_version`, which every token carries as `av`,

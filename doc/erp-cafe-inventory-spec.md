@@ -27,14 +27,16 @@ believe, the module has failed regardless of feature count.
 Substantially more is built than earlier drafts of this document described.
 
 **Built:** ingredient master, branch-scoped stock items, append-only movement
-ledger with seven movement types, supplier master, purchase-order lifecycle,
-moving-average costing, recipe-driven depletion on sale with COGS capture,
-low-stock detection, waste and adjustment entry, RLS tenant isolation,
-optimistic locking on edits.
+ledger with seven movement types, supplier master and supplier items,
+purchase-order lifecycle with lines in their own unit, moving-average costing,
+versioned-recipe depletion on sale with COGS capture, reversal of exactly what a
+sale took, low-stock detection, waste and adjustment entry, unit conversion at
+the ledger seam, row-level security on every tenant table under a non-superuser
+role, optimistic locking on edits.
 
-**Principal gaps:** unit-of-measure conversion (actively producing wrong
-numbers), physical stocktake and variance reporting, lot/expiry tracking,
-prep/sub-recipe production, and the supplier communication loop.
+**Principal gaps:** physical stocktake and variance reporting, lot/expiry
+tracking, prep/sub-recipe production, transfers, and the supplier communication
+loop.
 
 ## 3. Domain model
 
@@ -42,11 +44,11 @@ prep/sub-recipe production, and the supplier communication loop.
 |---|---|---|
 | `Ingredient` | ✅ | `companyId`, `name`, `baseUnit`, `category`, `active`, `deleted` |
 | `StockItem` | ✅ | Branch-scoped projection; unique on `(ingredient_id, branch_id)`; holds `quantityOnHand`, `reorderLevel`, `avgUnitCost` |
-| `StockMovement` | ✅ | Append-only ledger; `type`, `quantity`, `unitCost`, `refType`/`refId`, `note` |
+| `StockMovement` | ✅ | Append-only ledger; `type`, `quantity` (in the ingredient's base unit), `unitCost`, `refType`/`refId`, `note`. A **ledger reference** `(refType, refId)` is claimed once in `ledger_reference` (V13), so a repeated deduction or reversal of one reference is a no-op |
 | `MovementType` | 🟡 | `PURCHASE_RECEIPT`, `SALE_DEPLETION`, `SALE_REVERSAL`, `WASTE`, `ADJUSTMENT`, `TRANSFER_IN`, `TRANSFER_OUT`. Missing: `PRODUCTION_IN`, `PRODUCTION_OUT`, `SUPPLIER_RETURN`, `COUNT_VARIANCE` |
 | `Supplier` | ✅ | |
 | `PurchaseOrder` / `PurchaseOrderLine` | ✅ | Status: `DRAFT`, `SENT`, `PARTIALLY_RECEIVED`, `RECEIVED`, `CANCELLED` |
-| `Item` | 🟡 | **New.** What a supplier sells: `companyId`, `sku`, `name`, `supplierId`, `ingredientId`, `unit`, `active`, `deleted`. Purchase unit must share a `Dimension` with the ingredient's base unit. Not yet referenced by `PurchaseOrderLine` |
+| `Item` | ✅ | What a supplier sells: `companyId`, `sku`, `name`, `supplierId`, `ingredientId`, `unit`, `active`, `deleted`. Purchase unit must share a `Dimension` with the ingredient's base unit. A `PurchaseOrderLine` records the item it came from (`item_id`, nullable) and keeps its own `unit`, quantity and cost (V25); an item line must belong to the order's supplier |
 | `Unit` / `Dimension` | ✅ | **New.** Closed unit vocabulary (mg, g, kg, ml, cl, l, pc) with dimension-scoped conversion |
 | ~~`UnitConversion`~~ | ❌ | **Rejected.** Per-ingredient conversion factors; superseded by `Unit`/`Dimension` — see [ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md) |
 | `StockLot` | ⬜ | **New.** Lot-level quantity, expiry, unit cost. Requires `StockItem` to become a rollup over lots |
@@ -60,14 +62,14 @@ prep/sub-recipe production, and the supplier communication loop.
 
 | ID | Function | Status |
 |---|---|---|
-| INV-101 | Ingredient CRUD, scoped to company, soft-delete | ✅ |
+| INV-101 | Ingredient CRUD, scoped to company, soft-delete; delete refused while stock, an open purchase order or a recipe or modifier still uses it, and the base unit is fixed once stock has moved (`IngredientIntegrityTest`) | ✅ |
 | INV-102 | Ingredient categories | ✅ |
 | INV-103 | Base unit per ingredient | ✅ |
 | INV-104 | **Closed unit vocabulary with dimension-scoped conversion** — no per-ingredient factors; see [ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md) | ✅ |
-| INV-105 | **Enforce conversion at every boundary** — receipt ✅, ledger entry ✅ ([ADR-0006](../docs/adr/0006-conversion-at-the-ledger-seam.md)); recipe save-time validation, count, transfer ⬜ | 🟡 |
+| INV-105 | **Enforce conversion at every boundary** — receipt ✅ (`ReceivingConversionTest`, `PurchaseLineUnitTest`), ledger entry ✅ ([ADR-0006](../docs/adr/0006-conversion-at-the-ledger-seam.md), `UnitConversionSeamTest`), recipe and modifier-delta save-time validation ✅ (`InventoryApi.validateConsumption`, `RecipeVersioningTest`); count, transfer ⬜ (neither exists yet) | 🟡 |
 | INV-106 | Ingredient provenance — optionally restrict creation to received stock | ⬜ |
 
-**INV-104 is settled and the two hot INV-105 boundaries now convert.** `Unit` is a
+**INV-104 is settled and every INV-105 boundary that exists now converts.** `Unit` is a
 closed vocabulary, each unit belongs to a `Dimension`, and conversion within a
 dimension is a pure function — no per-ingredient conversion table
 ([ADR-0001](../docs/adr/0001-no-per-ingredient-unit-conversion-table.md)).
@@ -79,12 +81,15 @@ every stock line to the ingredient's base unit before merging (rejecting
 cross-dimension lines), and receiving converts a receipt counted in any
 same-dimension unit — including a per-received-unit cost override — before booking.
 
-Still open on INV-105: `RecipeLine.unit` is free text and is not validated against
-the ingredient's base unit at save time, so a bad unit is caught only when a sale's
-deduction reaches the ledger (422) instead of when the recipe is written; counts and
-transfers don't exist yet and must convert when they do. Receipts default to base
-units unless a unit is sent — defaulting from the item's purchase unit awaits PO
-lines referencing items.
+A recipe line and a modifier delta now carry a `Unit` of the closed vocabulary
+(V24) and are checked at save against the ingredient's base unit, so a bad unit
+(`cup`) is refused with 422 when the recipe is written, not when a sale reaches the
+ledger. A purchase line is counted and priced in its own unit, taken from its item
+or given with the ingredient (base unit when neither), and a receipt defaults to
+that unit.
+
+Still open on INV-105: counts and transfers don't exist yet and must convert when
+they do.
 
 ### 4.2 Ledger and movements — `INV-2xx`
 
@@ -131,10 +136,10 @@ whiteboard's `10kg xoài — 1tr` versus `10kg xoài — 1tr5` question.
 
 | ID | Function | Status |
 |---|---|---|
-| INV-401 | Recipe explosion on order finalize, deducting ingredients | ✅ |
+| INV-401 | Recipe consumption when an order completes, deducting ingredients at the recipe version the line was taken under ([ADR-0010](../docs/adr/0010-recipes-as-versioned-consumption.md)) | ✅ |
 | INV-402 | Modifier recipe lines included in depletion | ✅ |
 | INV-403 | COGS captured at depletion | ✅ |
-| INV-404 | Reversal on void and refund | ✅ |
+| INV-404 | Reversal on void and refund: one reversal per recorded movement, same quantity and unit cost, whatever the recipe says now (`ReverseDeductionIntegrationTest`) | ✅ |
 | INV-405 | Flag recipes whose ingredients are out of stock | 🟡 |
 | INV-406 | **Prep / sub-recipe production** — consume ingredients, produce a stockable prep item (e.g. brew a batch of tea syrup) | ⬜ |
 | INV-407 | **Yield and shrinkage factors** — 1 kg of beans does not yield 1 kg of brewed coffee | ⬜ |
@@ -143,8 +148,8 @@ INV-406 corresponds to the whiteboard's `1TS = 1 Trà + 1 Chanh + …` note. Eve
 cafe has prep items; without them, batch production has to be faked as waste
 plus adjustment, which corrupts both figures.
 
-INV-405 is marked partial because it resolves consumption correctly but inherits
-the unit defect from INV-104.
+INV-405 is marked partial: a sale resolves its consumption and may take stock
+negative (warn-but-allow, logged), but no recipe is flagged ahead of the sale.
 
 ### 4.5 Accuracy control — `INV-5xx`
 
@@ -189,7 +194,7 @@ store it. For a cafe running dairy, syrups, and fruit, this is table stakes.
 
 | ID | Function | Status |
 |---|---|---|
-| INV-701 | Moving-average unit cost per stock item | ✅ |
+| INV-701 | Moving-average unit cost per stock item; a receipt after stock went negative takes the receipt's cost, not a blend with the zero-cost shortfall (`IngredientIntegrityTest`) | ✅ |
 | INV-702 | COGS per order | ✅ |
 | INV-703 | **Stated valuation policy** — weighted average is the chosen method; document it and make it explicit in the API | ⬜ |
 | INV-704 | **Recipe cost rollup** — current cost to produce each product, recalculated as purchase prices move | ⬜ |
@@ -286,10 +291,10 @@ before the visualisation is built on top of it.
 | ID | Function | Status |
 |---|---|---|
 | INV-1201 | Tenant scoping on all inventory endpoints | ✅ |
-| INV-1202 | Postgres RLS on ingredient tables | ✅ |
+| INV-1202 | Postgres RLS on every tenant table, forced (V22; `RlsEverywhereTest`) | ✅ |
 | INV-1203 | Optimistic locking against stale-form edits | ✅ |
-| INV-1204 | Extend RLS to remaining inventory tables | 🟡 |
-| INV-1205 | Non-superuser production DB role | ⬜ |
+| INV-1204 | Extend RLS to remaining inventory tables | ✅ V22, with the tables of every other module |
+| INV-1205 | Non-superuser production DB role | ✅ `erp_app` (V22), which is not a superuser and cannot bypass RLS (`AppDatabaseRoleTest`); the migrations refuse an existing role that could (V22, V26_005) |
 | INV-1206 | Role-based permissions on adjustment, waste, and count approval | ⬜ |
 
 INV-1206 matters because adjustment and waste are the two endpoints through
@@ -301,8 +306,9 @@ thresholds and an audit trail.
 Sequenced by whether the work unblocks other work, not by visibility.
 
 **Phase A — make the numbers correct.** INV-104, INV-105. Nothing else is worth
-building on numbers that can be wrong by three orders of magnitude. Includes a
-migration to normalise existing `RecipeLine.unit` values.
+building on numbers that can be wrong by three orders of magnitude. Done, apart
+from the count and transfer boundaries that wait for those features; it included
+a migration that normalised existing recipe-line units (V24).
 
 **Phase B — make the numbers verifiable.** INV-501 through INV-504, plus
 INV-206. This is the variance loop. It is worth more than every remaining phase

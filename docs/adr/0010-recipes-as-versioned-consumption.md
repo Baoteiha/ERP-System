@@ -8,8 +8,14 @@ the core, called the catalog vertical to find out, which ADR-0005 rules out.
 
 **Versions.** Saving a recipe adds a `recipe_version` — numbered from 1 per
 recipe, with its lines and the time it was saved — and puts it in force
-(`recipe.current_version_no`). A version is never rewritten: the app role holds
-no UPDATE or DELETE on `recipe_version` or `recipe_line`. The recipe endpoint's
+(`recipe.current_version_no`). The application never rewrites a version, and the
+database holds it to that only in part: the app role holds no UPDATE or DELETE
+on `recipe_version` or `recipe_line` (V24, `RecipeVersioningTest`), so a saved
+row cannot be changed or removed through it. It does hold INSERT, and there is no trigger,
+while the row-level policy only checks that the version is the company's, so
+nothing stops it adding a `recipe_line` under an old version, so a bug or a
+hand-written statement could still extend a version already in force. Only the
+schema owner can change or delete rows. The recipe endpoint's
 `version` is the number in force. It is also the stale-edit token: a save that
 names an older number answers 409, and of two saves racing from the same
 number, the unique `(recipe_id, version_no)` lets one commit and answers the

@@ -31,18 +31,17 @@ backend/
     ├── main/
     │   ├── java/vn/essvn/erpcafe/
     │   │   ├── ErpCafeApplication.java     # @SpringBootApplication entry point
-    │   │   ├── config/                     # app-wide Spring configuration
+    │   │   ├── config/                     # app-wide Spring configuration and startup guards
     │   │   ├── common/                     # shared kernel (used by all modules)
-    │   │   └── organization/               # feature module: Company & Branch
+    │   │   ├── bootstrap/                  # DataInitializer: permission catalog, default roles, first admin
+    │   │   └── organization/ identity/ catalog/ inventory/ sales/ staff/ reporting/   # feature modules
     │   └── resources/
-    │       ├── application.yml              # shared config (active profile = dev)
+    │       ├── application.yml              # shared config (no default profile: pick one, see §9 and §10)
     │       ├── application-dev.yml          # dev: local Postgres:5433, port 8090
     │       ├── application-prod.yml         # prod: config from env vars
-    │       └── db/migration/                # Flyway SQL migrations
-    │           └── V1_001__create_company_branch.sql
+    │       └── db/migration/                # Flyway SQL migrations, V1 … V27
     └── test/
-        └── java/vn/essvn/erpcafe/
-            └── ErpCafeApplicationTests.java
+        └── java/vn/essvn/erpcafe/           # Testcontainers integration tests per module, ArchitectureTest
 ```
 
 ---
@@ -82,8 +81,11 @@ common/
 │   ├── BusinessRuleException.java      # → HTTP 422
 │   └── ConflictException.java          # → HTTP 409
 ├── context/
-│   ├── BranchContext.java          # request-scoped active branch (thread-local)
-│   └── BranchContextFilter.java    # reads X-Branch-Id header (enforcement added in Phase 1)
+│   ├── BranchContext.java          # request-scoped active branch (thread-local), set only by JwtAuthenticationFilter
+│   └── TenantContext.java          # the company the thread acts for, or the system scope (ADR-0008)
+├── persistence/                    # tenant seam: TenantIdentifierResolver, TenantTransactionManager (sets app.company_id
+│                                   # per transaction for RLS), TenantRoutingDataSource, SystemTransactions
+├── mail/                           # MailSender port (the only adapter, LoggingMailSender, is dev and test only)
 └── events/                         # transactional outbox (ADR-0009)
     ├── DomainEventPublisher.java   # writes an event in the business transaction (domain_event)
     ├── DomainEventDispatcher.java  # after commit: delivers to @EventListeners in the event's company, in order, with retries
@@ -94,8 +96,12 @@ common/
 
 ```
 config/
-├── JpaConfig.java      # @EnableJpaAuditing + AuditorAware (currently "system"; real user in Phase 1)
-└── OpenApiConfig.java  # Swagger UI metadata (/swagger-ui.html)
+├── JpaConfig.java          # @EnableJpaAuditing + AuditorAware (the signed-in user)
+├── OpenApiConfig.java      # Swagger UI metadata (/swagger-ui.html; off in prod)
+├── SecurityProperties.java # app.security.* (JWT keys, refresh cookie, password reset, login throttle)
+├── JwtSecretGuard / AppRolePasswordGuard   # refuse to start on a committed JWT secret outside dev/test, or an app-role
+│                                           # password V22 cannot quote
+└── DataSourceConfig / HibernateTenantConfig / TenantTransactionConfig   # app-role and owner pools, tenant seam
 ```
 
 ### `organization` — Company & Branch (the multi-branch backbone)
@@ -155,31 +161,32 @@ Entities never cross the web boundary; the mapper always converts to a DTO first
 - **Primary keys:** UUID (`@GeneratedValue(strategy = GenerationType.UUID)`), good for multi-branch and future service splits.
 - **Money:** always `Money` / `BigDecimal` (`NUMERIC(19,4)`, HALF_EVEN). Never `double`/`float`.
 - **Optimistic locking:** every entity has `@Version`; concurrent edits to the same row → `OptimisticLockingFailureException` → HTTP 409.
-- **Soft delete:** master data (Company, Branch) uses Hibernate `@SQLDelete` + `@SQLRestriction("deleted = false")`. Transactional/financial records will never be soft-deleted (use status/void instead).
-- **Auditing:** `@EnableJpaAuditing` fills created/updated columns automatically via `AuditorAware`.
+- **Soft delete:** master data (Company, Branch, User, Category, Product, ModifierGroup, Supplier, Ingredient, Item) uses Hibernate `@SQLDelete` + `@SQLRestriction("deleted = false")`. Transactional/financial records will never be soft-deleted (use status/void instead).
+- **Auditing:** `@EnableJpaAuditing` fills created/updated columns automatically via `AuditorAware` (the signed-in user; `system` for startup seeding). Sign-ins, access changes and password changes are also recorded in `auth_event`.
 - **Schema ownership:** **Flyway owns the schema** (`db/migration/V*.sql`); Hibernate is `ddl-auto: validate` (checks entities match, never alters).
 - **Errors:** services throw domain exceptions; `GlobalExceptionHandler` maps them to RFC 7807 `ProblemDetail` responses.
 - **API versioning:** URI-based `/api/v1` via `ApiVersions.V1`.
-- **Branch scoping:** `branch_id` discriminator on branch-scoped entities; `BranchContext` resolves the active branch per request (enforcement lands in Phase 1).
+- **Company scoping:** company-owned entities extend `TenantOwnedEntity` (Hibernate `@TenantId`); `TenantContext` carries the company from the access token, and every transaction sets `app.company_id` for the row-level security policies on every tenant table. Another company's id is a 404 (ADR-0008, ADR-0003).
+- **Branch scoping:** `branch_id` discriminator on branch-scoped entities; `JwtAuthenticationFilter` validates `X-Branch-Id` against the user's grants and places it in `BranchContext`; services apply it to branch-scoped queries. Permissions are weighed at that branch (ADR-0007).
+- **Database roles:** requests run as `erp_app`, which RLS binds; migrations and the system work (login, refresh, logout, startup) run as the schema owner.
 
 ---
 
 ## 7. Flyway migrations
 
 - Location: `src/main/resources/db/migration`, single linear history.
-- Naming: `V<phase>_<seq>__<description>.sql` — number ranges reserved per module so files sort by build phase:
-  `V1` organization · `V2` identity · `V3` catalog · `V4` inventory · `V5` sales · `V6` staff · `V7` reporting.
-- Migrations are immutable once applied (Flyway checksums them).
+- Naming: `V<major>_<seq>__<description>.sql`. V1 to V6 were the module schemas (organization, identity, catalog, inventory, sales, staff); from V7 on, each change takes the next free major number. List with `ls | sort -V`: a plain `ls` sorts V10 before V2.
+- Migrations are immutable once applied (Flyway checksums them). Two were edited in place before the first release, V26_005 and V26_006; a development database that already applied them needs `flyway repair` (or a fresh volume).
 
 ---
 
 ## 8. Module roadmap (built incrementally, each phase runnable)
 
 - **Phase 0 — Foundation + Organization** ✅ — common kernel, config, Company/Branch CRUD.
-- **Phase 1 — Identity & Auth** ✅ — Spring Security + JWT (access + refresh), users/roles/permissions (+ role permission management), per-branch access enforcement, real `AuditorAware`, bootstrap seeding.
+- **Phase 1 — Identity & Auth** ✅ — Spring Security + JWT (access token in the body, rotating refresh token in an HttpOnly cookie), users/roles/permissions (+ role permission management), per-branch grants evaluated at the active branch, account and role lifecycle, login throttle, audit trail, password reset by email token, JWT key rotation, real `AuditorAware`, bootstrap seeding. See `doc/erp-cafe-auth-spec.md`.
 - **Phase 2 — Catalog** ✅ — category, product (+ per-branch price), recipe/recipe-line, modifier groups + modifier recipe deltas, pricing, `CatalogApi`.
 - **Phase 3 — Inventory & Purchasing** ✅ — ingredient, supplier, per-branch StockItem, append-only StockMovement ledger, moving-average costing, full purchase-order lifecycle + receiving, low-stock alerts; publishes `InventoryApi` (deduct + COGS, warn-but-allow negative, idempotent).
-- **Phase 4 — Sales / POS** ✅ — order state machine (OPEN→PAID→COMPLETED, cancel/void/refund), line + modifier snapshots, split payments, line+order discounts and tax; completion explodes recipes → deducts stock + captures COGS (price − COGS = margin); void/refund return stock.
+- **Phase 4 — Sales / POS** ✅ — order state machine (OPEN→PAID→COMPLETED, cancel/void/refund), line + modifier snapshots, split payments, line+order discounts and tax; full payment completes the order in the same transaction; completion deducts the recipe version each line was taken under (ADR-0010) and captures COGS; void/refund return exactly what the sale's movements recorded, and each refund goes back by its original payment method. Totals are computed in `Order`: net sales = gross subtotal − discounts, tax on net, rounded HALF_EVEN once.
 - **Phase 5 — Staff / HR & Shifts** ✅ — employee master data (deactivate, never delete), shift state machine (SCHEDULED→IN_PROGRESS→COMPLETED / cancel), clock in/out with hourly-rate snapshot at clock-in and labor cost captured at clock-out; `staff:clock` is a separate permission so cashiers punch in/out without editing the schedule; publishes `StaffApi` (labor cost per branch/period).
 - **Phase 6 — Reporting** ✅ — `reporting` owns a read model, `report_daily_branch` (one row per branch and report day), which `ReportProjection` keeps from the `OrderCompleted`, `OrderReversed` and `ShiftCompleted` events (ADR-0009); the branch list still comes from `OrganizationApi.listActiveBranches`. Endpoints: `/reports/summary`, `/reports/sales-by-day`, `/reports/outlets` (cross-branch comparison incl. labor vs sales), guarded by `report:read`. COGS is what each sale took from the stock ledger, less what its reversal returned; periods are whole days in `app.reporting.zone`.
 
@@ -191,7 +198,8 @@ Entities never cross the web boundary; the mapper always converts to a DTO first
 # 1. Start Postgres (host port 5433 to avoid clashing with other local stacks)
 docker compose up -d
 
-# 2. Run the app on the dev profile (port 8090)
+# 2. Run the app on the dev profile (port 8090). There is no default profile: bootRun
+#    passes spring.profiles.active=dev, and any other launch must name one.
 ./gradlew bootRun
 
 # 3. Explore
@@ -233,10 +241,15 @@ and `app.datasource.owner.connection-timeout`; `spring.datasource.hikari.*` size
 **Authenticating (dev):** on first startup the app seeds a bootstrap admin.
 
 ```bash
-# 1. Log in → returns { accessToken, refreshToken }
-curl -X POST http://localhost:8090/api/v1/auth/login \
+# 1. Log in → returns { accessToken, tokenType }; the refresh token arrives as the
+#    HttpOnly cookie erpcafe_refresh, which -c saves (dev serves plain HTTP, so it is not Secure)
+curl -c cookies.txt -X POST http://localhost:8090/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@esscafe.vn","password":"admin1234"}'
+
+# Refresh (rotates the cookie) needs the cookie and the CSRF header; logout likewise
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:8090/api/v1/auth/refresh \
+  -H 'X-Requested-With: erpcafe'
 
 # 2. Call protected endpoints with the access token
 curl http://localhost:8090/api/v1/branches -H "Authorization: Bearer <accessToken>"
@@ -246,7 +259,71 @@ curl http://localhost:8090/api/v1/branches \
   -H "Authorization: Bearer <accessToken>" -H "X-Branch-Id: <branchId>"
 ```
 
-- Public endpoints: `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset/request` and `/confirm`, Swagger. Everything else needs a valid access token.
+- Public endpoints: `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset/request` and `/confirm`, Swagger (dev and test only). Everything else needs a valid access token.
 - Mail goes through the `MailSender` port. The only adapter, `LoggingMailSender`, writes each mail to the log, where a reset link is a credential, so it serves only the `dev` and `test` profiles. Password reset is therefore off in prod (`app.security.password-reset.enabled: false`; its endpoints answer 404). Turning it on (`APP_SECURITY_PASSWORDRESET_ENABLED=true`) needs a real `MailSender` adapter, which sends after commit and off the request thread, and `APP_PUBLIC_URL`; without an adapter the app refuses to start.
-- Access tokens are short-lived JWTs (15 min); use `/auth/refresh` (rotates) for new ones; `/auth/logout` revokes a refresh token.
+- Access tokens are short-lived JWTs (15 min); use `/auth/refresh` (rotates, with the cookie and `X-Requested-With: erpcafe`) for new ones; `/auth/logout` revokes the cookie's refresh token and clears the cookie.
 - Bootstrap admin credentials come from `app.security.bootstrap.*` (dev defaults in `application-dev.yml`; `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars in prod).
+
+---
+
+## 10. Deploying to production
+
+Every item below is checked against `application-prod.yml`, `application.yml`, the guards in
+`config/` and the migrations; `ProfileBindingTest` binds the prod profile with exactly the
+environment listed in step 2.
+
+1. **Name the profile.** There is no default profile: start with `SPRING_PROFILES_ACTIVE=prod`.
+   Without it the prod file is not read and the app has no database URL or JWT key to start with.
+   `JwtSecretGuard` also refuses to start outside `dev` and `test` while a signing key is one
+   committed to the repository.
+2. **Environment** (renamed from the old `DB_USER` / `DB_PASSWORD`, which no longer exist):
+
+   | Variable | Required | Meaning |
+   |---|---|---|
+   | `DB_URL` | yes | JDBC URL, used by both connections |
+   | `DB_APP_PASSWORD` | yes | password of `erp_app`, the fixed username every request connects as |
+   | `DB_OWNER_USER`, `DB_OWNER_PASSWORD` | yes | the schema owner: Flyway and the system work |
+   | `JWT_SECRET` | yes | the active HS256 key, at least 32 bytes; not one of the committed dev or test secrets |
+   | `JWT_KEY_ID` | no | the active key's `kid`, default `primary` |
+   | `ADMIN_EMAIL` | yes | the bootstrap admin's email |
+   | `ADMIN_PASSWORD` | on an empty database | seeds the first admin; startup fails without it when there is nothing to seed into |
+   | `APP_PUBLIC_URL` | only with password reset on | the frontend's base URL for the reset link |
+
+   To rotate the signing key, give the whole `app.security.jwt.keys` list through the environment
+   (`APP_SECURITY_JWT_KEYS_0_KID`, `_0_SECRET`, `_0_ACTIVE`, `_1_...`): exactly one key active, the
+   old one inactive until the 15-minute access-token TTL has passed, then removed. A key set with no
+   active key, two, or a repeated `kid` fails at startup.
+3. **The `erp_app` password.** It must not contain `$$` or `$pw$`, and must not end in `$` or `$pw`:
+   V22 writes it inside dollar quotes, and `AppRolePasswordGuard` refuses to start rather than let a
+   broken quote fail a statement PostgreSQL logs in full. To keep the plain password out of the
+   migration, set `spring.flyway.placeholders.appRolePassword` to a SCRAM verifier (see §9); the app
+   still connects with the plain `DB_APP_PASSWORD`. An existing `erp_app` must not be a superuser, hold
+   `BYPASSRLS` or `CREATEROLE`, or own a table of the schema (V22, V26_005); the migration stops and
+   names the remedy.
+4. **Reverse proxy.** The login throttle keys on the client address. `X-Forwarded-For` is honoured
+   only from private and loopback ranges; a proxy outside them must be listed in
+   `server.tomcat.remoteip.internal-proxies`, or every client looks like the proxy and shares one
+   throttle counter. `application.yml` sets only `remote-ip-header: X-Forwarded-For`; the proxy list is
+   yours to add (`ForwardedAddressThrottleHttpTest` pins the behaviour with a proxy listed).
+5. **HTTPS is required.** The refresh cookie is `Secure` in prod (`app.security.refresh-cookie.secure`
+   defaults to true; `ProfileBindingTest` pins it), so a browser on plain HTTP never sends it back and
+   nobody stays signed in. It is `SameSite=Strict` with `Path=/api/v1/auth`, and the API sends no CORS
+   headers: serve the frontend and the API from one site (the dev proxy does this with `/api`).
+6. **Password reset is off.** `app.security.password-reset.enabled` is false in prod and both reset
+   endpoints answer 404 until a real `MailSender` adapter exists (the logging one writes reset links
+   to the log, where they are credentials, and is bound to `dev` and `test`). Turning it on without an
+   adapter stops the app at startup. Users who forget a password ask a manager or the owner.
+7. **Swagger is off.** `springdoc.api-docs` and `springdoc.swagger-ui` are disabled in prod
+   (`ProfileBindingTest`), so `/swagger-ui.html` and `/v3/api-docs` are not served.
+8. **Everyone signs in once after this deploy.** `V27_001` revokes every live refresh token, because
+   tokens handed out in a response body before the cookie existed could be replayed from a saved
+   copy (`RefreshTokenRevocationMigrationTest`). Access tokens from before per-branch permissions
+   or the key set carry no branch roles or `kid` and are refused with 401; a refresh would fix that,
+   but V27_001 has revoked the refresh tokens too, so the user signs in.
+9. **Report days.** `V23` cuts the report read model's days in `app.reporting.zone` (default
+   `Asia/Ho_Chi_Minh`); set it before the first start if the café is elsewhere, since the migration
+   reads it once.
+10. **Development databases.** A database that already applied `V26_005` or `V26_006` before they were
+    edited in place needs `flyway repair` (or a fresh volume) to accept the new checksums. A
+    database that never ran them is unaffected, and so is any production database deployed from this
+    branch.
