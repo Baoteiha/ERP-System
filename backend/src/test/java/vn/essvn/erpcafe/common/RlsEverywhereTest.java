@@ -24,6 +24,7 @@ import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -36,6 +37,7 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.persistence.SystemTransactions;
+import vn.essvn.erpcafe.config.AppRolePasswordGuard;
 import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -97,6 +99,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
     @Autowired private UserBranchAccessRepository accessRepository;
     @Autowired private RoleRepository roleRepository;
     @Autowired @Qualifier("ownerDataSource") private DataSource ownerDataSource;
+    @Autowired private List<FlywayConfigurationCustomizer> flywayCustomizers;
 
     /** One company's row in every table it can own; the ids a test needs to aim at them. */
     private record Seeded(UUID company, UUID branch, UUID user, UUID ingredient, UUID order, UUID payment) {
@@ -446,6 +449,11 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 .locations("classpath:db/migration")
                 .placeholders(Map.of("appRolePassword", appRolePassword, "reportingZone", "Asia/Ho_Chi_Minh"));
         return (target == null ? config : config.target(target)).load();
+    }
+
+    @Test
+    void theAppRolePasswordGuard_customizesTheAppsFlyway() {
+        assertThat(flywayCustomizers).hasAtLeastOneElementOfType(AppRolePasswordGuard.class);
     }
 
     @Test

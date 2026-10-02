@@ -219,7 +219,13 @@ The owner must own the schema and its tables and hold `BYPASSRLS` (or be a super
 is a cluster-wide role, so run one PostgreSQL cluster per environment. A Flyway run outside the app
 must supply the `appRolePassword` placeholder (the password `erp_app` is created with; the app passes
 `spring.datasource.password`) and the `reportingZone` placeholder (the zone V23 cuts report days in; the
-app passes `app.reporting.zone`). The owner's pool is sized by `app.datasource.owner.maximum-pool-size`
+app passes `app.reporting.zone`). The app refuses to start when that password contains `$$` or `$pw$`
+or ends in `$`: V22 quotes it in dollar quotes, and a broken quote would fail a statement PostgreSQL
+logs in full. To keep the plain password out of the migration altogether, set
+`spring.flyway.placeholders.appRolePassword` to a SCRAM verifier
+(`SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`, e.g. `pg_authid.rolpassword` of the role
+created with that password on a scratch server); PostgreSQL stores it as given, and the app still
+connects with the plain password in `DB_APP_PASSWORD`. The owner's pool is sized by `app.datasource.owner.maximum-pool-size`
 and `app.datasource.owner.connection-timeout`; `spring.datasource.hikari.*` sizes only the app's.
 
 **Authenticating (dev):** on first startup the app seeds a bootstrap admin.
