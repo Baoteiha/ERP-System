@@ -15,6 +15,9 @@ spring:
     enabled: true
 
 app:
+  events:
+    # tests deliver events themselves (DomainEventDispatcher.dispatchPending), so none arrive mid-test
+    dispatch-cron: "-"
   security:
     jwt:
       access-token-ttl: 15m

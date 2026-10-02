@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.staff;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -14,10 +15,14 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.jayway.jsonpath.JsonPath;
@@ -26,6 +31,7 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
+import vn.essvn.erpcafe.staff.api.ShiftCompleted;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
@@ -44,6 +50,7 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
     @Autowired private EmployeeRepository employeeRepository;
     @Autowired private ShiftRepository shiftRepository;
     @Autowired private BranchRepository branchRepository;
+    @Autowired @Qualifier("ownerDataSource") private DataSource ownerDataSource;
 
     private String token;
     private String branchId;
@@ -208,6 +215,37 @@ class TimeClockRulesTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
         assertThat(stored(id).getLaborCost().getAmount())
                 .isEqualByComparingTo("510000");
+    }
+
+    @Test
+    void clockOutAndAdjust_eachStateTheShiftsLabourAsAnEvent() throws Exception {
+        login();
+        UUID emp = employee("Evented " + unique(), "30000");
+        UUID id = openShift(emp, "36000", 2);
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/clock-out"))).andExpect(status().isOk());
+        Shift clockedOut = stored(id);
+        Instant in = clockedOut.getClockInAt();
+        mockMvc.perform(authed(post("/api/v1/staff/shifts/" + id + "/adjust"))
+                        .content("{\"clockOut\":\"%s\"}".formatted(in.plus(1, ChronoUnit.HOURS))))
+                .andExpect(status().isOk());
+
+        List<String> events = new JdbcTemplate(ownerDataSource).queryForList("SELECT payload::text FROM domain_event"
+                + " WHERE event_type = ? AND payload->>'shiftId' = ? ORDER BY seq", String.class,
+                ShiftCompleted.class.getName(), id.toString());
+
+        assertThat(events).hasSize(2);
+        String first = events.get(0);
+        assertThat((String) JsonPath.read(first, "$.companyId")).isEqualTo(clockedOut.getCompanyId().toString());
+        assertThat((String) JsonPath.read(first, "$.branchId")).isEqualTo(branchId);
+        assertThat(Instant.parse(JsonPath.read(first, "$.clockOut")))
+                .isCloseTo(clockedOut.getClockOutAt(), within(1, ChronoUnit.MILLIS));
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(first, "$.laborCost"))))
+                .isEqualByComparingTo(clockedOut.getLaborCost().getAmount());
+        // the adjustment restates the shift: one hour at the snapshot rate
+        String second = events.get(1);
+        assertThat(Instant.parse(JsonPath.read(second, "$.clockOut"))).isEqualTo(in.plus(1, ChronoUnit.HOURS));
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(second, "$.laborCost"))))
+                .isEqualByComparingTo("36000");
     }
 
     @Test

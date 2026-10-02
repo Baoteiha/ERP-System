@@ -15,10 +15,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.events.DomainEventPublisher;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
+import vn.essvn.erpcafe.staff.api.ShiftCompleted;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -44,10 +46,13 @@ public class ShiftService implements StaffApi {
     // Lazy: organization already depends on this module (BranchService calls hasOpenShifts).
     private final ObjectProvider<OrganizationApi> organizationApi;
     private final PinAttemptService pinAttempts;
+    private final DomainEventPublisher events;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
             StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
-            ObjectProvider<OrganizationApi> organizationApi, PinAttemptService pinAttempts) {
+            ObjectProvider<OrganizationApi> organizationApi, PinAttemptService pinAttempts,
+            DomainEventPublisher events) {
+        this.events = events;
         this.pinAttempts = pinAttempts;
         this.passwordEncoder = passwordEncoder;
         this.organizationApi = organizationApi;
@@ -107,6 +112,7 @@ public class ShiftService implements StaffApi {
         Shift shift = get(id);
         employeeOf(shift, pin);
         shift.clockOut(Instant.now(), properties.maxShiftLength());
+        publishCompleted(shift);
         return shift;
     }
 
@@ -129,7 +135,14 @@ public class ShiftService implements StaffApi {
     public Shift adjust(UUID id, Instant clockIn, Instant clockOut) {
         Shift shift = get(id);
         shift.adjust(clockIn, clockOut, properties.maxAdjustedShiftLength(), Instant.now());
+        publishCompleted(shift);
         return shift;
+    }
+
+    // Reports book a shift's labour on the day it ended; an adjustment restates both.
+    private void publishCompleted(Shift shift) {
+        events.publish(new ShiftCompleted(shift.getId(), shift.getCompanyId(), shift.getBranchId(),
+                shift.getClockOutAt(), shift.getLaborCost().getAmount()));
     }
 
     @Transactional(readOnly = true)

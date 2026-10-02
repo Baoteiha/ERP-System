@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.sales;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -8,14 +9,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+
+import javax.sql.DataSource;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.jayway.jsonpath.JsonPath;
@@ -23,6 +32,8 @@ import com.jayway.jsonpath.JsonPath;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
+import vn.essvn.erpcafe.sales.api.OrderCompleted;
+import vn.essvn.erpcafe.sales.api.OrderReversed;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -33,6 +44,10 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private BranchRepository branches;
+
+    @Autowired
+    @Qualifier("ownerDataSource")
+    private DataSource ownerDataSource;
 
     private String token;
     private String branchId;
@@ -144,6 +159,77 @@ class SalesFlowIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.cogsTotal").value(7.20));
 
         assertThat(stockQty(ingredientId)).isEqualByComparingTo("964"); // 1000 - 36
+    }
+
+    /** The payload of the one event of {@code type} about the order, read past row-level security. */
+    private String eventAbout(Class<?> type, String orderId) {
+        return new JdbcTemplate(ownerDataSource).queryForObject("SELECT payload::text FROM domain_event"
+                + " WHERE event_type = ? AND payload->>'orderId' = ?", String.class, type.getName(), orderId);
+    }
+
+    private Instant orderTime(String column, String orderId) {
+        return new JdbcTemplate(ownerDataSource).queryForObject("SELECT " + column + " FROM sales_order WHERE id = ?::uuid",
+                Timestamp.class, orderId).toInstant();
+    }
+
+    @Test
+    void completingAndRefundingAnOrder_recordsItsFiguresAsEvents() throws Exception {
+        String[] ids = setup(uniq());
+        setBranchTaxRate("0.1");
+        // gross 50,000, discount 5,000, net 45,000, tax 4,500, grand 49,500; COGS 2 x 18 g x 0.20 = 7.20
+        String orderId = JsonPath.read(create("/api/v1/orders", ("{\"orderType\":\"TAKEAWAY\",\"orderDiscount\":5000,"
+                + "\"lines\":[{\"productId\":\"%s\",\"quantity\":2}]}").formatted(ids[1])), "$.id");
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/payments"), token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"CASH\",\"amount\":49500}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/refund"), token)).andExpect(status().isOk());
+        String company = new JdbcTemplate(ownerDataSource).queryForObject(
+                "SELECT company_id::text FROM branch WHERE id = ?::uuid", String.class, branchId);
+
+        String completed = eventAbout(OrderCompleted.class, orderId);
+        assertThat((String) JsonPath.read(completed, "$.companyId")).isEqualTo(company);
+        assertThat((String) JsonPath.read(completed, "$.branchId")).isEqualTo(branchId);
+        assertThat(Instant.parse(JsonPath.read(completed, "$.occurredAt")))
+                .isCloseTo(orderTime("completed_at", orderId), within(1, ChronoUnit.MILLIS));
+        assertThat(num(completed, "$.grossSales")).isEqualByComparingTo("50000");
+        assertThat(num(completed, "$.discountTotal")).isEqualByComparingTo("5000");
+        assertThat(num(completed, "$.netSales")).isEqualByComparingTo("45000");
+        assertThat(num(completed, "$.taxTotal")).isEqualByComparingTo("4500");
+        assertThat(num(completed, "$.cogs")).isEqualByComparingTo("7.20");
+        // a sale completed as it was paid was never booked before
+        assertThat(JsonPath.<Map<String, Object>>read(completed, "$").get("previouslyBookedAt")).isNull();
+
+        String reversed = eventAbout(OrderReversed.class, orderId);
+        assertThat((String) JsonPath.read(reversed, "$.companyId")).isEqualTo(company);
+        assertThat(Instant.parse(JsonPath.read(reversed, "$.occurredAt")))
+                .isCloseTo(orderTime("reversed_at", orderId), within(1, ChronoUnit.MILLIS));
+        assertThat(num(reversed, "$.netSales")).isEqualByComparingTo("45000");
+        assertThat(num(reversed, "$.taxTotal")).isEqualByComparingTo("4500");
+        assertThat(num(reversed, "$.cogs")).isEqualByComparingTo("7.20");
+    }
+
+    @Test
+    void completingALegacyPaidOrder_recordsWhenReportsBookedItBefore() throws Exception {
+        String[] ids = setup(uniq());
+        String orderId = JsonPath.read(create("/api/v1/orders",
+                "{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1}]}".formatted(ids[1])), "$.id");
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/payments"), token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"CASH\",\"amount\":25000}"))
+                .andExpect(status().isOk());
+        // a pre-migration row: paid, never completed, so reports booked it when it was created
+        JdbcTemplate db = new JdbcTemplate(ownerDataSource);
+        db.update("DELETE FROM domain_event WHERE payload->>'orderId' = ?", orderId);
+        db.update("UPDATE sales_order SET status = 'PAID', completed_at = NULL,"
+                + " created_at = '2026-03-02T05:00:00Z' WHERE id = ?::uuid", orderId);
+
+        mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/complete"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        String completed = eventAbout(OrderCompleted.class, orderId);
+        assertThat(Instant.parse(JsonPath.read(completed, "$.previouslyBookedAt")))
+                .isEqualTo(Instant.parse("2026-03-02T05:00:00Z"));
+        assertThat(num(completed, "$.netSales")).isEqualByComparingTo("25000");
     }
 
     @Test

@@ -1,5 +1,7 @@
 package vn.essvn.erpcafe.sales.application;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,6 +22,7 @@ import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.events.DomainEventPublisher;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.api.IdentityApi;
@@ -28,6 +31,8 @@ import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
+import vn.essvn.erpcafe.sales.api.OrderCompleted;
+import vn.essvn.erpcafe.sales.api.OrderReversed;
 import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
@@ -58,16 +63,19 @@ public class OrderService {
     private final IdentityApi identityApi;
     private final OrganizationApi organizationApi;
     private final TransactionTemplate transactions;
+    private final DomainEventPublisher events;
 
     public OrderService(OrderRepository orderRepository, CatalogApi catalogApi,
             InventoryApi inventoryApi, IdentityApi identityApi,
-            OrganizationApi organizationApi, PlatformTransactionManager transactionManager) {
+            OrganizationApi organizationApi, PlatformTransactionManager transactionManager,
+            DomainEventPublisher events) {
         this.orderRepository = orderRepository;
         this.catalogApi = catalogApi;
         this.inventoryApi = inventoryApi;
         this.identityApi = identityApi;
         this.organizationApi = organizationApi;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -155,18 +163,23 @@ public class OrderService {
 
     /** Finalises a paid order (legacy rows only; full payment completes on its own). */
     public Order complete(UUID orderId) {
-        return finish(get(orderId));
+        Order order = get(orderId);
+        // a PAID order already committed is a legacy row, which reports booked when it was created
+        return finish(order, order.getCreatedAt());
     }
 
     /** Full payment completes the sale in the same transaction: stock, COGS, status. */
     private Order finishIfPaid(Order order) {
-        return order.getStatus() == OrderStatus.PAID ? finish(order) : order;
+        return order.getStatus() == OrderStatus.PAID ? finish(order, null) : order;
     }
 
-    private Order finish(Order order) {
+    private Order finish(Order order, Instant previouslyBookedAt) {
         order.requireCompletable(); // before any stock movement
         CogsResult cogs = inventoryApi.deductForOrder(order.getBranchId(), stockLinesFor(order), REF_ORDER, order.getId());
         order.complete(cogs.totalCost().getAmount());
+        events.publish(new OrderCompleted(order.getId(), TenantContext.require(), order.getBranchId(),
+                order.getCompletedAt(), order.getSubtotal(), order.getDiscountTotal(), netSales(order),
+                order.getTaxTotal(), order.getCogsTotal(), previouslyBookedAt));
         return order;
     }
 
@@ -179,19 +192,30 @@ public class OrderService {
     public Order voidOrder(UUID orderId) {
         Order order = get(orderId);
         boolean stockWasDeducted = order.voidOrder();
-        if (stockWasDeducted) {
-            inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_VOID);
-        }
+        publishReversal(order, stockWasDeducted ? returnStock(order, REF_VOID) : Money.zero());
         return order;
     }
 
     public Order refund(UUID orderId) {
         Order order = get(orderId);
         boolean stockWasDeducted = order.refund();
-        if (stockWasDeducted) {
-            inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, orderId, REF_REFUND);
-        }
+        publishReversal(order, stockWasDeducted ? returnStock(order, REF_REFUND) : Money.zero());
         return order;
+    }
+
+    private Money returnStock(Order order, String reversalRefType) {
+        return inventoryApi.reverseDeduction(order.getBranchId(), REF_ORDER, order.getId(), reversalRefType).totalCost();
+    }
+
+    // Every reversed order had been booked as a sale (completed, or legacy PAID), so reports take it back.
+    private void publishReversal(Order order, Money cogsReturned) {
+        events.publish(new OrderReversed(order.getId(), TenantContext.require(), order.getBranchId(),
+                order.getReversedAt(), order.getSubtotal(), order.getDiscountTotal(), netSales(order),
+                order.getTaxTotal(), cogsReturned.getAmount()));
+    }
+
+    private static BigDecimal netSales(Order order) {
+        return order.getSubtotal().subtract(order.getDiscountTotal());
     }
 
     // --- helpers ---

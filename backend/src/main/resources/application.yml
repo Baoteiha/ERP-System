@@ -34,6 +34,9 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  events:
+    # how often committed domain events are delivered to their listeners ("-" turns delivery off)
+    dispatch-cron: "*/2 * * * * *"
   datasource:
     owner:
       # The schema owner's pool, for the system scope only (login, refresh, logout, startup, the
