@@ -7,7 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ReportingService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { stubLocalStorage } from '../../core/test-storage';
-import { ReportsComponent, reportPeriod, zeroFillDays } from './reports';
+import { reportPeriod, zeroFillDays } from './period';
+import { ReportsComponent } from './reports';
 
 describe('report days', () => {
   it('covers the last N days in Vietnam time and zero-fills the quiet ones', () => {

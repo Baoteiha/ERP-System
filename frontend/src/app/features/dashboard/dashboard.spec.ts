@@ -7,7 +7,7 @@ import { stubLocalStorage } from '../../core/test-storage';
 import { AuthService } from '../../core/auth.service';
 import { MeResponse } from '../../core/models';
 import { WEBGL_SUPPORTED } from '../../three/webgl';
-import { reportPeriod } from '../reports/reports';
+import { reportPeriod } from '../reports/period';
 import { DashboardComponent, pct } from './dashboard';
 
 describe('pct', () => {

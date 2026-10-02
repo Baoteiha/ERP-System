@@ -8,7 +8,7 @@ import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, orderStatusClass } from '..
 import { IngredientResponse, OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
 import { KpiTileComponent } from '../../shared/kpi-tile';
-import { reportPeriod, zeroFillDays } from '../reports/reports';
+import { reportPeriod, zeroFillDays } from '../reports/period';
 import { BranchTowersComponent } from './branch-towers';
 
 type LoadState = 'loading' | 'ready' | 'error';

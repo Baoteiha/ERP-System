@@ -16,7 +16,7 @@ import { LazyStage } from '../../three/lazy-stage';
 import { ThreeStage } from '../../three/three-stage';
 import { TowerModel, TowerSpec, towerModel } from '../../three/tower-model';
 import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
-import { reportPeriod } from '../reports/reports';
+import { reportPeriod } from '../reports/period';
 
 type Three = typeof import('three');
 type Period = 1 | 7 | 30;
