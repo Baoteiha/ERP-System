@@ -1,14 +1,10 @@
 package vn.essvn.erpcafe.identity.security;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,20 +109,11 @@ public class LoginAttemptService {
     }
 
     private static String pairKey(String email, String address) {
-        return sha256(email + "|" + address);
+        return Sha256.hex(email + "|" + address);
     }
 
     // the prefix cannot collide with a pair key, whose email part is never empty
     private static String addressKey(String address) {
-        return sha256("|" + address);
-    }
-
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 unavailable", ex);
-        }
+        return Sha256.hex("|" + address);
     }
 }

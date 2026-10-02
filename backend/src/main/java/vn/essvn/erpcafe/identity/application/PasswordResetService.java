@@ -1,8 +1,5 @@
 package vn.essvn.erpcafe.identity.application;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.HexFormat;
@@ -30,6 +27,7 @@ import vn.essvn.erpcafe.identity.domain.RefreshToken;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
+import vn.essvn.erpcafe.identity.security.Sha256;
 
 /**
  * Class: PasswordResetService
@@ -112,7 +110,7 @@ public class PasswordResetService {
      */
     public void confirm(String rawToken, String newPassword) {
         requireEnabled();
-        String tokenHash = sha256(rawToken);
+        String tokenHash = Sha256.hex(rawToken);
         // The endpoint is public: a token with no live link is refused before the password costs a hash.
         // The claim below still decides between confirmations racing for one live link.
         boolean live = system.run(() -> jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM password_reset_token"
@@ -167,7 +165,7 @@ public class PasswordResetService {
         String raw = HexFormat.of().formatHex(bytes);
         jdbc.update("INSERT INTO password_reset_token (id, user_id, token_hash, created_at, expires_at)"
                 + " VALUES (?, ?, ?, now(), now() + ?::interval)",
-                UUID.randomUUID(), user.getId(), sha256(raw), ttl.toSeconds() + " seconds");
+                UUID.randomUUID(), user.getId(), Sha256.hex(raw), ttl.toSeconds() + " seconds");
         return raw;
     }
 
@@ -180,14 +178,5 @@ public class PasswordResetService {
 
                 If it was not you, ignore this email: your password stays as it is.
                 """.formatted(ttl.toMinutes(), link, token));
-    }
-
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 unavailable", ex);
-        }
     }
 }

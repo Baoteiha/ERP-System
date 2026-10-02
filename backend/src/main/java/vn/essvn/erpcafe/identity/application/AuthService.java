@@ -1,7 +1,5 @@
 package vn.essvn.erpcafe.identity.application;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
@@ -24,6 +22,7 @@ import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AccessClaims;
 import vn.essvn.erpcafe.identity.security.JwtService;
 import vn.essvn.erpcafe.identity.security.LoginAttemptService;
+import vn.essvn.erpcafe.identity.security.Sha256;
 import vn.essvn.erpcafe.identity.security.UserGrantCache;
 
 /**
@@ -138,7 +137,7 @@ public class AuthService {
 
     private Rotation rotate(String rawRefreshToken) {
         // We store only the SHA-256 hash, so look up by hash — a DB leak never exposes usable tokens.
-        String hash = sha256(rawRefreshToken);
+        String hash = Sha256.hex(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new BusinessRuleException("Invalid refresh token"));
 
@@ -167,7 +166,7 @@ public class AuthService {
 
     // the token is the credential, and a request presenting it may carry no company at all
     public void logout(String rawRefreshToken) {
-        system.run(() -> refreshTokenRepository.findByTokenHash(sha256(rawRefreshToken))
+        system.run(() -> refreshTokenRepository.findByTokenHash(Sha256.hex(rawRefreshToken))
                 .filter(token -> !token.isRevoked())
                 .ifPresent(token -> {
                     token.revoke();
@@ -191,7 +190,7 @@ public class AuthService {
         // Refresh token: opaque random string returned to the client; only its hash is persisted.
         String rawRefresh = randomToken();
         Instant expiry = Instant.now().plus(securityProperties.jwt().refreshTokenTtl());
-        refreshTokenRepository.save(new RefreshToken(user.getId(), sha256(rawRefresh), expiry, familyId));
+        refreshTokenRepository.save(new RefreshToken(user.getId(), Sha256.hex(rawRefresh), expiry, familyId));
         return new TokenPair(accessToken, rawRefresh);
     }
 
@@ -200,14 +199,5 @@ public class AuthService {
         byte[] bytes = new byte[48];
         RANDOM.nextBytes(bytes);
         return HexFormat.of().formatHex(bytes);
-    }
-
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception ex) {
-            throw new IllegalStateException("SHA-256 unavailable", ex);
-        }
     }
 }
