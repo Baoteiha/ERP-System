@@ -101,9 +101,11 @@ a:hover { text-decoration: underline; }
 h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 600; letter-spacing: -.015em; line-height: 1.2; }
 
 /* ---- accessibility primitives ---------------------------------------- */
+/* An outline, not a box-shadow: a variant's own shadow (primary buttons, the active segment) can never replace it,
+   and it survives forced-colors mode. Text inputs keep their own focus glow (.input:focus below). */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 .sr-only {
