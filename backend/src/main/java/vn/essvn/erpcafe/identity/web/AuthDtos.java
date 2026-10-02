@@ -28,8 +28,9 @@ public final class AuthDtos {
             @NotBlank @Email String email) {
     }
 
+    /** {@code token}: 64 hex characters as issued; anything longer is no token of ours. */
     public record PasswordResetConfirmRequest(
-            @NotBlank String token,
+            @NotBlank @Size(max = 64) String token,
             @NotBlank @Size(min = 8, max = 100) @MaxUtf8Bytes(72) String newPassword) {
     }
 

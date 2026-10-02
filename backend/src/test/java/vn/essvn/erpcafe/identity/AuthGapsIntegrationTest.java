@@ -504,6 +504,13 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void aResetTokenLongerThanAnyIssued_isRefusedAsMalformed() throws Exception {
+        confirmReset("f".repeat(65), "reset-pass-9")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION"));
+    }
+
+    @Test
     void aResetRequestForAnUnknownEmail_isAnsweredAlike_andMailsNothing(CapturedOutput output) throws Exception {
         String email = "gaps-nobody%d@t.test".formatted(SEQ.incrementAndGet());
 

@@ -2,11 +2,19 @@ package vn.essvn.erpcafe.identity.application;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,6 +22,7 @@ import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.mail.MailSender;
 import vn.essvn.erpcafe.common.persistence.SystemTransactions;
@@ -23,7 +32,7 @@ import vn.essvn.erpcafe.identity.persistence.UserRepository;
 
 /**
  * Class: PasswordResetServiceTest
- * Purpose: Pins when password reset may run: a mail adapter must exist while it is on, and while it is off it answers not found.
+ * Purpose: Pins when password reset may run, and that a dead token is refused before any password is hashed.
  */
 class PasswordResetServiceTest {
 
@@ -74,6 +83,22 @@ class PasswordResetServiceTest {
     @Test
     void switchedOn_withAMailAdapter_starts() {
         assertThatCode(() -> service(true, senders(mock(MailSender.class)))).doesNotThrowAnyException();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aTokenWithNoLiveLink_isRefused_beforeAnyPasswordIsHashed() {
+        when(system.run(any(Supplier.class))).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
+        doAnswer(call -> {
+            call.<Runnable>getArgument(0).run();
+            return null;
+        }).when(system).run(any(Runnable.class));
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class), any(Object[].class))).thenReturn(false);
+        PasswordResetService on = service(true, senders(mock(MailSender.class)));
+
+        assertThatThrownBy(() -> on.confirm("f".repeat(64), "new-pass-1")).isInstanceOf(BusinessRuleException.class);
+
+        verify(passwordEncoder, never()).encode(any());
     }
 
     @Test

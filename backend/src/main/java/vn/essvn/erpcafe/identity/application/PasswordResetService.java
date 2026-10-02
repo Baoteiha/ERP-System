@@ -112,13 +112,21 @@ public class PasswordResetService {
      */
     public void confirm(String rawToken, String newPassword) {
         requireEnabled();
-        // hashed before the transaction, which then holds an owner connection only for the writes
+        String tokenHash = sha256(rawToken);
+        // The endpoint is public: a token with no live link is refused before the password costs a hash.
+        // The claim below still decides between confirmations racing for one live link.
+        boolean live = system.run(() -> jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM password_reset_token"
+                + " WHERE token_hash = ? AND used_at IS NULL AND expires_at > now())", Boolean.class, tokenHash));
+        if (!live) {
+            throw new BusinessRuleException(INVALID_LINK);
+        }
+        // hashed between the transactions, so neither holds an owner connection while it runs
         String passwordHash = passwordEncoder.encode(newPassword);
         system.run(() -> {
             // one statement claims the token: of two confirmations at once, the second finds it used
             UUID userId = jdbc.query("UPDATE password_reset_token SET used_at = now()"
                     + " WHERE token_hash = ? AND used_at IS NULL AND expires_at > now() RETURNING user_id",
-                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, sha256(rawToken));
+                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, tokenHash);
             if (userId == null) {
                 throw new BusinessRuleException(INVALID_LINK);
             }

@@ -254,8 +254,10 @@ a link to `app.security.password-reset.link` with `?token=…` through the
 more until one closes, so a flood of requests fills neither the table nor an
 inbox. A mail that fails to send is logged, never reported to the caller.
 
-`POST /api/v1/auth/password-reset/confirm` with `{token, newPassword}` claims
-the token in one statement, so it works once even when confirmed twice at once,
+`POST /api/v1/auth/password-reset/confirm` with `{token, newPassword}` first
+checks, read-only, that the token names a live link, and answers **422** at
+once when it does not: the endpoint is public, and a junk token costs no
+BCrypt. It then claims the token in one statement, so it works once even when confirmed twice at once,
 and sets the password (8–100 characters, at most 72 bytes). It closes the
 account's other open links, revokes its refresh tokens, moves its auth version
 (so its access tokens end, AUTH-G08), and records `PASSWORD_RESET` with
