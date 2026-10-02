@@ -5,6 +5,7 @@ import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { IngredientResponse, ItemResponse, PoLineRequest, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
@@ -318,19 +319,13 @@ export class PurchaseOrdersComponent {
         ? { itemId: l.source.slice(5), ...base }
         : { ingredientId: l.source.slice(11), unit: l.unit, ...base };
     });
-    this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines }).subscribe({
-      next: (po) => { this.saving.set(false); this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); },
-      error: () => this.saving.set(false),
-    });
+    this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines }).subscribe(afterSave(this.saving, (po) => { this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); }));
   }
 
   send(po: PurchaseOrderResponse) {
     if (this.saving()) return;
     this.saving.set(true);
-    this.api.sendPurchaseOrder(po.id).subscribe({
-      next: (updated) => { this.saving.set(false); this.toast.success('Purchase order sent'); this.selected.set(updated); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.sendPurchaseOrder(po.id).subscribe(afterSave(this.saving, (updated) => { this.toast.success('Purchase order sent'); this.selected.set(updated); this.load(); }));
   }
 
   async cancel(po: PurchaseOrderResponse) {
@@ -349,9 +344,6 @@ export class PurchaseOrdersComponent {
     if (!po) return;
     this.saving.set(true);
     const receipts = this.receiveLines.filter((r) => Number(r.receivedQty) > 0).map((r) => ({ ...r, unitCostOverride: r.unitCostOverride || null }));
-    this.api.receivePurchaseOrder(po.id, { receipts }).subscribe({
-      next: (updated) => { this.saving.set(false); this.receiving.set(null); this.selected.set(updated); this.toast.success('Stock received'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.receivePurchaseOrder(po.id, { receipts }).subscribe(afterSave(this.saving, (updated) => { this.receiving.set(null); this.selected.set(updated); this.toast.success('Stock received'); this.load(); }));
   }
 }

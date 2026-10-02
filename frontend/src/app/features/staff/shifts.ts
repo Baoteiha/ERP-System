@@ -5,6 +5,7 @@ import { StaffService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { EmployeeResponse, ShiftResponse, ShiftStatus } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { MoneyPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
@@ -325,10 +326,7 @@ export class ShiftsComponent {
       clockOut: new Date(this.adjustForm.clockOut).toISOString(),
     };
     this.saving.set(true);
-    this.staff.adjustShift(target.id, body).subscribe({
-      next: () => { this.saving.set(false); this.adjusting.set(null); this.toast.success('Shift adjusted'); this.load(); this.loadOpen(); },
-      error: () => this.saving.set(false),
-    });
+    this.staff.adjustShift(target.id, body).subscribe(afterSave(this.saving, () => { this.adjusting.set(null); this.toast.success('Shift adjusted'); this.load(); this.loadOpen(); }));
   }
 
   /** Asks for the PIN only when the employee has one; otherwise punches straight away. */
@@ -367,9 +365,6 @@ export class ShiftsComponent {
     });
     if (!ok) return;
     this.saving.set(true);
-    this.staff.cancelShift(s.id).subscribe({
-      next: () => { this.saving.set(false); this.toast.success('Shift cancelled'); this.load(); this.loadOpen(); },
-      error: () => this.saving.set(false),
-    });
+    this.staff.cancelShift(s.id).subscribe(afterSave(this.saving, () => { this.toast.success('Shift cancelled'); this.load(); this.loadOpen(); }));
   }
 }

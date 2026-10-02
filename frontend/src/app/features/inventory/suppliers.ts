@@ -5,6 +5,7 @@ import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { SupplierRequest, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -151,10 +152,7 @@ export class SuppliersComponent {
     this.saving.set(true);
     const { id, ...body } = this.form;
     const req = id ? this.api.updateSupplier(id, body) : this.api.createSupplier(body);
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Supplier saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Supplier saved'); this.load(); }));
   }
 
   async remove(s: SupplierResponse) {

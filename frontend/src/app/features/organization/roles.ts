@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { IdentityService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 import { ACTION_LABELS, ALL_PERMISSIONS, DOMAIN_LABELS, PERMISSION_GROUPS } from '../../core/permissions';
@@ -198,9 +199,6 @@ export class RolesComponent {
     const req = this.form.id
       ? this.api.replacePermissions(this.form.id, { permissions: perms })
       : this.api.createRole({ name: this.form.name, description: this.form.description, permissions: perms });
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Role saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Role saved'); this.load(); }));
   }
 }

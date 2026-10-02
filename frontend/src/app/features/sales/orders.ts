@@ -7,6 +7,7 @@ import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { OrderResponse, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -224,18 +225,12 @@ export class OrdersComponent {
     if (!o) return;
     if (!(Number(this.payment.amount) > 0)) { this.toast.error('Enter an amount greater than zero.'); return; }
     this.saving.set(true);
-    this.api.addPayment(o.id, this.payment).subscribe({
-      next: (updated) => { this.saving.set(false); this.paying.set(null); this.refresh(updated, 'Payment added'); },
-      error: () => this.saving.set(false),
-    });
+    this.api.addPayment(o.id, this.payment).subscribe(afterSave(this.saving, (updated) => { this.paying.set(null); this.refresh(updated, 'Payment added'); }));
   }
 
   complete(o: OrderResponse) {
     this.saving.set(true);
-    this.api.complete(o.id).subscribe({
-      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order completed'); },
-      error: () => this.saving.set(false),
-    });
+    this.api.complete(o.id).subscribe(afterSave(this.saving, (updated) => { this.refresh(updated, 'Order completed'); }));
   }
   async cancel(o: OrderResponse) {
     const ok = await this.confirm.ask({ title: `Cancel ${o.id.slice(0, 8)}?`, danger: true, confirmText: 'Cancel order' });
@@ -245,18 +240,12 @@ export class OrdersComponent {
     const ok = await this.confirm.ask({ title: 'Void this order?', message: `Voids ${o.id.slice(0, 8)} because the sale was a mistake, and pays each payment back the way it came in.`, danger: true, confirmText: 'Void order' });
     if (!ok) return;
     this.saving.set(true);
-    this.api.void(o.id).subscribe({
-      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order voided'); },
-      error: () => this.saving.set(false),
-    });
+    this.api.void(o.id).subscribe(afterSave(this.saving, (updated) => { this.refresh(updated, 'Order voided'); }));
   }
   async refund(o: OrderResponse) {
     const ok = await this.confirm.ask({ title: 'Refund this order?', message: `Refunds ${o.id.slice(0, 8)} because the customer returned it, paying each payment back the way it came in.`, danger: true, confirmText: 'Refund' });
     if (!ok) return;
     this.saving.set(true);
-    this.api.refund(o.id).subscribe({
-      next: (updated) => { this.saving.set(false); this.refresh(updated, 'Order refunded'); },
-      error: () => this.saving.set(false),
-    });
+    this.api.refund(o.id).subscribe(afterSave(this.saving, (updated) => { this.refresh(updated, 'Order refunded'); }));
   }
 }

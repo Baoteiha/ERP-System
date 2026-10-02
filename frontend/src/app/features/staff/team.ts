@@ -4,14 +4,16 @@ import { StaffService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { EmployeeResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { MoneyPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, MoneyPipe, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -38,7 +40,7 @@ import { IconComponent } from '../../shared/icon';
                         @if (e.email) { <div class="soft">{{ e.email }}</div> }
                       </td>
                     }
-                    <td><span class="badge dot" [class]="e.active ? 'badge-green' : 'badge-gray'">{{ e.active ? 'Active' : 'Inactive' }}</span></td>
+                    <td><app-status-badge [active]="e.active" /></td>
                     <td class="row-actions">
                       @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openEdit(e)">Edit</button> }
                       @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openPin(e)">Set PIN</button> }
@@ -159,10 +161,7 @@ export class TeamComponent {
     if (!target) return;
     if (!/^\d{4,6}$/.test(this.pin)) { this.toast.error('PIN must be 4 to 6 digits'); return; }
     this.saving.set(true);
-    this.staff.setEmployeePin(target.id, this.pin).subscribe({
-      next: () => { this.saving.set(false); this.pinTarget.set(null); this.toast.success('PIN saved'); },
-      error: () => this.saving.set(false),
-    });
+    this.staff.setEmployeePin(target.id, this.pin).subscribe(afterSave(this.saving, () => { this.pinTarget.set(null); this.toast.success('PIN saved'); }));
   }
 
   save() {

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { IdentityService, OrganizationService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -152,10 +153,7 @@ export class UsersComponent {
   createUser() {
     if (!this.nu.email || this.nu.password.length < 8) { this.toast.error('Email and 8+ char password required'); return; }
     this.saving.set(true);
-    this.api.createUser(this.nu).subscribe({
-      next: () => { this.saving.set(false); this.creating.set(false); this.toast.success('User created'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.createUser(this.nu).subscribe(afterSave(this.saving, () => { this.creating.set(false); this.toast.success('User created'); this.load(); }));
   }
 
   openAccess(u: UserResponse) {

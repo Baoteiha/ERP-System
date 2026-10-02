@@ -67,6 +67,10 @@ export class AuthService {
   canAt(branchId: string, permission: string): boolean {
     return !!this.me()?.permissionsByBranch[branchId]?.includes(permission);
   }
+  /** Whether the user holds the OWNER role, which the server lets act on any branch of the company. */
+  isOwner(): boolean {
+    return !!this.me()?.roles.includes('OWNER');
+  }
   canAny(...permissions: string[]): boolean {
     const set = this.permissions();
     return permissions.some((p) => set.has(p));

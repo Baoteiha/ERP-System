@@ -3,15 +3,17 @@ import { FormsModule } from '@angular/forms';
 import { OrganizationService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 import { BranchRequest, BranchResponse } from '../../core/models';
 
 @Component({
   selector: 'app-branches',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -37,12 +39,10 @@ import { BranchRequest, BranchResponse } from '../../core/models';
                     <td class="soft">{{ b.phone || '—' }}</td>
                     <td class="soft">{{ percent(b.taxRate) }}%</td>
                     <td>
-                      <span class="badge dot" [class.badge-green]="b.active" [class.badge-gray]="!b.active">
-                        {{ b.active ? 'Active' : 'Inactive' }}
-                      </span>
+                      <app-status-badge [active]="b.active" />
                     </td>
                     <td class="row-actions">
-                      @if (auth.can('branch:write')) {
+                      @if (canActOn(b)) {
                         <button class="btn btn-sm btn-ghost" (click)="openEdit(b)">Edit</button>
                         <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(b)" [attr.aria-label]="'Delete ' + b.name"><app-icon name="trash" [size]="16" /></button>
                       }
@@ -108,6 +108,9 @@ export class BranchesComponent {
     return { name: '', code: '', address: '', phone: '', active: true };
   }
 
+  /** The server weighs branch:write at the branch being changed, not at the active one; an owner passes everywhere. */
+  canActOn(b: BranchResponse): boolean { return this.auth.isOwner() || this.auth.canAt(b.id, 'branch:write'); }
+
   /** Fraction string from the API as a display percentage, e.g. "0.0800" becomes "8". */
   percent(rate: string | undefined): string { return String(Math.round(Number(rate || 0) * 10000) / 100); }
 
@@ -138,10 +141,7 @@ export class BranchesComponent {
     const { id, ...rest } = this.form;
     const body: BranchRequest = { ...rest, taxRate: (percent / 100).toFixed(4) };
     const req = id ? this.api.updateBranch(id, body) : this.api.createBranch(body);
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Branch saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Branch saved'); this.load(); }));
   }
 
   async remove(b: BranchResponse) {

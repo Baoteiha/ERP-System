@@ -5,6 +5,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { AuthService } from '../../core/auth.service';
 import { BranchResponse, IngredientResponse, ProductResponse } from '../../core/models';
+import { By } from '@angular/platform-browser';
+import { ProductEditorComponent } from './product-editor';
 import { ProductsComponent } from './products';
 
 const money = (amount: string) => ({ amount, currency: 'VND' });
@@ -43,11 +45,18 @@ describe('ProductsComponent', () => {
 
   afterEach(() => ctrl.verify());
 
-  /** Opens the product on its recipe tab; the recipe answer is left to the test. */
-  function openRecipe() {
+  /** Opens the product's editor; the recipe and availability answers are left to the test. */
+  function openEditor(): ProductEditorComponent {
     products.openManage(latte);
+    fixture.detectChanges();
+    return fixture.debugElement.query(By.directive(ProductEditorComponent)).componentInstance;
+  }
+  /** Opens the editor on its recipe tab; the recipe answer is left to the test. */
+  function openRecipe(): ProductEditorComponent {
+    const editor = openEditor();
     ctrl.expectOne('/api/v1/products/p1/availability').flush([]);
-    products.tab.set('recipe');
+    editor.tab.set('recipe');
+    return editor;
   }
   const saveButton = () => [...fixture.nativeElement.querySelectorAll('button')]
     .find((b: HTMLButtonElement) => b.textContent?.includes('Save recipe')) as HTMLButtonElement;
@@ -71,23 +80,23 @@ describe('ProductsComponent', () => {
   });
 
   it('blocks Save while a line is missing its unit', () => {
-    openRecipe();
+    const editor = openRecipe();
     ctrl.expectOne('/api/v1/products/p1/recipe').flush({ productId: 'p1', version: 1, lines: [{ ingredientId: 'i1', quantity: '20', unit: '' }] });
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Every ingredient needs a quantity and a unit');
     expect(saveButton().disabled).toBe(true);
-    products.saveRecipe();
+    editor.saveRecipe();
     ctrl.expectNone((r) => r.method === 'PUT');
   });
 
   it('sends a price override of 0 as "0"', () => {
-    products.openManage(latte);
+    const editor = openEditor();
     ctrl.expectOne('/api/v1/products/p1/recipe').flush({ productId: 'p1', version: 1, lines: [] });
     ctrl.expectOne('/api/v1/products/p1/availability').flush([]);
 
-    products.availMap['b1'].priceOverride = 0 as unknown as string;
-    products.saveAvail('b1');
+    editor.availMap['b1'].priceOverride = 0 as unknown as string;
+    editor.saveAvail('b1');
 
     expect(ctrl.expectOne((r) => r.method === 'PUT' && r.url === '/api/v1/products/p1/availability').request.body.priceOverride).toBe('0');
   });
@@ -100,10 +109,10 @@ describe('ProductsComponent', () => {
     products.branches.set([
       { id: 'b1', name: 'Main' }, { id: 'b2', name: 'Riverside' }, { id: 'b3', name: 'Airport' },
     ] as BranchResponse[]);
-    products.openManage(latte);
+    const editor = openEditor();
     ctrl.expectOne('/api/v1/products/p1/recipe').flush({ productId: 'p1', version: 1, lines: [] });
     ctrl.expectOne('/api/v1/products/p1/availability').flush([]);
-    products.tab.set('availability');
+    editor.tab.set('availability');
     fixture.detectChanges();
 
     const rows = [...fixture.nativeElement.querySelectorAll('table.data tbody tr')] as HTMLTableRowElement[];

@@ -5,6 +5,7 @@ import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { IngredientResponse, MovementResponse, MovementType, StockItemResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
@@ -253,9 +254,6 @@ export class StockComponent {
       mode === 'adjust' ? this.api.adjust({ ingredientId: this.action.ingredientId, quantityDelta: this.action.quantityDelta, unit: this.action.unit || undefined, note: this.action.note }) :
       mode === 'waste' ? this.api.waste({ ingredientId: this.action.ingredientId, quantity: this.action.quantity, unit: this.action.unit || undefined, note: this.action.note }) :
       this.api.setReorderLevel({ ingredientId: this.action.ingredientId, reorderLevel: this.action.reorderLevel });
-    req.subscribe({
-      next: () => { this.saving.set(false); this.mode.set(null); this.toast.success('Stock updated'); this.load(); this.loadMovements(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.mode.set(null); this.toast.success('Stock updated'); this.load(); this.loadMovements(); }));
   }
 }

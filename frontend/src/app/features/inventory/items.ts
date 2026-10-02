@@ -5,9 +5,11 @@ import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { IngredientResponse, ItemRequest, ItemResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 
 /**
  * Items — what each supplier sells, and which ingredient it becomes in stock.
@@ -20,7 +22,7 @@ import { IconComponent } from '../../shared/icon';
 @Component({
   selector: 'app-items',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -75,7 +77,7 @@ import { IconComponent } from '../../shared/icon';
                       {{ ingredientName(i.ingredientId) }}
                       <div class="soft conv"><span class="unit-chip ghost">{{ i.unit }}</span> → <span class="unit-chip ghost">{{ baseUnitOf(i.ingredientId) }}</span></div>
                     </td>
-                    <td><span class="badge dot" [class]="i.active ? 'badge-green' : 'badge-gray'">{{ i.active ? 'Active' : 'Inactive' }}</span></td>
+                    <td><app-status-badge [active]="i.active" /></td>
                     <td class="row-actions">
                       @if (canWrite) {
                         <button class="btn btn-sm btn-icon" (click)="remove(i)" [attr.aria-label]="'Delete ' + i.name"><app-icon name="trash" [size]="15" /></button>
@@ -228,10 +230,7 @@ export class ItemsComponent {
     this.saving.set(true);
     const { id, ...body } = this.form;
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Item saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Item saved'); this.load(); }));
   }
 
   async remove(i: ItemResponse) {

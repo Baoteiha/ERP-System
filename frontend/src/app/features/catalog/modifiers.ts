@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CatalogService, InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -258,10 +259,7 @@ export class ModifiersComponent {
   createGroup() {
     if (!this.ng.name) { this.toast.error('Name is required'); return; }
     this.saving.set(true);
-    this.api.createModifierGroup(this.ng).subscribe({
-      next: () => { this.saving.set(false); this.newGroup.set(false); this.toast.success('Group created'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.createModifierGroup(this.ng).subscribe(afterSave(this.saving, () => { this.newGroup.set(false); this.toast.success('Group created'); this.load(); }));
   }
 
   openAddModifier(g: ModifierGroupResponse) {
@@ -293,10 +291,7 @@ export class ModifiersComponent {
       priceDelta: String(this.nm.priceDelta || '0'),
       displayOrder: this.nm.displayOrder,
       recipeDeltas: recipeDeltas.length ? recipeDeltas : undefined,
-    }).subscribe({
-      next: () => { this.saving.set(false); this.addTo.set(null); this.toast.success('Option added'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    }).subscribe(afterSave(this.saving, () => { this.addTo.set(null); this.toast.success('Option added'); this.load(); }));
   }
 
   openEditGroup(g: ModifierGroupResponse) {
@@ -307,10 +302,7 @@ export class ModifiersComponent {
     const g = this.editGroup();
     if (!g || !this.eg.name) { this.toast.error('Name is required'); return; }
     this.saving.set(true);
-    this.api.updateModifierGroup(g.id, this.eg).subscribe({
-      next: () => { this.saving.set(false); this.editGroup.set(null); this.toast.success('Group updated'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.updateModifierGroup(g.id, this.eg).subscribe(afterSave(this.saving, () => { this.editGroup.set(null); this.toast.success('Group updated'); this.load(); }));
   }
 
   openEditModifier(group: ModifierGroupResponse, modifier: ModifierResponse) {
@@ -322,10 +314,7 @@ export class ModifiersComponent {
     if (!e || !this.em.name) { this.toast.error('Name is required'); return; }
     this.saving.set(true);
     // recipeDeltas omitted: the server keeps the option's existing ingredient deltas.
-    this.api.updateModifier(e.group.id, e.modifier.id, { ...this.em, priceDelta: String(this.em.priceDelta || '0') }).subscribe({
-      next: () => { this.saving.set(false); this.editMod.set(null); this.toast.success('Option updated'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.updateModifier(e.group.id, e.modifier.id, { ...this.em, priceDelta: String(this.em.priceDelta || '0') }).subscribe(afterSave(this.saving, () => { this.editMod.set(null); this.toast.success('Option updated'); this.load(); }));
   }
   async removeModifier(g: ModifierGroupResponse, m: ModifierResponse) {
     const ok = await this.confirm.ask({ title: `Remove ${m.name}?`, message: 'The option can no longer be picked at the till.', danger: true, confirmText: 'Remove' });

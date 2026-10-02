@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CatalogService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -119,10 +120,7 @@ export class CategoriesComponent {
     this.saving.set(true);
     const { id, ...body } = this.form;
     const req = id ? this.api.updateCategory(id, body) : this.api.createCategory(body);
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Category saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Category saved'); this.load(); }));
   }
 
   async remove(c: CategoryResponse) {

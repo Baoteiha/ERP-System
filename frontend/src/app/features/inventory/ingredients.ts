@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -222,10 +223,7 @@ export class IngredientsComponent {
     this.saving.set(true);
     const { id, ...body } = this.form;
     const req = id ? this.api.updateIngredient(id, body) : this.api.createIngredient(body);
-    req.subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Ingredient saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Ingredient saved'); this.load(); }));
   }
 
   async remove(i: IngredientResponse) {

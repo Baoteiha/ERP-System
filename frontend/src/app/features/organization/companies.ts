@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { OrganizationService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ToastService } from '../../core/toast.service';
+import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -96,10 +97,7 @@ export class CompaniesComponent {
     this.saving.set(true);
     const body: CompanyRequest = { name: this.form.name, code: this.form.code };
     if (!this.form.id) return;
-    this.api.updateCompany(this.form.id, body).subscribe({
-      next: () => { this.saving.set(false); this.editing.set(null); this.toast.success('Company saved'); this.load(); },
-      error: () => this.saving.set(false),
-    });
+    this.api.updateCompany(this.form.id, body).subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Company saved'); this.load(); }));
   }
 
   async remove(c: CompanyResponse) {
