@@ -306,7 +306,10 @@ For every request, in order:
    revoked or closed can still read who they are, refresh and sign out. The
    frontend answers `BRANCH_FORBIDDEN` by re-reading `/auth/me`, which moves
    it to a branch the user still holds, and returning to the dashboard; the
-   refused request is never retried.
+   refused request is never retried. It does so on the retry after a refresh
+   too, which is how a closed active branch first shows (closing it ends the
+   holder's token), once however many requests fail together, and not again
+   for a branch it has already left.
 3. **Authorities** are built as the permission strings verbatim, plus each role
    name prefixed `ROLE_`.
 4. **`@PreAuthorize("hasAuthority('x:y')")`** on controller methods enforces the

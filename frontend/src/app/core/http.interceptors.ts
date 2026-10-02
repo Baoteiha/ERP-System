@@ -64,7 +64,7 @@ export class BranchRecovery {
     this.inFlight = true;
     this.auth.loadMe().pipe(finalize(() => (this.inFlight = false))).subscribe({
       next: () => {
-        this.toast.error('Your access to that branch has changed.');
+        this.toast.info('Your access to that branch has changed.');
         // the page in view belonged to the lost branch
         void this.router.navigateByUrl('/');
       },
@@ -93,6 +93,17 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
     return throwError(() => err);
   };
 
+  /** Every failure but a 401 to refresh, on the first pass or a retry: a lost branch recovers, the rest shows. */
+  const settle = (err: HttpErrorResponse) => {
+    if (err.status === 403 && (err.error as ProblemDetail | null)?.code === 'BRANCH_FORBIDDEN') {
+      // never retried, as it was meant for the branch that is gone; and a refusal of a branch already
+      // left behind (an earlier refusal recovered) needs nothing more
+      if (req.headers.get('X-Branch-Id') === auth.activeBranchId()) branchRecovery.recover();
+      return throwError(() => err);
+    }
+    return surface(err);
+  };
+
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
       if (err.status === 401 && !isAuthFree(req.url)) {
@@ -100,26 +111,21 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         if (current && req.headers.get('Authorization') !== `Bearer ${current}`) {
           // sent with a token that has since been replaced: no new refresh, just retry with the current one
           return next(req.clone({ setHeaders: { Authorization: `Bearer ${current}` } })).pipe(
-            catchError((e: HttpErrorResponse) => surface(e)),
+            catchError((e: HttpErrorResponse) => settle(e)),
           );
         }
         if (auth.refreshToken()) {
           // only the refresh itself may log out; the retried request's errors propagate normally
           return coordinator.refreshed().pipe(
             switchMap((token) => next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))),
-            catchError((e: HttpErrorResponse) => surface(e)),
+            catchError((e: HttpErrorResponse) => settle(e)),
           );
         }
         void auth.logout(false);
         router.navigate(['/login']);
         return throwError(() => err);
       }
-      if (err.status === 403 && (err.error as ProblemDetail | null)?.code === 'BRANCH_FORBIDDEN') {
-        // never retried: the request was meant for the branch that is gone
-        branchRecovery.recover();
-        return throwError(() => err);
-      }
-      return surface(err);
+      return settle(err);
     }),
   );
 };

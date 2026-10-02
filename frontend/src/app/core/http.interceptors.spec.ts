@@ -6,6 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Router, provideRouter } from '@angular/router';
 import { authHeaderInterceptor, errorInterceptor } from './http.interceptors';
 import { AuthService } from './auth.service';
+import { ToastService } from './toast.service';
 
 describe('errorInterceptor', () => {
   let http: HttpClient;
@@ -123,6 +124,53 @@ describe('errorInterceptor', () => {
       ctrl.expectOne('/api/v1/b').flush({ code: 'BRANCH_FORBIDDEN' }, { status: 403, statusText: 'Forbidden' });
       ctrl.expectOne('/api/v1/auth/me').flush(me);
 
+      expect(auth.activeBranchId()).toBe('kept');
+    });
+
+    const refusedForTheBranch = { code: 'BRANCH_FORBIDDEN', detail: 'No access to branch gone' };
+
+    it('recovers when the retry after a refresh is refused for the branch, without an error toast', () => {
+      const toastError = vi.spyOn(TestBed.inject(ToastService), 'error');
+      auth.setActiveBranch('gone');
+      let status = 0;
+      http.get('/api/v1/x').subscribe({ error: (e) => (status = e.status) });
+
+      ctrl.expectOne('/api/v1/x').flush({}, { status: 401, statusText: 'Unauthorized' });
+      ctrl.expectOne('/api/v1/auth/refresh').flush(tokens);
+      const retry = ctrl.expectOne('/api/v1/x');
+      expect(retry.request.headers.get('X-Branch-Id')).toBe('gone');
+      retry.flush(refusedForTheBranch, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/auth/me').flush(me);
+
+      expect(status).toBe(403);
+      expect(auth.activeBranchId()).toBe('kept');
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('recovers when the retry with an already refreshed token is refused for the branch', () => {
+      auth.setActiveBranch('gone');
+      http.get('/api/v1/x').subscribe({ error: () => {} });
+      const stale = ctrl.expectOne('/api/v1/x');
+      auth.accessToken.set('newer');
+
+      stale.flush({}, { status: 401, statusText: 'Unauthorized' });
+      ctrl.expectOne('/api/v1/x').flush(refusedForTheBranch, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/auth/me').flush(me);
+
+      expect(auth.activeBranchId()).toBe('kept');
+    });
+
+    it('does not recover again for a refusal of a branch already left', () => {
+      auth.setActiveBranch('gone');
+      http.get('/api/v1/a').subscribe({ error: () => {} });
+      http.get('/api/v1/b').subscribe({ error: () => {} });
+      const late = ctrl.expectOne('/api/v1/b');
+
+      ctrl.expectOne('/api/v1/a').flush(refusedForTheBranch, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/auth/me').flush(me);
+      late.flush(refusedForTheBranch, { status: 403, statusText: 'Forbidden' });
+
+      ctrl.expectNone('/api/v1/auth/me');
       expect(auth.activeBranchId()).toBe('kept');
     });
 
