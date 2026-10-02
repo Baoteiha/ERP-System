@@ -27,3 +27,7 @@ seams rather than a rewrite.
   cross-service change and is treated with the same care as a REST contract.
 - RabbitMQ is the broker (lighter to operate than Kafka at this scale);
   revisit only if event volume demands partitioned logs.
+
+Amended by ADR-0009: events travel through our own transactional outbox
+(`domain_event`), not Modulith's publication registry, which does not fit
+tenancy enforced by row-level security.

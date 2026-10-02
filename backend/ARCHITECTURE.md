@@ -81,9 +81,13 @@ common/
 │   ├── ResourceNotFoundException.java  # → HTTP 404
 │   ├── BusinessRuleException.java      # → HTTP 422
 │   └── ConflictException.java          # → HTTP 409
-└── context/
-    ├── BranchContext.java          # request-scoped active branch (thread-local)
-    └── BranchContextFilter.java    # reads X-Branch-Id header (enforcement added in Phase 1)
+├── context/
+│   ├── BranchContext.java          # request-scoped active branch (thread-local)
+│   └── BranchContextFilter.java    # reads X-Branch-Id header (enforcement added in Phase 1)
+└── events/                         # transactional outbox (ADR-0009)
+    ├── DomainEventPublisher.java   # writes an event in the business transaction (domain_event)
+    ├── DomainEventDispatcher.java  # after commit: delivers to @EventListeners in the event's company, in order, with retries
+    └── DomainEvent.java            # what a listener receives: the payload and the id it was recorded under
 ```
 
 ### `config` — application wiring
@@ -177,7 +181,7 @@ Entities never cross the web boundary; the mapper always converts to a DTO first
 - **Phase 3 — Inventory & Purchasing** ✅ — ingredient, supplier, per-branch StockItem, append-only StockMovement ledger, moving-average costing, full purchase-order lifecycle + receiving, low-stock alerts; publishes `InventoryApi` (deduct + COGS, warn-but-allow negative, idempotent).
 - **Phase 4 — Sales / POS** ✅ — order state machine (OPEN→PAID→COMPLETED, cancel/void/refund), line + modifier snapshots, split payments, line+order discounts and tax; completion explodes recipes → deducts stock + captures COGS (price − COGS = margin); void/refund return stock.
 - **Phase 5 — Staff / HR & Shifts** ✅ — employee master data (deactivate, never delete), shift state machine (SCHEDULED→IN_PROGRESS→COMPLETED / cancel), clock in/out with hourly-rate snapshot at clock-in and labor cost captured at clock-out; `staff:clock` is a separate permission so cashiers punch in/out without editing the schedule; publishes `StaffApi` (labor cost per branch/period).
-- **Phase 6 — Reporting** ✅ — `reporting` module owns no tables: it composes other modules' published APIs (`SalesApi` revenue aggregates, `InventoryApi.depletionCost` ledger-side COGS, `StaffApi.laborCost`, `OrganizationApi.listActiveBranches`). Endpoints: `/reports/summary`, `/reports/sales-by-day`, `/reports/outlets` (cross-branch comparison incl. labor vs sales), guarded by `report:read`. Two COGS views are reported side by side: order snapshots vs stock-ledger depletion.
+- **Phase 6 — Reporting** ✅ — `reporting` owns a read model, `report_daily_branch` (one row per branch and report day), which `ReportProjection` keeps from the `OrderCompleted`, `OrderReversed` and `ShiftCompleted` events (ADR-0009); the branch list still comes from `OrganizationApi.listActiveBranches`. Endpoints: `/reports/summary`, `/reports/sales-by-day`, `/reports/outlets` (cross-branch comparison incl. labor vs sales), guarded by `report:read`. COGS is what each sale took from the stock ledger, less what its reversal returned; periods are whole days in `app.reporting.zone`.
 
 ---
 
@@ -212,7 +216,8 @@ The owner must own the schema and its tables and hold `BYPASSRLS` (or be a super
 `CREATEROLE` unless `erp_app` already exists; V22 checks this before it does anything else. `erp_app`
 is a cluster-wide role, so run one PostgreSQL cluster per environment. A Flyway run outside the app
 must supply the `appRolePassword` placeholder (the password `erp_app` is created with; the app passes
-`spring.datasource.password`). The owner's pool is sized by `app.datasource.owner.maximum-pool-size`
+`spring.datasource.password`) and the `reportingZone` placeholder (the zone V23 cuts report days in; the
+app passes `app.reporting.zone`). The owner's pool is sized by `app.datasource.owner.maximum-pool-size`
 and `app.datasource.owner.connection-timeout`; `spring.datasource.hikari.*` sizes only the app's.
 
 **Authenticating (dev):** on first startup the app seeds a bootstrap admin.
