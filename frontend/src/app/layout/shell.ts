@@ -24,7 +24,7 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
     <div class="shell" [class.nav-open]="mobileNav()" [class.railed]="railed()">
       <aside class="nav" id="app-nav" aria-label="Primary">
         <div class="brand">
-          <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
           <span class="brand-txt">ERP-Cafe</span>
         </div>
         <nav class="nav-scroll">

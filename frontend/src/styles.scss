@@ -539,6 +539,11 @@ app-icon { line-height: 0; }
   .wood-counter, .niche { background: var(--surface-2); }
 }
 
+/* ---- brand: hexagon logo mark (24px; .lg is the 36px auth-card size) */
+.logo-mark { width: 24px; height: 24px; flex-shrink: 0; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 0 6px var(--glow)); }
+.logo-mark circle { fill: var(--accent); stroke: none; }
+.logo-mark.lg { display: block; width: 36px; height: 36px; margin-bottom: 1rem; filter: drop-shadow(0 0 8px var(--glow)); }
+
 /* ---- shell: palette trigger -------------------------------------------- */
 .palette-trigger { display: inline-flex; align-items: center; gap: .55rem; min-height: 36px; padding: 0 .55rem 0 .75rem; margin-left: 1rem;
   width: min(360px, 32vw); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1);

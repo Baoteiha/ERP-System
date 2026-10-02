@@ -23,7 +23,7 @@ function requestErrorMessage(status: number | undefined): string {
   template: `
     <div class="auth-page">
       <form class="auth-card card glass" (ngSubmit)="submit()">
-        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="logo-mark lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
         <h1>Forgot your password?</h1>
         @if (sent()) {
           <p class="soft">If an account uses <strong>{{ email.trim() }}</strong>, a link to choose a new password
