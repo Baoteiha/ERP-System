@@ -8,6 +8,14 @@
   <meta name="description" content="ERP-Cafe — multi-tenant business ERP: sales, catalog, inventory, purchasing, staff and reporting.">
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0B0D14">
+  <script>
+    try {
+      var t = localStorage.getItem('erpcafe.theme');
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      var d = localStorage.getItem('erpcafe.density');
+      document.documentElement.setAttribute('data-density', d === 'compact' ? 'compact' : 'comfortable');
+    } catch (e) { /* storage blocked: defaults apply */ }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;600;700&display=swap">

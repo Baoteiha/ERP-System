@@ -25,8 +25,19 @@ describe('ThemeService', () => {
     return s;
   };
 
-  beforeEach(() => { stubLocalStorage(); html().removeAttribute('data-theme'); });
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    stubLocalStorage();
+    html().removeAttribute('data-theme');
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = '';
+    document.head.appendChild(meta);
+  });
+  afterEach(() => {
+    document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+    html().removeAttribute('data-theme');
+    vi.unstubAllGlobals();
+  });
 
   it('defaults to system and leaves the OS in charge', () => {
     fakeMatchMedia(false);
@@ -72,5 +83,39 @@ describe('ThemeService', () => {
     s.set('dark');
     TestBed.tick();
     expect(html().getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('sets the theme-color meta after set(\'light\')', () => {
+    fakeMatchMedia(false);
+    const s = service();
+    s.set('light');
+    TestBed.tick();
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#F6F7FB');
+  });
+
+  it('sets the theme-color meta after set(\'dark\')', () => {
+    fakeMatchMedia(false);
+    const s = service();
+    s.set('dark');
+    TestBed.tick();
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#0B0D14');
+  });
+
+  it('updates theme-color meta when OS flips while setting is system', () => {
+    const os = fakeMatchMedia(false);
+    const s = service();
+    expect(s.pref()).toBe('system');
+    os.flip(true);
+    TestBed.tick();
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#F6F7FB');
+  });
+
+  it('ignores OS flip when an explicit theme is set', () => {
+    const os = fakeMatchMedia(false);
+    const s = service();
+    s.set('dark');
+    TestBed.tick();
+    os.flip(true);
+    expect(s.effective()).toBe('dark');
   });
 });

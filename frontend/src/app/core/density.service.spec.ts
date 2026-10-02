@@ -9,7 +9,10 @@ describe('DensityService', () => {
     document.documentElement.removeAttribute('data-density');
     TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-density');
+    vi.unstubAllGlobals();
+  });
 
   it('defaults to comfortable', () => {
     const d = TestBed.inject(DensityService);
