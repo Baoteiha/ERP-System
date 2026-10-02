@@ -174,11 +174,11 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
                 Long.class, family)).isZero();
     }
 
-    /** Waits until some session of this database waits on a row lock: the revocation, behind the rotation. */
+    /** Waits until a statement on refresh_token waits on a lock: the revocation, behind the rotation. */
     private static void awaitALockWait(JdbcTemplate owner) {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (owner.queryForObject("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-                + " AND wait_event_type = 'Lock'", Long.class) == 0) {
+                + " AND wait_event_type = 'Lock' AND query LIKE '%refresh_token%FOR UPDATE%'", Long.class) == 0) {
             assertThat(System.nanoTime()).as("the revocation waits for the rotation").isLessThan(deadline);
             LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
         }

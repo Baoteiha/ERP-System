@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.sql.DataSource;
@@ -29,8 +31,9 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 class LoginAttemptServiceTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
-    // long before any row another test writes, so the purge below can reach only this class's rows
-    private static final Instant START = Instant.parse("2001-02-03T04:05:06Z");
+    // A day ahead: the app's own purge runs on the real clock every quarter hour, and must not reach this class's
+    // rows mid-test. (The purge this class runs, on its own clock, may drop real rows: that only lowers counts.)
+    private static final Instant START = Instant.now().plus(Duration.ofDays(1)).truncatedTo(ChronoUnit.SECONDS);
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private SystemTransactions system;

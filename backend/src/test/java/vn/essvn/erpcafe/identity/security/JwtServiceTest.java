@@ -18,6 +18,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.config.SecurityProperties.Key;
@@ -192,18 +193,22 @@ class JwtServiceTest {
 
     @Test
     void aTokenWithoutAKeyId_isRejected() {
+        // every claim a valid token carries, signed with the configured key: only the kid is missing
         String unnamed = Jwts.builder()
                 .issuer(JwtService.ISSUER)
                 .audience().add(JwtService.AUDIENCE).and()
                 .subject(UUID.randomUUID().toString())
+                .claim("email", "user@esscafe.vn")
                 .claim("companyId", UUID.randomUUID().toString())
                 .claim("branchRoles", Map.of())
+                .claim("av", 0)
                 .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
                 .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
                 .compact();
 
         assertThatThrownBy(() -> jwtService(Duration.ofMinutes(15)).parseAccessToken(unnamed))
-                .isInstanceOf(JwtException.class);
+                .isInstanceOf(UnsupportedJwtException.class)
+                .hasMessageContaining("names no configured signing key");
     }
 
     @Test
