@@ -5,6 +5,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { ConfirmService } from '../../core/confirm.service';
+import { MeResponse } from '../../core/models';
 import { OrdersComponent } from './orders';
 
 const pageOf = (orders: unknown[], page = 0, totalPages = 1) => ({ content: orders, page, size: 25, totalElements: orders.length, totalPages });
@@ -48,6 +50,23 @@ describe('OrdersComponent', () => {
     fixture.componentInstance.detailOpen.set(false);
     fixture.detectChanges();
     expect(el().querySelector('app-modal')).toBeNull();
+  });
+
+  it('names the drawer\'s cancellation "Cancel order", styles it as destructive, and still confirms it', async () => {
+    TestBed.inject(AuthService).me.set({
+      userId: 'u', email: 'a@b.c', companyId: 'c', branchIds: ['b1'], roles: [], permissions: ['sales:write'],
+      permissionsByBranch: { b1: ['sales:write'] },
+    } as MeResponse);
+    const ask = vi.spyOn(TestBed.inject(ConfirmService), 'ask').mockResolvedValue(false);
+    fixture.componentInstance.select({ ...order('eeeeeeee-5', '50000'), status: 'OPEN', amountPaid: '0' } as never);
+    fixture.detectChanges();
+
+    const buttons = [...el().querySelectorAll<HTMLButtonElement>('app-modal .action-bar button')];
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Add payment', 'Cancel order']);
+    expect(buttons[1].classList).toContain('btn-danger');
+    buttons[1].click();
+    await fixture.whenStable();
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
   });
 
   describe('when the branch changes', () => {

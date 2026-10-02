@@ -1,10 +1,10 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subject, catchError, forkJoin, of, switchMap } from 'rxjs';
+import { Subject, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
-import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, orderStatusClass } from '../../core/util';
 import { IngredientResponse, OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
 import { KpiTileComponent } from '../../shared/kpi-tile';
@@ -33,10 +33,12 @@ export function pct(cur: number, prev: number): number | null {
 
       <div class="kpis">
         @if (auth.can('report:read')) {
-          <app-kpi-tile label="Net sales today" icon="banknote" [value]="salesReady() ? (salesSummary()!.netSales | money) : '—'" [delta]="deltas().net" [trend]="trend()" />
-          <app-kpi-tile label="Orders today" icon="receipt" [value]="salesReady() ? '' + salesSummary()!.orderCount : '—'" [delta]="deltas().orders" [trend]="trend()" />
-          <app-kpi-tile label="Average order" icon="trending-up" [value]="salesReady() ? (average(salesSummary()) === null ? '—' : (average(salesSummary())! | money)) : '—'" [delta]="deltas().avg" [trend]="trend()" />
-          <app-kpi-tile label="Gross margin" icon="percent" [value]="salesReady() ? (salesSummary()!.grossMargin | money) : '—'" [delta]="deltas().margin" [trend]="trend()" />
+          <!-- a line only where there is a daily series of that figure: net sales and orders -->
+          <app-kpi-tile label="Net sales today" icon="banknote" [value]="salesReady() ? (salesSummary()!.netSales | money) : '—'" [delta]="deltas().net" [trend]="trends().net" />
+          <app-kpi-tile label="Orders today" icon="receipt" [value]="salesReady() ? '' + salesSummary()!.orderCount : '—'" [delta]="deltas().orders" [trend]="trends().orders" />
+          <app-kpi-tile label="Average order" icon="trending-up" [value]="salesReady() ? (average(salesSummary()) === null ? '—' : (average(salesSummary())! | money)) : '—'" [delta]="deltas().avg" />
+          <app-kpi-tile label="Gross margin" icon="percent" [value]="salesReady() ? (salesSummary()!.grossMargin | money) : '—'" [delta]="deltas().margin"
+            [tone]="salesReady() && isNeg(salesSummary()!.grossMargin) ? 'negative' : 'default'" />
         } @else {
           <app-kpi-tile label="Recent orders" icon="receipt" [value]="ordersState() === 'ready' ? '' + orders().length : '—'" [delta]="null" [trend]="[]" />
           <app-kpi-tile label="Active products" icon="package" [value]="productsState() === 'ready' ? '' + productCount() : '—'" [delta]="null" [trend]="[]" />
@@ -109,7 +111,7 @@ export function pct(cur: number, prev: number): number | null {
                     <span>{{ ingredientNames().get(s.ingredientId) ?? (s.ingredientId | shortId) }}</span>
                     <span class="spacer"></span>
                     <span class="num soft">{{ s.quantityOnHand | qty }}{{ unitOf(s.ingredientId) }} on hand</span>
-                    <span class="badge dot badge-red"><app-icon name="boxes" [size]="12" aria-hidden="true" /> reorder {{ s.reorderLevel }}</span>
+                    <span class="badge dot badge-red"><app-icon name="boxes" [size]="12" aria-hidden="true" /> reorder {{ s.reorderLevel | qty }}{{ unitOf(s.ingredientId) }}</span>
                   </div>
                 } @empty {
                   <div class="empty empty-sm">
@@ -156,7 +158,8 @@ export class DashboardComponent {
   productsState = signal<LoadState>('loading');
 
   private yesterday = signal<PeriodSummary | null>(null);
-  trend = signal<number[]>([]);
+  /** The last 7 days, oldest first, for the two tiles that have a daily series. */
+  trends = signal<{ net: number[]; orders: number[] }>({ net: [], orders: [] });
   salesReady = computed(() => this.salesState() === 'ready' && this.salesSummary() !== null);
 
   /** Today's change against yesterday for each tile. */
@@ -213,7 +216,10 @@ export class DashboardComponent {
           yesterday: this.reporting.summary(yday.from.toISOString(), yday.to.toISOString()),
           days: this.reporting.salesByDay(week.from.toISOString(), week.to.toISOString()),
         }).pipe(
-          switchMap(({ today, yesterday, days }) => of({ today, yesterday, trend: zeroFillDays(week.days, days).map((d) => Number(d.netSales)) })),
+          map(({ today, yesterday, days }) => {
+            const filled = zeroFillDays(week.days, days);
+            return { today, yesterday, trends: { net: filled.map((d) => Number(d.netSales)), orders: filled.map((d) => d.orderCount) } };
+          }),
           catchError(() => of(null)),
         );
       }),
@@ -222,7 +228,7 @@ export class DashboardComponent {
       if (!r) { this.salesState.set('error'); return; }
       this.salesSummary.set(r.today);
       this.yesterday.set(r.yesterday);
-      this.trend.set(r.trend);
+      this.trends.set(r.trends);
       this.salesState.set('ready');
     });
 
@@ -272,13 +278,7 @@ export class DashboardComponent {
   loadStock() { this.stockLoad$.next(); }
   loadProducts() { this.productsLoad$.next(); }
 
-  statusClass(status: string): string {
-    switch (status) {
-      case 'COMPLETED': case 'PAID': return 'badge-green';
-      case 'OPEN': return 'badge-blue';
-      case 'CANCELLED': case 'VOID': return 'badge-gray';
-      case 'REFUNDED': return 'badge-amber';
-      default: return 'badge-gray';
-    }
-  }
+  readonly statusClass = orderStatusClass;
+
+  isNeg(v: string): boolean { return Number(v) < 0; }
 }

@@ -9,7 +9,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { OrderResponse, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
-import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, ShortIdPipe, orderStatusClass } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -92,7 +92,7 @@ import { IconComponent } from '../../shared/icon';
           @if (auth.can('sales:write')) {
             @if (o.status === 'OPEN') {
               <button class="btn btn-outline" (click)="openPayment(o)">Add payment</button>
-              <button class="btn btn-outline" (click)="cancel(o)">Cancel</button>
+              <button class="btn btn-danger" (click)="cancel(o)">Cancel order</button>
             }
             @if (o.status === 'PAID') { <button class="btn btn-primary" (click)="complete(o)" [disabled]="saving()">Complete</button> }
           }
@@ -193,11 +193,7 @@ export class OrdersComponent {
   goTo(page: number) { this.page.set(Math.max(0, page)); this.load(); }
 
   select(o: OrderResponse) { this.selected.set(o); this.detailOpen.set(true); }
-  statusClass(status: string) {
-    if (status === 'COMPLETED' || status === 'PAID') return 'badge-green';
-    if (status === 'CANCELLED' || status === 'VOID' || status === 'REFUNDED') return 'badge-red';
-    return 'badge-blue';
-  }
+  readonly statusClass = orderStatusClass;
   refresh(updated: OrderResponse, message: string) {
     this.toast.success(message);
     this.selected.set(updated);

@@ -44,6 +44,17 @@ export class ShortIdPipe implements PipeTransform {
   }
 }
 
+/** Badge class for an order status, the same on every screen; the status is always shown as text beside it. */
+export function orderStatusClass(status: string): string {
+  switch (status) {
+    case 'OPEN': return 'badge-blue';
+    case 'PAID': case 'COMPLETED': return 'badge-green';
+    case 'VOID': return 'badge-red';
+    case 'REFUNDED': return 'badge-amber';
+    default: return 'badge-gray'; // CANCELLED, and any status this build does not know yet
+  }
+}
+
 /** Turns a SNAKE_CASE enum value into sentence case, e.g. DINE_IN to "Dine in". */
 @Pipe({ name: 'label' })
 export class LabelPipe implements PipeTransform {

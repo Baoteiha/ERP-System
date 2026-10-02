@@ -7,6 +7,7 @@ import { stubLocalStorage } from '../../core/test-storage';
 import { AuthService } from '../../core/auth.service';
 import { MeResponse } from '../../core/models';
 import { WEBGL_SUPPORTED } from '../../three/webgl';
+import { reportPeriod } from '../reports/reports';
 import { DashboardComponent, pct } from './dashboard';
 
 describe('pct', () => {
@@ -50,13 +51,14 @@ describe('DashboardComponent', () => {
   const values = (f: ComponentFixture<DashboardComponent>) =>
     [...text(f).querySelectorAll('.kpi-value')].map((e) => e.textContent?.trim());
   /** Answers the three report calls of one load; the matching requests are taken in order. */
-  function answerReports(today: object, yesterday: object = summary('0', 0)) {
+  function answerReports(today: object, yesterday: object = summary('0', 0), days: object[] = []) {
     const reqs = ctrl.match(isReport);
     expect(reqs.length).toBe(3);
     reqs.find((r) => r.request.url.endsWith('/summary') && !r.request.params.has('from'))!.flush(today);
     reqs.find((r) => r.request.url.endsWith('/summary') && r.request.params.has('from'))!.flush(yesterday);
-    reqs.find((r) => r.request.url.endsWith('/sales-by-day'))!.flush([]);
+    reqs.find((r) => r.request.url.endsWith('/sales-by-day'))!.flush(days);
   }
+  const tiles = (f: ComponentFixture<DashboardComponent>) => [...text(f).querySelectorAll('app-kpi-tile')];
   afterEach(() => {
     ctrl.match(isOutlets); // the towers panel's own call, covered by branch-towers.spec
     ctrl.verify();
@@ -67,6 +69,26 @@ describe('DashboardComponent', () => {
     answerReports(summary('0', 0));
     TestBed.tick(); f.detectChanges();
     expect(values(f)[2]).toBe('—');
+  });
+
+  it('draws a trend under net sales and orders only, each from its own daily series', () => {
+    const f = start(['report:read']);
+    const week = reportPeriod(Date.now(), 7).days;
+    answerReports(summary('300', 1), summary('0', 0), [
+      { day: week[5], orderCount: 5, netSales: '100' },
+      { day: week[6], orderCount: 1, netSales: '300' },
+    ]);
+    TestBed.tick(); f.detectChanges();
+    const lines = tiles(f).map((t) => t.querySelector('app-sparkline .spark-line')?.getAttribute('d') ?? null);
+    expect(lines.map((d) => d !== null)).toEqual([true, true, false, false]);
+    expect(lines[1]).not.toBe(lines[0]); // orders fell on the last day while net sales rose
+  });
+
+  it('paints a negative gross margin red, and only that tile', () => {
+    const f = start(['report:read']);
+    answerReports({ ...summary('100', 1), grossMargin: '-40' });
+    TestBed.tick(); f.detectChanges();
+    expect(tiles(f).map((t) => !!t.querySelector('.kpi-value.negative'))).toEqual([false, false, false, true]);
   });
 
   it('shows the three fallback tiles without report:read', () => {
@@ -142,5 +164,6 @@ describe('DashboardComponent', () => {
     const row = text(f).querySelector('.low-row')!.textContent!;
     expect(row).toContain('Arabica beans');
     expect(row).toContain('500 g on hand');
+    expect(row.replace(/\s+/g, ' ')).toContain('reorder 1.000 g');
   });
 });

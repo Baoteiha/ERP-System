@@ -1,4 +1,4 @@
-import { LabelPipe, QtyPipe, formatMoney } from './util';
+import { LabelPipe, QtyPipe, formatMoney, orderStatusClass } from './util';
 
 describe('formatMoney', () => {
   it('shows a dash for missing amounts', () => {
@@ -28,4 +28,12 @@ describe('QtyPipe', () => {
     expect(qty(null)).toBe('—');
     expect(qty('abc')).toBe('—');
   });
+});
+
+describe('orderStatusClass', () => {
+  it('gives each order status one badge colour, used by the dashboard and Orders alike', () => {
+    const statuses = ['OPEN', 'PAID', 'COMPLETED', 'CANCELLED', 'VOID', 'REFUNDED'];
+    expect(statuses.map(orderStatusClass)).toEqual(['badge-blue', 'badge-green', 'badge-green', 'badge-gray', 'badge-red', 'badge-amber']);
+  });
+  it('falls back to grey for a status it does not know', () => expect(orderStatusClass('SOMETHING_NEW')).toBe('badge-gray'));
 });
