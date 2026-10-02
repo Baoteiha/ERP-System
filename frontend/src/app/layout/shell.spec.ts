@@ -63,3 +63,43 @@ describe('ShellComponent branch switch', () => {
     expect(shell.branches().map((b) => b.id)).toEqual(['b1', 'b3']);
   });
 });
+
+describe('ShellComponent layout', () => {
+  let router: Router;
+  beforeEach(async () => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([{ path: 'pos', component: BlankComponent }, { path: 'inventory/stock', component: BlankComponent }, { path: '', component: BlankComponent }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    TestBed.inject(AuthService).me.set({
+      userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1'], roles: ['OWNER'],
+      permissions: ['inventory:read', 'sales:write'], permissionsByBranch: { b1: ['inventory:read', 'sales:write'] },
+    });
+    router = TestBed.inject(Router);
+  });
+
+  it('remembers a collapsed sidebar', () => {
+    const shell = TestBed.createComponent(ShellComponent).componentInstance;
+    shell.toggleRail();
+    expect(shell.collapsed()).toBe(true);
+    expect(localStorage.getItem('erpcafe.sidebar')).toBe('rail');
+  });
+
+  it('rails the sidebar on the POS screen without changing the saved choice', async () => {
+    const shell = TestBed.createComponent(ShellComponent).componentInstance;
+    await router.navigateByUrl('/pos');
+    expect(shell.railed()).toBe(true);
+    expect(shell.collapsed()).toBe(false);
+  });
+
+  it('titles the page from the navigation', async () => {
+    const shell = TestBed.createComponent(ShellComponent).componentInstance;
+    await router.navigateByUrl('/inventory/stock');
+    expect(shell.pageTitle()).toEqual({ section: 'Inventory', label: 'Stock' });
+  });
+});
