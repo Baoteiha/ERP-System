@@ -182,7 +182,10 @@ either it was stolen and replayed, or the legitimate holder's copy was. Either
 way the family is compromised, so every live token in it is revoked and the user
 must sign in again. That revocation commits in its own `REQUIRES_NEW`
 transaction: the request itself then fails, and its rollback would otherwise undo
-the revocation.
+the revocation. It first locks the family's live tokens (`SELECT … FOR UPDATE`),
+which waits for a rotation in flight, and only then revokes them in a statement
+of its own, which sees the token that rotation committed: otherwise the
+replacement would outlive the revocation.
 
 ### AUTH-106 — Account and role lifecycle
 

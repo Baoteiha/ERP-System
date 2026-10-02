@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
@@ -20,6 +21,16 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     /** Outstanding tokens for a user — revoked in bulk when their credentials or status change. */
     List<RefreshToken> findByUserIdAndRevokedFalse(UUID userId);
+
+    /**
+     * Locks the family's live tokens until the transaction ends. A rotation in flight holds the row of the
+     * token it rotates until it commits the replacement, so this waits for it; a revocation that follows,
+     * as a statement of its own, then sees the replacement as well.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(value = "SELECT id FROM refresh_token WHERE family_id = :familyId AND revoked = false FOR UPDATE",
+            nativeQuery = true)
+    List<UUID> lockLiveFamily(@Param("familyId") UUID familyId);
 
     /**
      * Revokes every live token descended from one login, when a replay is detected. One statement, so

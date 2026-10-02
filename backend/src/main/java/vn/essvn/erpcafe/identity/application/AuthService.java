@@ -119,6 +119,8 @@ public class AuthService {
             // Revoked in a transaction of its own, begun after the lookup's has ended: it commits although
             // this request then fails, and the request never holds two owner connections at once.
             system.run(() -> {
+                // a lone UPDATE would miss the replacement of a rotation in flight: its snapshot predates it
+                refreshTokenRepository.lockLiveFamily(rotation.replayedFamily());
                 int revoked = refreshTokenRepository.revokeFamily(rotation.replayedFamily());
                 userRepository.findById(rotation.replayedBy()).ifPresent(user -> events.record(
                         AuthEventType.REFRESH_REUSE_DETECTED, user.getCompanyId(), user.getId(),
