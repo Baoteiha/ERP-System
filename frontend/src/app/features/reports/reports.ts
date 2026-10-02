@@ -78,10 +78,10 @@ function barPath(x: number, y: number, w: number, h: number): string {
       } @else if (summary(); as s) {
         <div class="tiles">
           <app-kpi-tile label="Net sales" icon="banknote" [value]="s.netSales | money" [trend]="trend()" />
-          <app-kpi-tile label="COGS" icon="package" [value]="s.cogs | money" [trend]="trend()" />
-          <app-kpi-tile label="Labor" icon="users" [value]="s.laborCost | money" [trend]="trend()" />
-          <app-kpi-tile label="Gross margin" icon="percent" [value]="s.grossMargin | money" [trend]="trend()" />
-          <app-kpi-tile label="Net margin" icon="trending-up" [value]="s.netMargin | money" [trend]="trend()" />
+          <app-kpi-tile label="COGS" icon="package" [value]="s.cogs | money" hint="stock used, net of reversals" />
+          <app-kpi-tile label="Labor" icon="users" [value]="s.laborCost | money" hint="completed shifts" />
+          <app-kpi-tile label="Gross margin" icon="percent" [value]="s.grossMargin | money" hint="net sales − COGS" />
+          <app-kpi-tile label="Net margin" icon="trending-up" [value]="s.netMargin | money" [tone]="isNeg(s.netMargin) ? 'negative' : 'default'" hint="gross margin − labor" />
         </div>
       }
 
@@ -95,7 +95,8 @@ function barPath(x: number, y: number, w: number, h: number): string {
         } @else if (!hasSales()) {
           <div class="empty"><div class="big"><app-icon name="trending-up" [size]="30" /></div>No sales in this period.</div>
         } @else {
-          <div class="chart-wrap" (mouseleave)="hover.set(null)">
+          <div class="chart-wrap" role="region" tabindex="0" aria-label="Net sales by day chart" (mouseleave)="hover.set(null)">
+            <div class="chart-box">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Bar chart of daily net sales; a data table follows.">
               @for (g of gridLines(); track g.y) {
                 <line [attr.x1]="padL" [attr.x2]="W" [attr.y1]="g.y" [attr.y2]="g.y" class="grid" />
@@ -107,10 +108,11 @@ function barPath(x: number, y: number, w: number, h: number): string {
               }
             </svg>
             @if (hover(); as t) {
-              <div class="tip" [style.left.%]="(t.x + t.w / 2) / W * 100" [style.top.%]="t.y / H * 100">
+              <div class="tip" [class.below]="t.y / H < 0.3" [style.left.%]="(t.x + t.w / 2) / W * 100" [style.top.%]="t.y / H * 100">
                 <b>{{ t.value | money }}</b><span>{{ t.label }}</span>
               </div>
             }
+            </div>
           </div>
           <table class="sr-only">
             <caption>Daily net sales</caption>
@@ -140,24 +142,26 @@ function barPath(x: number, y: number, w: number, h: number): string {
         } @else if (!outlets().length) {
           <div class="empty"><div class="big"><app-icon name="store" [size]="30" /></div>No active branches.</div>
         } @else {
-          <div class="chart-wrap" (mouseleave)="hover.set(null)">
+          <div class="chart-wrap" role="region" tabindex="0" aria-label="Outlet net sales and labor chart" (mouseleave)="hoverOutlet.set(null)">
+            <div class="chart-box">
             <svg [attr.viewBox]="'0 0 ' + W + ' ' + H" class="chart" role="img" aria-label="Grouped bar chart of net sales and labor per outlet; a data table follows.">
               @for (g of outletGrid(); track g.y) {
                 <line [attr.x1]="padL" [attr.x2]="W" [attr.y1]="g.y" [attr.y2]="g.y" class="grid" />
                 <text [attr.x]="padL - 6" [attr.y]="g.y + 3" class="tick" text-anchor="end">{{ g.label }}</text>
               }
               @for (b of outletBars(); track b.label + b.series) {
-                <path [attr.d]="b.path" class="bar" [class.s1]="b.series === 0" [class.s2]="b.series === 1" (mouseenter)="hover.set(b)" />
+                <path [attr.d]="b.path" class="bar" [class.s1]="b.series === 0" [class.s2]="b.series === 1" (mouseenter)="hoverOutlet.set(b)" />
               }
               @for (o of outlets(); track o.branchId; let i = $index) {
                 <text [attr.x]="groupCenter(i)" [attr.y]="H - 6" class="tick" text-anchor="middle">{{ o.code }}</text>
               }
             </svg>
-            @if (hover(); as t) {
-              <div class="tip" [style.left.%]="(t.x + t.w / 2) / W * 100" [style.top.%]="t.y / H * 100">
+            @if (hoverOutlet(); as t) {
+              <div class="tip" [class.below]="t.y / H < 0.3" [style.left.%]="(t.x + t.w / 2) / W * 100" [style.top.%]="t.y / H * 100">
                 <b>{{ t.value | money }}</b><span>{{ t.label }}</span>
               </div>
             }
+            </div>
           </div>
           <div class="table-wrap">
             <table class="data">
@@ -192,10 +196,11 @@ function barPath(x: number, y: number, w: number, h: number): string {
     .neg { color: var(--red); }
     .chart-card { margin-bottom: 1.2rem; }
     .chart-card .card-head h2 { font-size: 16px; }
-    .chart-wrap { position: relative; padding: .4rem 1.2rem 0; overflow-x: auto; }
-    .chart { width: 100%; min-width: 640px; max-width: 860px; margin: 0 auto; height: auto; display: block; }
+    .chart-wrap { padding: .4rem 1.2rem 0; overflow-x: auto; }
+    .chart-box { position: relative; width: 100%; min-width: 640px; max-width: 860px; margin: 0 auto; }
+    .chart { width: 100%; height: auto; display: block; }
     .grid { stroke: var(--border); stroke-width: 1; }
-    .tick { font-size: 9px; fill: var(--text-muted); font-family: var(--font-mono); }
+    .tick { font-size: 11px; fill: var(--text-muted); font-family: var(--font-mono); }
     .bar { transition: opacity var(--dur-1); cursor: default; }
     .bar.s1 { fill: var(--chart-1); }
     .bar.s2 { fill: var(--chart-2); }
@@ -204,6 +209,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
       display: flex; flex-direction: column; align-items: center; gap: 1px;
       background: var(--surface-1); border: 1px solid var(--border-strong); border-radius: 8px;
       padding: .3rem .55rem; box-shadow: var(--shadow-pop); white-space: nowrap; z-index: 5; }
+    .tip.below { transform: translate(-50%, 8px); }
     .tip b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; }
     .tip span { font-size: 10.5px; color: var(--text-muted); }
     .legend { display: flex; gap: .9rem; }
@@ -231,6 +237,7 @@ export class ReportsComponent {
   daysState = signal<LoadState>('loading');
   outletsState = signal<LoadState>('loading');
   hover = signal<Bar | null>(null);
+  hoverOutlet = signal<Bar | null>(null);
   from = signal<Date>(new Date());
   to = signal<Date>(new Date());
 

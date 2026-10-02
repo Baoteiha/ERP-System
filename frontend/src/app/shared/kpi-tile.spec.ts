@@ -38,4 +38,26 @@ describe('KpiTileComponent', () => {
     const none = render(null);
     expect(none.querySelector('.sr-only')).toBeNull();
   });
+  it('tints the value red only for the negative tone', () => {
+    const f = TestBed.createComponent(KpiTileComponent);
+    f.componentRef.setInput('label', 'Net margin');
+    f.componentRef.setInput('value', '-5 ₫');
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelector('.kpi-value.negative')).toBeNull();
+    f.componentRef.setInput('tone', 'negative');
+    f.detectChanges();
+    expect(el.querySelector('.kpi-value.negative')).not.toBeNull();
+  });
+  it('shows a hint line only when one is given', () => {
+    const f = TestBed.createComponent(KpiTileComponent);
+    f.componentRef.setInput('label', 'Labor');
+    f.componentRef.setInput('value', '0 ₫');
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelector('.kpi-hint')).toBeNull();
+    f.componentRef.setInput('hint', 'completed shifts');
+    f.detectChanges();
+    expect(el.querySelector('.kpi-hint')?.textContent).toContain('completed shifts');
+  });
 });
