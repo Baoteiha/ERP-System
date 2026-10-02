@@ -12,8 +12,9 @@ import { RESET_UNAVAILABLE } from './forgot-password';
   standalone: true,
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
-    <div class="auth-form auth-solo">
-      <form class="auth-card" (ngSubmit)="submit()">
+    <div class="auth-page">
+      <form class="auth-card card glass" (ngSubmit)="submit()">
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
         <h1>Choose a new password</h1>
         @if (!token) {
           <p class="soft">This link is incomplete. Open the link from the email again, or ask for a new one.</p>

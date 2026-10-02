@@ -18,26 +18,11 @@ function loginErrorMessage(status: number | undefined): string {
   standalone: true,
   imports: [FormsModule, IconComponent, RouterLink],
   template: `
-    <div class="auth-wrap">
-      <div class="auth-art">
-        <div class="art-inner">
-          <div class="art-logo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/></svg>
-          </div>
-          <p class="script art-word">ERP-Cafe</p>
-          <p>Multi-branch operations for coffee retail — catalog, inventory, purchasing and point of sale in one place.</p>
-          <ul class="art-list">
-            <li><app-icon name="check" [size]="16" /> Branch-scoped stock &amp; costing</li>
-            <li><app-icon name="check" [size]="16" /> Recipe-driven COGS on every sale</li>
-            <li><app-icon name="check" [size]="16" /> Purchase-to-receive workflow</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="auth-form">
-        <form class="auth-card" (ngSubmit)="submit()">
-          <h1>Welcome back</h1>
-          <p class="soft">Sign in to your workspace</p>
+    <div class="auth-page">
+      <form class="auth-card card glass" (ngSubmit)="submit()">
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <h1>Sign in to ERP-Cafe</h1>
+        <p class="soft">Use your work account to continue</p>
 
           @if (resetDone && !error()) {
             <div class="auth-ok" role="status">Your password was changed. Sign in with the new one.</div>
@@ -46,7 +31,7 @@ function loginErrorMessage(status: number | undefined): string {
           <div class="field">
             <label for="email">Email</label>
             <input id="email" class="input" type="email" name="email" autocomplete="username"
-                   [(ngModel)]="email" placeholder="admin@esscafe.vn" required />
+                   [(ngModel)]="email" placeholder="you@company.com" required />
           </div>
           <div class="field">
             <label for="password">Password</label>
@@ -67,9 +52,7 @@ function loginErrorMessage(status: number | undefined): string {
           <button class="btn btn-primary btn-lg btn-block" type="submit" [disabled]="loading()">
             @if (loading()) { <span class="spinner"></span> Signing in… } @else { Sign in }
           </button>
-
-        </form>
-      </div>
+      </form>
     </div>
   `,
   styleUrl: './login.scss',
