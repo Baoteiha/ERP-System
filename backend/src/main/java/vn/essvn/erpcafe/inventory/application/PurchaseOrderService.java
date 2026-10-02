@@ -57,7 +57,7 @@ public class PurchaseOrderService {
 
     @Transactional(readOnly = true)
     public Page<PurchaseOrder> list(Pageable pageable) {
-        return purchaseOrderRepository.findByBranchId(activeBranch(), pageable);
+        return purchaseOrderRepository.findByBranchId(BranchContext.require(), pageable);
     }
 
     @Transactional(readOnly = true)
@@ -65,7 +65,7 @@ public class PurchaseOrderService {
         // Scope to the active branch: a bare findById would let a user read, send,
         // receive, or cancel a PO in another branch/company by id (IDOR). Every
         // caller (get/send/receive/cancel) already runs with an accessible branch.
-        return purchaseOrderRepository.findByIdAndBranchId(id, activeBranch())
+        return purchaseOrderRepository.findByIdAndBranchId(id, BranchContext.require())
                 .orElseThrow(() -> ResourceNotFoundException.of("PurchaseOrder", id));
     }
 
@@ -74,7 +74,7 @@ public class PurchaseOrderService {
         if (lines == null || lines.isEmpty()) {
             throw new BusinessRuleException("A purchase order needs at least one line");
         }
-        PurchaseOrder order = new PurchaseOrder(supplierId, activeBranch(), note);
+        PurchaseOrder order = new PurchaseOrder(supplierId, BranchContext.require(), note);
         for (LineInput line : lines) {
             order.addLine(toLine(supplierId, line));
         }
@@ -186,10 +186,5 @@ public class PurchaseOrderService {
     private Ingredient requireIngredient(UUID ingredientId) {
         return ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
-    }
-
-    private UUID activeBranch() {
-        return BranchContext.current()
-                .orElseThrow(() -> new BusinessRuleException("Active branch required (set X-Branch-Id header)"));
     }
 }

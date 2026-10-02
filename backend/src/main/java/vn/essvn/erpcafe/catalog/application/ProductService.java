@@ -152,7 +152,7 @@ public class ProductService {
      * permission is forbidden, whichever branch the request acts in (ADR-0007).
      */
     private void requireAtBranch(UUID branchId, String permission) {
-        if (!organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
+        if (!organizationApi.branchExistsInCompany(TenantContext.require(), branchId)) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
         if (!identityApi.hasPermissionAt(branchId, permission)) {

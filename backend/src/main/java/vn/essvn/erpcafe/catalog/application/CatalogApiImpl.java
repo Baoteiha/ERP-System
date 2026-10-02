@@ -48,7 +48,7 @@ public class CatalogApiImpl implements CatalogApi {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", productId));
         // No branch means a company-wide quote (catalog browsing): base price, no availability rules.
-        if (branchId != null && !organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
+        if (branchId != null && !organizationApi.branchExistsInCompany(TenantContext.require(), branchId)) {
             throw ResourceNotFoundException.of("Branch", branchId);
         }
 

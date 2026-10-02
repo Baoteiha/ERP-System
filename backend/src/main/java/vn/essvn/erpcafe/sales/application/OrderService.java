@@ -22,7 +22,6 @@ import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.events.DomainEventPublisher;
-import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
@@ -83,12 +82,12 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<Order> list(Pageable pageable) {
-        return orderRepository.findByBranchIdOrderByCreatedAtDesc(activeBranch(), pageable);
+        return orderRepository.findByBranchIdOrderByCreatedAtDesc(BranchContext.require(), pageable);
     }
 
     @Transactional(readOnly = true)
     public Order get(UUID id) {
-        return orderRepository.findByIdAndBranchId(id, activeBranch())
+        return orderRepository.findByIdAndBranchId(id, BranchContext.require())
                 .orElseThrow(() -> ResourceNotFoundException.of("Order", id));
     }
 
@@ -103,7 +102,7 @@ public class OrderService {
         if (requestId == null) {
             return new PlacedOrder(inTransaction(() -> create(input)), true);
         }
-        UUID branchId = activeBranch();
+        UUID branchId = BranchContext.require();
         Order existing = inTransaction(() -> orderRepository.findByBranchIdAndClientRequestId(branchId, requestId)
                 .orElse(null));
         if (existing != null) {
@@ -141,7 +140,7 @@ public class OrderService {
     }
 
     private Order build(CreateOrderInput input) {
-        UUID branchId = activeBranch();
+        UUID branchId = BranchContext.require();
         UUID cashierId = identityApi.requireUserId();
         UUID companyId = TenantContext.require();
         // the rate is the branch's setting, never the client's: a till cannot undercharge tax
@@ -233,10 +232,5 @@ public class OrderService {
                     line.modifierIds(), line.getRecipeVersionId()));
         }
         return lines;
-    }
-
-    private UUID activeBranch() {
-        return BranchContext.current()
-                .orElseThrow(() -> new BusinessRuleException("Active branch required (set X-Branch-Id header)"));
     }
 }

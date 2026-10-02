@@ -82,7 +82,7 @@ public class ItemService {
     public Item update(UUID id, String sku, String name, UUID supplierId, UUID ingredientId,
             String unit, boolean active, Long expectedVersion) {
         Item item = get(id);
-        requireCurrentVersion(item.getVersion(), expectedVersion);
+        ConflictException.requireCurrentVersion(item.getVersion(), expectedVersion);
         if (supplierId != null && !supplierId.equals(item.getSupplierId())) {
             throw new ConflictException("An item's supplier cannot change; create a new item instead");
         }
@@ -161,15 +161,6 @@ public class ItemService {
         if (itemRepository.existsBySupplierIdAndIngredientIdAndUnit(supplierId, ingredientId, unit)) {
             throw new ConflictException(
                     "This supplier already sells that ingredient by the " + unit);
-        }
-    }
-
-    // Stale-form guard: the client echoes the version it loaded. If the row has changed
-    // since (version moved on), reject with 409 instead of silently overwriting the newer
-    // edit. Enforced only when a version is supplied (older clients stay backward-compatible).
-    private static void requireCurrentVersion(Long current, Long expected) {
-        if (expected != null && !expected.equals(current)) {
-            throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
         }
     }
 }

@@ -48,7 +48,7 @@ public class SupplierService {
     public Supplier update(UUID id, String name, String contactPhone, String contactEmail,
             String address, boolean active, Long expectedVersion) {
         Supplier supplier = get(id);
-        requireCurrentVersion(supplier.getVersion(), expectedVersion);
+        ConflictException.requireCurrentVersion(supplier.getVersion(), expectedVersion);
         if (!supplier.getName().equals(name) && supplierRepository.existsByName(name)) {
             throw new ConflictException("Supplier already exists: " + name);
         }
@@ -58,15 +58,6 @@ public class SupplierService {
         supplier.setAddress(address);
         supplier.setActive(active);
         return supplier;
-    }
-
-    // Stale-form guard: the client echoes the version it loaded. If the row has changed
-    // since (version moved on), reject with 409 instead of silently overwriting the newer
-    // edit. Enforced only when a version is supplied (older clients stay backward-compatible).
-    private static void requireCurrentVersion(Long current, Long expected) {
-        if (expected != null && !expected.equals(current)) {
-            throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
-        }
     }
 
     public void delete(UUID id) {

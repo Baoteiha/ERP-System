@@ -60,17 +60,10 @@ public class RecipeService {
         // A managed recipe persists its new version at flush; merging it (save) would copy the version instead.
         Recipe recipe = recipeRepository.findByProductId(productId)
                 .orElseGet(() -> recipeRepository.save(new Recipe(productId)));
-        requireCurrentVersion(recipe.getCurrentVersionNo(), expectedVersion);
+        ConflictException.requireCurrentVersion(recipe.getCurrentVersionNo(), expectedVersion);
         return recipe.revise(lines.stream()
                 .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), Unit.parse(l.unit())))
                 .toList());
-    }
-
-    // Same stale-form guard as IngredientService: enforced only when the client sends a version.
-    private static void requireCurrentVersion(int current, Long expected) {
-        if (expected != null && expected != current) {
-            throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
-        }
     }
 
     private void requireProduct(UUID productId) {

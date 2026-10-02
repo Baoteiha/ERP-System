@@ -113,7 +113,7 @@ public class UserService {
         // The branch must belong to the user's own company. A bare existence check would
         // let a caller attach another company's branch to the user's access set, which
         // every branch-scoped query downstream then trusts (cross-tenant escalation).
-        if (!organizationApi.branchExistsInCompany(branchId, user.getCompanyId())) {
+        if (!organizationApi.branchExistsInCompany(user.getCompanyId(), branchId)) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
         // locked first: a concurrent widening of the role waits for this grant, or this grant sees it

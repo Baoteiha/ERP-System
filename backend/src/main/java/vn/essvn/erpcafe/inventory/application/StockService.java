@@ -43,17 +43,17 @@ public class StockService {
 
     @Transactional(readOnly = true)
     public List<StockItem> listStock() {
-        return stockItemRepository.findByBranchId(activeBranch());
+        return stockItemRepository.findByBranchId(BranchContext.require());
     }
 
     @Transactional(readOnly = true)
     public List<StockItem> lowStock() {
-        return stockItemRepository.findLowStock(activeBranch());
+        return stockItemRepository.findLowStock(BranchContext.require());
     }
 
     @Transactional(readOnly = true)
     public Page<StockMovement> movements(UUID ingredientId, Pageable pageable) {
-        UUID branchId = activeBranch();
+        UUID branchId = BranchContext.require();
         return ingredientId == null
                 ? movementRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable)
                 : movementRepository.findByBranchIdAndIngredientIdOrderByCreatedAtDesc(branchId, ingredientId, pageable);
@@ -61,7 +61,7 @@ public class StockService {
 
     public StockItem adjust(UUID ingredientId, BigDecimal quantityDelta, String unit, String note) {
         requireIngredient(ingredientId);
-        return ledger.adjust(activeBranch(), ingredientId, quantityDelta, unit, note);
+        return ledger.adjust(BranchContext.require(), ingredientId, quantityDelta, unit, note);
     }
 
     public StockItem waste(UUID ingredientId, BigDecimal quantity, String unit, String note) {
@@ -69,12 +69,12 @@ public class StockService {
             throw new BusinessRuleException("Waste quantity must be positive");
         }
         requireIngredient(ingredientId);
-        return ledger.waste(activeBranch(), ingredientId, quantity, unit, note);
+        return ledger.waste(BranchContext.require(), ingredientId, quantity, unit, note);
     }
 
     public StockItem setReorderLevel(UUID ingredientId, BigDecimal reorderLevel) {
         requireIngredient(ingredientId);
-        UUID branchId = activeBranch();
+        UUID branchId = BranchContext.require();
         StockItem item = ledger.lockOrCreate(branchId, ingredientId);
         item.setReorderLevel(reorderLevel);
         return item;
@@ -83,10 +83,5 @@ public class StockService {
     private void requireIngredient(UUID ingredientId) {
         ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
-    }
-
-    private UUID activeBranch() {
-        return BranchContext.current()
-                .orElseThrow(() -> new BusinessRuleException("Active branch required (set X-Branch-Id header)"));
     }
 }

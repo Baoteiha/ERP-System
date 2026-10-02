@@ -20,7 +20,7 @@ public interface OrganizationApi {
     Optional<UUID> companyIdOf(UUID branchId);
 
     /** Whether the given branch exists, is active, and belongs to {@code companyId}. */
-    boolean branchExistsInCompany(UUID branchId, UUID companyId);
+    boolean branchExistsInCompany(UUID companyId, UUID branchId);
 
     /** A company's active branches — used by reporting for cross-branch comparison. */
     List<BranchDto> listActiveBranches(UUID companyId);

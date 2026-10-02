@@ -44,7 +44,7 @@ public class MenuService {
 
     public List<MenuEntry> menu() {
         UUID branchId = BranchContext.require();
-        if (!organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
+        if (!organizationApi.branchExistsInCompany(TenantContext.require(), branchId)) {
             throw ResourceNotFoundException.of("Branch", branchId);
         }
         Map<UUID, ProductBranchAvailability> byProduct = availabilityRepository.findByBranchId(branchId).stream()
