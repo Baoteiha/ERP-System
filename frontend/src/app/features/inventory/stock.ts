@@ -5,19 +5,25 @@ import { Router } from '@angular/router';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { IngredientResponse, MovementResponse, MovementType, StockItemResponse } from '../../core/models';
+import { readPref, writePref } from '../../core/prefs';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
 import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { WEBGL_SUPPORTED } from '../../three/webgl';
+import { StockShelvesComponent } from './stock-shelves';
 
 type StockMode = 'adjust' | 'waste' | 'reorder';
+type StockView = 'table' | '3d';
+const VIEW_KEY = 'erpcafe.stockView';
+const VIEWS: readonly StockView[] = ['table', '3d'];
 
 @Component({
   selector: 'app-stock',
   standalone: true,
-  imports: [FormsModule, DatePipe, LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, DatePipe, LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, ModalComponent, IconComponent, StockShelvesComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -26,7 +32,10 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
           <div class="sub">On-hand quantities, reorder signals, and branch stock movements.</div>
         </div>
         <div class="segmented view-switch" role="group" aria-label="Stock view">
-          <button type="button" class="active" aria-pressed="true">Table</button>
+          <button type="button" [class.active]="stockView() === 'table'" [attr.aria-pressed]="stockView() === 'table'" (click)="setView('table')">Table</button>
+          @if (can3d()) {
+            <button type="button" [class.active]="stockView() === '3d'" [attr.aria-pressed]="stockView() === '3d'" (click)="setView('3d')">3D</button>
+          }
         </div>
       </div>
 
@@ -48,7 +57,16 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
               </div>
             }
           </div>
-          @if (loading()) { <div class="loading-block"><span class="spinner"></span> Loading…</div> }
+          @if (stockView() === '3d') {
+            <!-- kept mounted through reloads, so a branch switch rebuilds the shelves instead of restarting WebGL -->
+            <app-stock-shelves [class.off]="!filtered().length" [stock]="filtered()" [ingredients]="ingredients()"
+              (pick)="pickIngredient($event)" (unavailable)="on3dUnavailable()" />
+            @if (!filtered().length) {
+              @if (loading()) { <div class="loading-block"><span class="spinner"></span> Loading…</div> }
+              @else { <div class="empty"><div class="big"><app-icon name="box" [size]="30" /></div>No stock records yet</div> }
+            }
+          }
+          @else if (loading()) { <div class="loading-block"><span class="spinner"></span> Loading…</div> }
           @else {
             <div class="table-wrap">
               <table class="data">
@@ -68,6 +86,7 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
               </table>
             </div>
           }
+          @if (!can3d()) { <p class="muted view-note">3D view isn't available on this device.</p> }
         </div>
 
         <div class="card">
@@ -151,6 +170,8 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
     .mv-ing { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mv-sub { display: flex; justify-content: space-between; gap: .6rem; font-size: 12px; }
     .note { font-size: .85rem; color: var(--text-soft); }
+    app-stock-shelves.off { display: none; }
+    .view-note { margin: 0; padding: .7rem 1.35rem .9rem; font-size: 12.5px; border-top: 1px solid var(--border); }
     @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } }
   `],
 })
@@ -177,6 +198,14 @@ export class StockComponent {
 
   private router = inject(Router);
   private canWrite = computed(() => this.auth.can('inventory:write'));
+
+  /** Whether this device can draw WebGL; without it there is no 3D button and the page stays on the table. */
+  private readonly webgl = inject(WEBGL_SUPPORTED)();
+  /** The 3D view failed to start this visit (three did not load, or the renderer would not start). */
+  private readonly shelvesFailed = signal(false);
+  readonly can3d = computed(() => this.webgl && !this.shelvesFailed());
+  /** Table or 3D shelves, remembered per browser; a device without WebGL always gets the table. */
+  readonly stockView = signal<StockView>(this.webgl ? readPref(VIEW_KEY, VIEWS, 'table') : 'table');
 
   constructor() {
     // a link's intent is one-shot: act on it once identity is known, then drop it, permitted or not
@@ -220,6 +249,23 @@ export class StockComponent {
       next: (page) => { if (this.auth.activeBranchId() === branch) { this.movements.set(page.content); this.movementsLoading.set(false); } },
       error: () => { if (this.auth.activeBranchId() === branch) this.movementsLoading.set(false); },
     });
+  }
+
+  setView(view: StockView) {
+    this.stockView.set(view);
+    writePref(VIEW_KEY, view);
+  }
+
+  /** A container picked on the shelves: select it like a table row, and open Adjust for it when stock may be written. */
+  pickIngredient(id: string) {
+    this.selectIngredient(id);
+    if (this.canWrite()) this.openAction('adjust');
+  }
+
+  /** The 3D view could not start: show the table for this visit, keeping the remembered choice for the next one. */
+  on3dUnavailable() {
+    this.shelvesFailed.set(true);
+    this.stockView.set('table');
   }
 
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
