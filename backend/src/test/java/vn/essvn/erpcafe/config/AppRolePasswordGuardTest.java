@@ -22,7 +22,7 @@ class AppRolePasswordGuardTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"pa$$word", "ends-in-dollar$", "has-$pw$-inside"})
+    @ValueSource(strings = {"pa$$word", "ends-in-dollar$", "has-$pw$-inside", "ends-in-tag$pw"})
     void aPasswordThatWouldEndAQuote_isRefused_withoutBeingNamed(String password) {
         assertThatThrownBy(() -> new AppRolePasswordGuard().customize(withPassword(password)))
                 .isInstanceOf(IllegalStateException.class)
@@ -31,7 +31,8 @@ class AppRolePasswordGuardTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"erp-app-test", "a$b", "$leading", "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy"})
+    @ValueSource(strings = {"erp-app-test", "a$b", "$leading", "x$p", "pw$x",
+        "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy"})
     void anyOtherPassword_andAScramVerifier_pass(String password) {
         assertThatCode(() -> new AppRolePasswordGuard().customize(withPassword(password))).doesNotThrowAnyException();
     }

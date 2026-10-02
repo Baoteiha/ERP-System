@@ -22,10 +22,18 @@ public class AppRolePasswordGuard implements FlywayConfigurationCustomizer {
     @Override
     public void customize(FluentConfiguration configuration) {
         String password = configuration.getPlaceholders().get(PLACEHOLDER);
-        if (password != null && (password.contains("$$") || password.contains("$pw$") || password.endsWith("$"))) {
+        if (password != null && !quotable(password)) {
             throw new IllegalStateException("Refusing to migrate: the app role password (spring.flyway.placeholders."
-                    + PLACEHOLDER + ", from spring.datasource.password) contains '$$' or '$pw$' or ends in '$',"
-                    + " which V22 cannot quote. Choose another password, or set the placeholder to a SCRAM verifier.");
+                    + PLACEHOLDER + ", from spring.datasource.password) contains '$$' or '$pw$', or ends in '$' or"
+                    + " '$pw', which V22 cannot quote. Choose another password, or set the placeholder to a SCRAM"
+                    + " verifier.");
         }
+    }
+
+    // V22 writes the password as $pw$-<password>$pw$ inside a DO $$ … $$ block: the first $pw$ after the
+    // opening one must be the closing one, and no $$ may end the block early
+    private static boolean quotable(String password) {
+        String quoted = "-" + password + "$pw$";
+        return quoted.indexOf("$pw$") == password.length() + 1 && !quoted.contains("$$");
     }
 }

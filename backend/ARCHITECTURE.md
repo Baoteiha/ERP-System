@@ -222,7 +222,7 @@ is a cluster-wide role, so run one PostgreSQL cluster per environment. A Flyway 
 must supply the `appRolePassword` placeholder (the password `erp_app` is created with; the app passes
 `spring.datasource.password`) and the `reportingZone` placeholder (the zone V23 cuts report days in; the
 app passes `app.reporting.zone`). The app refuses to start when that password contains `$$` or `$pw$`
-or ends in `$`: V22 quotes it in dollar quotes, and a broken quote would fail a statement PostgreSQL
+or ends in `$` or `$pw`: V22 quotes it in dollar quotes, and a broken quote would fail a statement PostgreSQL
 logs in full. To keep the plain password out of the migration altogether, set
 `spring.flyway.placeholders.appRolePassword` to a SCRAM verifier
 (`SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>`, e.g. `pg_authid.rolpassword` of the role
