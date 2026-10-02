@@ -29,12 +29,12 @@ import { IconComponent } from '../../shared/icon';
             <div class="shift-row live">
               <div class="shift-main">
                 <b>{{ s.employeeName }}</b>
-                <span class="badge dot badge-amber">In progress</span>
+                <span class="badge dot badge-green">In progress</span>
                 @if (s.clockInAt) { <span class="soft">in since {{ s.clockInAt | date:'EEE d MMM HH:mm' }}</span> }
               </div>
               <div class="shift-actions">
-                @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [disabled]="saving()">Clock out</button> }
-                @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
+                @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [attr.aria-label]="'Clock out ' + s.employeeName" [disabled]="saving()">Clock out</button> }
+                @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [attr.aria-label]="'Adjust ' + s.employeeName" [disabled]="saving()">Adjust</button> }
               </div>
             </div>
           }
@@ -62,7 +62,7 @@ import { IconComponent } from '../../shared/icon';
             @else {
               <div class="card">
                 @for (s of day.shifts; track s.id) {
-                  <div class="shift-row" [class.live]="s.status === 'IN_PROGRESS'">
+                  <div class="shift-row" [class.live]="s.status === 'IN_PROGRESS'" [class.done]="s.status === 'COMPLETED'" [class.cancelled]="s.status === 'CANCELLED'">
                     <div class="shift-main">
                       <b>{{ s.employeeName }}</b>
                       <span class="soft time">{{ s.scheduledStart | date:'HH:mm' }}–{{ s.scheduledEnd | date:'HH:mm' }}</span>
@@ -79,17 +79,17 @@ import { IconComponent } from '../../shared/icon';
                     </div>
                     <div class="shift-actions">
                       @if (s.status === 'SCHEDULED') {
-                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-outline" (click)="askPin(s, 'in')" [disabled]="saving()">Clock in</button> }
+                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-outline" (click)="askPin(s, 'in')" [attr.aria-label]="'Clock in ' + s.employeeName" [disabled]="saving()">Clock in</button> }
                         @if (auth.can('staff:write')) {
-                          <button class="btn btn-sm btn-ghost" (click)="openReschedule(s)" [disabled]="saving()">Edit</button>
-                          <button class="btn btn-sm btn-ghost" (click)="cancel(s)" [disabled]="saving()">Cancel</button>
+                          <button class="btn btn-sm btn-ghost" (click)="openReschedule(s)" [attr.aria-label]="'Edit ' + s.employeeName" [disabled]="saving()">Edit</button>
+                          <button class="btn btn-sm btn-ghost" (click)="cancel(s)" [attr.aria-label]="'Cancel ' + s.employeeName" [disabled]="saving()">Cancel</button>
                         }
                       }
                       @if (s.status === 'IN_PROGRESS') {
-                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [disabled]="saving()">Clock out</button> }
+                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-primary" (click)="askPin(s, 'out')" [attr.aria-label]="'Clock out ' + s.employeeName" [disabled]="saving()">Clock out</button> }
                       }
                       @if (s.status === 'IN_PROGRESS' || s.status === 'COMPLETED') {
-                        @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [disabled]="saving()">Adjust</button> }
+                        @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openAdjust(s)" [attr.aria-label]="'Adjust ' + s.employeeName" [disabled]="saving()">Adjust</button> }
                       }
                     </div>
                   </div>
@@ -160,7 +160,6 @@ import { IconComponent } from '../../shared/icon';
   styles: [`
     .open-panel { margin-bottom: 1rem; padding: .5rem .5rem .6rem; }
     .open-panel .day-head { margin: .4rem .9rem .1rem; }
-    .shift-actions { flex-wrap: wrap; justify-content: flex-end; }
     .week-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
     .week-nav { display: flex; gap: .4rem; }
     .week-label { font-weight: 600; color: var(--text-soft); }
@@ -169,11 +168,13 @@ import { IconComponent } from '../../shared/icon';
     .no-shifts { font-size: .85rem; padding: .15rem 0 .35rem; }
     .shift-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem .85rem; margin: .4rem; border-radius: var(--radius-sm);
       background: var(--accent-soft); border-left: 3px solid var(--accent); }
+    .shift-row.done { background: var(--surface-3); border-left-color: var(--border-strong); }
+    .shift-row.cancelled { background: var(--surface-3); border-left-color: var(--border-strong); opacity: .6; }
     .shift-row.live { background: var(--green-soft); border-left-color: var(--green); }
     .shift-main { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; min-width: 0; }
     .time { font-variant-numeric: tabular-nums; }
     .note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .shift-actions { display: flex; gap: .4rem; flex-shrink: 0; }
+    .shift-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; flex-shrink: 0; }
     @media (max-width: 640px) { .shift-row { flex-direction: column; align-items: stretch; } .shift-actions { justify-content: flex-start; } }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
   `],
@@ -250,7 +251,7 @@ export class ShiftsComponent {
 
   statusClass(s: ShiftStatus) {
     if (s === 'SCHEDULED') return 'badge-blue';
-    if (s === 'IN_PROGRESS') return 'badge-amber';
+    if (s === 'IN_PROGRESS') return 'badge-green';
     if (s === 'COMPLETED') return 'badge-green';
     return 'badge-gray';
   }

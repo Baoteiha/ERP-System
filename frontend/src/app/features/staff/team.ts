@@ -49,6 +49,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
                     }
                     <td><app-status-badge [active]="e.active" /></td>
                     <td class="right"><div class="row-actions">
+                      @if (auth.can('staff:write')) { <button type="button" class="btn btn-sm btn-ghost btn-icon" (click)="openEdit(e)" [attr.aria-label]="'Edit ' + e.fullName"><app-icon name="edit" [size]="15" /></button> }
                       @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openPin(e)" [attr.aria-label]="'Set PIN for ' + e.fullName">Set PIN</button> }
                     </div></td>
                   </tr>
