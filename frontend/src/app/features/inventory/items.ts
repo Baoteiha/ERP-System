@@ -66,9 +66,9 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
               </thead>
               <tbody>
                 @for (i of visible(); track i.id) {
-                  <tr>
+                  <tr [class.muted]="!i.active">
                     <td>
-                      <button type="button" class="row-open" [disabled]="!canWrite" (click)="openEdit(i)"><b>{{ i.name }}</b></button>
+                      <button type="button" class="row-open" [disabled]="!canWrite" (click)="openEdit(i)">{{ i.name }}</button>
                       @if (i.sku) { <div class="soft mono">{{ i.sku }}</div> }
                     </td>
                     <td>{{ supplierName(i.supplierId) }}</td>
@@ -77,10 +77,13 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
                       {{ ingredientName(i.ingredientId) }}
                       <div class="soft conv"><span class="unit-chip ghost">{{ i.unit }}</span> → <span class="unit-chip ghost">{{ baseUnitOf(i.ingredientId) }}</span></div>
                     </td>
-                    <td><app-status-badge [active]="i.active" /></td>
-                    <td class="row-actions">
+                    <td><app-status-badge size="sm" [active]="i.active" /></td>
+                    <td>
                       @if (canWrite) {
-                        <button class="btn btn-sm btn-icon" (click)="remove(i)" [attr.aria-label]="'Delete ' + i.name"><app-icon name="trash" [size]="15" /></button>
+                        <div class="row-actions">
+                          <button type="button" class="btn btn-sm btn-ghost btn-icon" (click)="openEdit(i)" [attr.aria-label]="'Edit ' + i.name"><app-icon name="edit" [size]="15" /></button>
+                          <button type="button" class="btn btn-sm btn-ghost btn-icon" (click)="remove(i)" [attr.aria-label]="'Delete ' + i.name"><app-icon name="trash" [size]="15" /></button>
+                        </div>
                       }
                     </td>
                   </tr>
@@ -93,7 +96,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     </div>
 
     @if (editing()) {
-      <app-modal [title]="form.id ? 'Edit item' : 'New item'" (close)="editing.set(null)">
+      <app-modal variant="drawer" [title]="form.id ? 'Edit item' : 'New item'" (close)="editing.set(null)">
         <div class="two-col">
           <div class="field">
             <label for="item-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
@@ -135,14 +138,14 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     }
   `,
   styles: [`
-    .filter-bar { display: flex; align-items: center; gap: .7rem; padding: 0 0 .8rem; }
+    .filter-bar { display: flex; align-items: center; gap: .7rem; padding: .8rem 1.35rem; border-bottom: 1px solid var(--border); }
     .w-filter { max-width: 240px; }
     .count { font-size: 12px; }
 
     /* A unit is a token, not prose — monospace keeps "kg" and "ml" scannable down a column. */
     .unit-chip {
       font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
-      background: var(--surface-2); border: 1px solid var(--hairline);
+      background: var(--surface-2); border: 1px solid var(--border);
       border-radius: 5px; padding: 1px .35rem;
     }
     .unit-chip.ghost { background: transparent; }

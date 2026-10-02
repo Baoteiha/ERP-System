@@ -8,7 +8,7 @@ import { IngredientResponse, MovementResponse, MovementType, StockItemResponse }
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
-import { MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -17,7 +17,7 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
 @Component({
   selector: 'app-stock',
   standalone: true,
-  imports: [FormsModule, DatePipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, DatePipe, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -25,16 +25,21 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
           <h1>Stock</h1>
           <div class="sub">On-hand quantities, reorder signals, and branch stock movements.</div>
         </div>
-        <div class="segmented">
-          <button [class.active]="view() === 'all'" (click)="view.set('all')">All</button>
-          <button [class.active]="view() === 'low'" (click)="view.set('low')">Low stock</button>
+        <div class="segmented view-switch" role="group" aria-label="Stock view">
+          <button type="button" class="active" aria-pressed="true">Table</button>
         </div>
       </div>
 
       <div class="split">
         <div class="card">
           <div class="card-head">
-            <div><b>{{ filtered().length }}</b> stock items</div>
+            <div class="head-left">
+              <div><b>{{ filtered().length }}</b> stock items</div>
+              <div class="segmented" role="group" aria-label="Stock filter">
+                <button type="button" [class.active]="view() === 'all'" [attr.aria-pressed]="view() === 'all'" (click)="view.set('all')">All</button>
+                <button type="button" [class.active]="view() === 'low'" [attr.aria-pressed]="view() === 'low'" (click)="view.set('low')">Low stock</button>
+              </div>
+            </div>
             @if (auth.can('inventory:write')) {
               <div class="actions">
                 <button class="btn btn-sm btn-outline" (click)="openAction('adjust')">Adjust</button>
@@ -51,8 +56,8 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
                 <thead><tr><th scope="col">Ingredient</th><th scope="col" class="right">On hand</th><th scope="col" class="right">Reorder</th><th scope="col" class="right">Avg cost</th><th scope="col">Status</th></tr></thead>
                 <tbody>
                   @for (s of filtered(); track s.ingredientId + s.branchId) {
-                    <tr (click)="selectIngredient(s.ingredientId)" [class.row-selected]="selectedIngredientId() === s.ingredientId" [class.row-low]="s.belowReorderLevel">
-                      <td><button type="button" class="row-open" (click)="selectIngredient(s.ingredientId)"><b>{{ ingredientName(s.ingredientId) }}</b></button><div class="soft">{{ s.ingredientId | shortId }}</div></td>
+                    <tr (click)="selectIngredient(s.ingredientId)" [class.row-selected]="selectedIngredientId() === s.ingredientId">
+                      <td><button type="button" class="row-open" (click)="selectIngredient(s.ingredientId)">{{ ingredientName(s.ingredientId) }}</button><div class="soft">{{ s.ingredientId | shortId }}</div></td>
                       <td class="num">{{ s.quantityOnHand }}</td>
                       <td class="num">{{ s.reorderLevel }}</td>
                       <td class="num">{{ s.avgUnitCost | money }}</td>
@@ -65,33 +70,37 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
           }
         </div>
 
-        <div class="card movement-card">
+        <div class="card">
           <div class="card-head">
             <div><b>Movements</b><div class="sub mini">{{ selectedIngredientId() ? ingredientName(selectedIngredientId()!) : 'All ingredients' }}</div></div>
             @if (selectedIngredientId()) { <button class="btn btn-sm btn-ghost" (click)="selectedIngredientId.set(null); loadMovements()">Clear</button> }
           </div>
           @if (movementsLoading()) { <div class="loading-block"><span class="spinner"></span> Loading…</div> }
           @else {
-            <div class="timeline">
+            <ul class="movements">
               @for (m of movements(); track m.id) {
-                <div class="movement">
-                  <div class="pin" [class]="pinClass(m.type)" aria-hidden="true"><app-icon [name]="pinIcon(m.type)" [size]="13" /></div>
-                  <div>
-                    <div><b>{{ m.type }}</b> <span class="soft">{{ m.quantity }}</span></div>
-                    <div class="soft">{{ ingredientName(m.ingredientId) }} · {{ m.occurredAt | date:'medium' }}</div>
-                    @if (m.note) { <div class="note">{{ m.note }}</div> }
+                <li class="movement">
+                  <div class="mv-main">
+                    <span class="badge" [class]="typeClass(m.type)"><app-icon [name]="pinIcon(m.type)" [size]="12" aria-hidden="true" />{{ m.type | label }}</span>
+                    <span class="mv-ing">{{ ingredientName(m.ingredientId) }}</span>
+                    <span class="spacer"></span>
+                    <span class="num">{{ m.quantity }}</span>
                   </div>
-                  <div class="amount">{{ m.unitCost | money }}</div>
-                </div>
-              } @empty { <div class="empty"><div class="big"><app-icon name="receipt" [size]="30" /></div>No stock movements</div> }
-            </div>
+                  <div class="soft mv-sub">
+                    <span>{{ m.occurredAt | date:'medium' }}</span>
+                    <span class="num">{{ m.unitCost | money }}</span>
+                  </div>
+                  @if (m.note) { <div class="note">{{ m.note }}</div> }
+                </li>
+              } @empty { <li class="empty"><div class="big"><app-icon name="receipt" [size]="30" /></div>No stock movements</li> }
+            </ul>
           }
         </div>
       </div>
     </div>
 
     @if (mode()) {
-      <app-modal [title]="modalTitle()" (close)="mode.set(null)">
+      <app-modal variant="drawer" [title]="modalTitle()" (close)="mode.set(null)">
         <div class="field">
           <label for="stock-ingredient">Ingredient <span class="req" aria-hidden="true">*</span></label>
           <select id="stock-ingredient" class="select" [(ngModel)]="form.ingredientId" (ngModelChange)="onIngredientChange()" required>
@@ -126,32 +135,20 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
     }
   `,
   styles: [`
-    /* stretch so both panels match heights and their empty states align */
-    .split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); gap: 1rem; align-items: stretch; }
-    .movement-card { display: flex; flex-direction: column; }
-    .timeline { flex: 1; }
-    .timeline .empty { height: 100%; }
-    .card-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, .85fr); gap: 1rem; align-items: start; }
+    .head-left { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
+    .card-head .actions { display: flex; gap: .4rem; flex-wrap: wrap; }
     .mini { font-size: .8rem; margin-top: .15rem; }
     table.data tbody tr { cursor: pointer; }
-    .row-selected, .row-selected:hover { background: var(--azure-soft); box-shadow: inset 3px 0 0 var(--azure); }
-    .row-low:not(.row-selected) td { background: color-mix(in srgb, var(--red-soft) 55%, transparent); }
-    .movement-card { padding: 1.2rem; }
-    .movement-card .card-head { padding: 0 0 1rem; margin-bottom: 0; }
-    .timeline { display: grid; gap: .9rem; padding-top: .95rem; border-top: 1px solid var(--hairline); }
-    .movement { position: relative; display: grid; grid-template-columns: 22px 1fr auto; gap: .75rem; align-items: start; padding-bottom: .9rem; border-bottom: 1px solid var(--hairline); }
-    .movement::before { content: ""; position: absolute; left: 10.5px; top: 26px; bottom: -8px; border-left: 1px dashed var(--border-strong); }
-    .movement:last-child::before { display: none; }
-    /* icon coin per movement type */
-    .pin { position: relative; width: 22px; height: 22px; border-radius: 50%; margin-top: .1rem; display: inline-flex; align-items: center; justify-content: center; }
-    .pin-green { background: var(--green-soft); color: var(--green); }
-    .pin-red   { background: var(--red-soft);   color: var(--red); }
-    .pin-amber { background: var(--amber-soft); color: var(--amber); }
-    .pin-azure { background: var(--azure-soft); color: var(--azure); }
-    .pin-gray  { background: var(--surface-3);  color: var(--text-soft); }
-    .note { margin-top: .25rem; font-size: .85rem; color: var(--text-soft); }
-    .amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-    @media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
+    .row-selected, .row-selected:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    .movements { list-style: none; margin: 0; padding: 0; }
+    .movement { padding: .8rem 1.35rem; border-bottom: 1px solid var(--border); display: grid; gap: .3rem; }
+    .movement:last-child { border-bottom: none; }
+    .mv-main { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+    .mv-ing { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mv-sub { display: flex; justify-content: space-between; gap: .6rem; font-size: 12px; }
+    .note { font-size: .85rem; color: var(--text-soft); }
+    @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } }
   `],
 })
 export class StockComponent {
@@ -225,7 +222,7 @@ export class StockComponent {
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
   selectIngredient(id: string) { this.selectedIngredientId.set(id); this.loadMovements(); }
 
-  /* decorative icon coin per movement type (type text is displayed alongside) */
+  /** Glyph shown inside the movement badge. */
   pinIcon(type: MovementType) {
     switch (type) {
       case 'PURCHASE_RECEIPT': return 'truck';
@@ -235,13 +232,14 @@ export class StockComponent {
       default: return 'box';
     }
   }
-  pinClass(type: MovementType) {
+  /** Badge colour per movement type; the type text is always shown. */
+  typeClass(type: MovementType) {
     switch (type) {
-      case 'PURCHASE_RECEIPT': return 'pin-green';
-      case 'WASTE': return 'pin-red';
-      case 'ADJUSTMENT': return 'pin-amber';
-      case 'SALE_DEPLETION': case 'SALE_REVERSAL': return 'pin-azure';
-      default: return 'pin-gray';
+      case 'PURCHASE_RECEIPT': return 'badge-green';
+      case 'WASTE': return 'badge-red';
+      case 'ADJUSTMENT': return 'badge-amber';
+      case 'SALE_DEPLETION': case 'SALE_REVERSAL': return 'badge-blue';
+      default: return 'badge-gray';
     }
   }
 

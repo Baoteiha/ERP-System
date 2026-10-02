@@ -8,7 +8,7 @@ import { IngredientResponse, ItemResponse, PoLineRequest, PurchaseOrderResponse,
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
-import { MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -21,7 +21,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
 @Component({
   selector: 'app-purchase-orders',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -40,17 +40,19 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
                 <tbody>
                   @for (po of items(); track po.id) {
                     <tr (click)="select(po)" [class.row-selected]="selected()?.id === po.id">
-                      <td><button type="button" class="row-open" (click)="select(po)"><b>{{ po.id | shortId }}</b></button><div class="soft">{{ po.branchId | shortId }}</div></td>
+                      <td><button type="button" class="row-open" (click)="select(po)">{{ po.id | shortId }}</button><div class="soft">{{ po.branchId | shortId }}</div></td>
                       <td>{{ supplierName(po.supplierId) }}</td>
-                      <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status }}</span></td>
+                      <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span></td>
                       <td class="num">{{ po.lines.length }}</td>
                       <td class="num">{{ total(po) | money }}</td>
-                      <td class="row-actions">
+                      <td>
+                        <div class="row-actions">
                         @if (auth.can('purchasing:write')) {
                           @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" (click)="send(po); $event.stopPropagation()" [disabled]="saving()">Send</button> }
                           @if (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="openReceive(po); $event.stopPropagation()">Receive</button> }
                           @if (po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
                         }
+                        </div>
                       </td>
                     </tr>
                   } @empty { <tr><td colspan="6"><div class="empty"><div class="big"><app-icon name="clipboard" [size]="30" /></div>No purchase orders yet</div></td></tr> }
@@ -61,17 +63,13 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
         </div>
 
         <div class="card detail">
-          <div class="clip" aria-hidden="true"></div>
           @if (selected(); as po) {
-            <div class="detail-title">
+            <div class="card-head">
               <div>
-                <div class="id-row">
-                  <h2>{{ po.id | shortId }}</h2>
-                  @if (stampColor(po.status); as c) { <span class="stamp stamp-in" [style.color]="c" aria-hidden="true">{{ po.status }}</span> }
-                </div>
+                <h2 class="po-id">{{ po.id | shortId }}</h2>
                 <div class="sub">{{ supplierName(po.supplierId) }}</div>
               </div>
-              <span class="badge dot" [class]="statusClass(po.status)">{{ po.status }}</span>
+              <span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span>
             </div>
             @if (po.note) { <div class="note">{{ po.note }}</div> }
             <div class="table-wrap">
@@ -90,6 +88,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
                 </tbody>
               </table>
             </div>
+            <div class="card-pad po-total"><span class="soft">Total</span> <b class="num">{{ selectedTotal() | money }}</b></div>
           } @else {
             <div class="empty"><div class="big"><app-icon name="clipboard" [size]="30" /></div>Select a purchase order</div>
           }
@@ -98,7 +97,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     </div>
 
     @if (creating()) {
-      <app-modal title="New purchase order" (close)="creating.set(false)">
+      <app-modal variant="drawer" [width]="720" title="New purchase order" (close)="creating.set(false)">
         <div class="field">
           <label for="po-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
           <select id="po-supplier" class="select" [ngModel]="form.supplierId" (ngModelChange)="onSupplierChange($event)" required>
@@ -149,7 +148,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     }
 
     @if (receiving(); as po) {
-      <app-modal [title]="'Receive ' + (po.id | shortId)" (close)="receiving.set(null)">
+      <app-modal variant="drawer" [width]="720" [title]="'Receive ' + (po.id | shortId)" (close)="receiving.set(null)">
         <div class="line-editor">
           @for (r of receiveLines; track r.lineId) {
             <div class="po-line receive">
@@ -176,36 +175,20 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     .split { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1.15rem; align-items: start; }
     table.data tbody tr { cursor: pointer; }
     .detail .empty { min-height: 320px; }
-    .row-selected, .row-selected:hover { background: var(--azure-soft); box-shadow: inset 3px 0 0 var(--azure); }
-    /* clipboard: paper sheet under a metal clip (sticky is a positioned anchor for .clip) */
-    .detail { padding: 1.9rem 1.3rem 1.3rem; position: sticky; top: 0;
-      background: linear-gradient(180deg, var(--paper), var(--paper-2));
-      border-color: var(--paper-line); color: var(--paper-ink); }
-    .detail .sub, .detail .soft, .detail .empty { color: var(--paper-ink-soft); }
-    .detail .empty .big { background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 1px var(--paper-line); }
-    .detail table.data th { background: rgba(255,255,255,.4); color: var(--paper-ink-soft); border-bottom-color: var(--paper-line); }
-    .detail table.data td { border-bottom-color: var(--paper-line); }
-    .clip { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); width: 92px; height: 18px; border-radius: 9px;
-      background: linear-gradient(180deg, #d9d2c6, #a99f8e);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 1px 3px rgba(0,0,0,.3); }
-    .clip::after { content: ""; position: absolute; left: 50%; top: 5px; transform: translateX(-50%); width: 54px; height: 7px; border-radius: 4px;
-      background: linear-gradient(180deg, #c9c1b1, #978d7a); box-shadow: inset 0 1px 2px rgba(0,0,0,.28); }
-    .detail-title { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1rem; }
-    .id-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-    .detail h2 { margin: 0; font-size: 1.3rem; font-family: var(--font-mono); letter-spacing: -.03em; color: var(--paper-ink); }
-    /* pencilled margin note */
-    .note { border-left: 3px solid var(--paper-line); padding: .5rem .8rem; margin-bottom: .85rem;
-      font-style: italic; color: var(--paper-ink-soft); font-size: 14px; }
+    .row-selected, .row-selected:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    .detail { position: sticky; top: 0; }
+    .po-id { margin: 0; font-size: 1.15rem; font-family: var(--font-mono); letter-spacing: -.03em; }
+    .po-total { display: flex; justify-content: flex-end; align-items: baseline; gap: .8rem; border-top: 1px solid var(--border); }
+    .note { padding: .6rem 1.35rem; border-bottom: 1px solid var(--border); color: var(--text-soft); font-size: 13.5px; }
     .with-unit { display: flex; align-items: center; gap: .4rem; min-width: 0; }
     .with-unit .input { min-width: 0; }
     .unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
-    .detail .unit { color: var(--paper-ink-soft); }
     .compact th, .compact td { padding: .65rem .55rem; }
     .source { display: grid; gap: .35rem; min-width: 0; }
     .line-editor { display: grid; gap: .65rem; }
     .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 140px 170px 40px; gap: .5rem; align-items: center; }
     .po-line.receive { grid-template-columns: 1fr 140px 190px; }
-    @media (max-width: 980px) { .split { grid-template-columns: 1fr; } .po-line, .po-line.receive { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } .po-line, .po-line.receive { grid-template-columns: 1fr; } }
   `],
 })
 export class PurchaseOrdersComponent {
@@ -316,13 +299,6 @@ export class PurchaseOrdersComponent {
     if (status === 'SENT' || status === 'PARTIALLY_RECEIVED') return 'badge-blue';
     return 'badge-gray';
   }
-  /* rubber-stamp ink for terminal states only; null suppresses the stamp */
-  stampColor(status: string): string | null {
-    if (status === 'RECEIVED') return '#2e6b34';
-    if (status === 'CANCELLED') return '#963120';
-    return null;
-  }
-
   save() {
     if (!this.form.supplierId || this.form.lines.some((l) => !l.source || !l.orderedQty || !l.unitCost)) {
       this.toast.error('Supplier and all line fields are required');

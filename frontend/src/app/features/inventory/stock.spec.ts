@@ -69,8 +69,8 @@ describe('StockComponent', () => {
     expect(stock.pinIcon('SALE_REVERSAL')).toBe('receipt');
     expect(stock.pinIcon('ADJUSTMENT')).toBe('sliders');
     expect(stock.pinIcon('WASTE')).toBe('trash');
-    expect(stock.pinClass('PURCHASE_RECEIPT')).toBe('pin-green');
-    expect(stock.pinClass('SALE_DEPLETION')).toBe('pin-azure');
+    expect(stock.typeClass('PURCHASE_RECEIPT')).toBe('badge-green');
+    expect(stock.typeClass('SALE_DEPLETION')).toBe('badge-blue');
   });
 });
 
