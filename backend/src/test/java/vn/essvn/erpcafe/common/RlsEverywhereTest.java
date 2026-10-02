@@ -60,7 +60,8 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
     static {
         COMPANY_OF.put("company", "t.id");
         for (String table : List.of("branch", "role", "app_user", "category", "modifier_group", "product",
-                "ingredient", "supplier", "item", "employee", "shift", "domain_event")) {
+                "ingredient", "supplier", "item", "employee", "shift", "domain_event", "report_daily_branch",
+                "report_shift_labor", "report_applied_event")) {
             COMPANY_OF.put(table, "t.company_id");
         }
         for (String table : List.of("user_branch_access", "product_branch_availability", "stock_item",
@@ -199,6 +200,11 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + " now(), now())", UUID.randomUUID(), company, branch, employee);
         db.update("INSERT INTO domain_event (id, company_id, event_type, payload, processed_at)"
                 + " VALUES (?, ?, 'Seeded', '{}', now())", UUID.randomUUID(), company);
+        db.update("INSERT INTO report_daily_branch (company_id, branch_id, day) VALUES (?, ?, current_date)",
+                company, branch);
+        db.update("INSERT INTO report_shift_labor (shift_id, company_id, branch_id, day, labor_cost)"
+                + " VALUES (?, ?, ?, current_date, 0)", UUID.randomUUID(), company, branch);
+        db.update("INSERT INTO report_applied_event (event_id, company_id) VALUES (?, ?)", UUID.randomUUID(), company);
         return new Seeded(company, branch, user, ingredient, order, payment);
     }
 
@@ -415,7 +421,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         FluentConfiguration config = Flyway.configure()
                 .dataSource(url, role, "owner")
                 .locations("classpath:db/migration")
-                .placeholders(Map.of("appRolePassword", appRolePassword));
+                .placeholders(Map.of("appRolePassword", appRolePassword, "reportingZone", "Asia/Ho_Chi_Minh"));
         return (target == null ? config : config.target(target)).load();
     }
 

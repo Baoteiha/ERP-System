@@ -23,6 +23,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
+import vn.essvn.erpcafe.common.events.DomainEventDispatcher;
+import vn.essvn.erpcafe.reporting.application.ReportingProperties;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -33,6 +35,13 @@ abstract class ReportFixtures extends AbstractIntegrationTest {
 
     /** The schema owner's SQL: fixtures backdate and remove rows past row-level security. */
     protected JdbcTemplate jdbc;
+
+    /** Delivers the sale and shift events that feed the report figures; the test profile has no schedule. */
+    @Autowired
+    protected DomainEventDispatcher dispatcher;
+
+    @Autowired
+    private ReportingProperties reportingProperties;
 
     protected String token;
     protected List<String> branchIds;
@@ -141,7 +150,18 @@ abstract class ReportFixtures extends AbstractIntegrationTest {
         return new BigDecimal(String.valueOf((Object) JsonPath.read(json, path)));
     }
 
+    /**
+     * Recomputes the first branch's figures from its orders, stock ledger and shifts, as the V23 backfill
+     * does. A test that moves a row's timestamps after the fact needs it: no event announces that.
+     */
+    protected void rebuildFigures() {
+        jdbc.queryForList("SELECT report_rebuild_branch(?::uuid, ?)", branchIds.get(0),
+                reportingProperties.zone().getId());
+    }
+
+    /** Reads a report once every event so far has reached the figures, as the dispatch schedule would. */
     protected String report(String path, Instant from, Instant to) throws Exception {
+        dispatcher.dispatchPending();
         return mockMvc.perform(authed(get("/api/v1/reports/" + path)
                         .param("from", from.toString()).param("to", to.toString())))
                 .andExpect(status().isOk())

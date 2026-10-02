@@ -55,6 +55,7 @@ class ReportFiguresIntegrationTest extends ReportFixtures {
         // 17:30 UTC on 2 March is 00:30 on 3 March in Vietnam.
         jdbc.update("update sales_order set completed_at = ?::timestamptz where id = ?::uuid",
                 "2026-03-02T17:30:00Z", orderId);
+        rebuildFigures();
 
         String json = report("sales-by-day", Instant.parse("2026-03-01T00:00:00Z"), Instant.parse("2026-03-05T00:00:00Z"));
 

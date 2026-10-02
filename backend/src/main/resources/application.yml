@@ -19,6 +19,8 @@ spring:
     # app role with the password the app connects with, if the role does not exist yet.
     placeholders:
       appRolePassword: ${spring.datasource.password}
+      # V23 fills the report read model in the zone report days are cut in
+      reportingZone: ${app.reporting.zone:Asia/Ho_Chi_Minh}
   jpa:
     open-in-view: false
     hibernate:

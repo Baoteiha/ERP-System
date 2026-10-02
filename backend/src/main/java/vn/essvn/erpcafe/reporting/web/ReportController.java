@@ -23,7 +23,8 @@ import vn.essvn.erpcafe.sales.api.DailySales;
 /**
  * Cross-branch analytics. Summary and daily series act on the active branch
  * ({@code X-Branch-Id}); the outlet comparison spans the caller's branches.
- * Without a range the period is today in the reporting zone.
+ * Without a range the period is today in the reporting zone. Figures are kept per day in that
+ * zone, so a period is reported as every whole day it touches.
  */
 @RestController
 @RequestMapping(ApiVersions.V1 + "/reports")

@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,12 @@ class ReportPeriodBasisTest extends ReportFixtures {
 
     private static final Instant SALE_DAY = Instant.parse("2026-03-02T05:00:00Z");
     private static final Instant REFUND_DAY = Instant.parse("2026-03-09T05:00:00Z");
+    private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    /** Where a report day starts: figures are kept per day in the reporting zone, so periods are whole days. */
+    private static Instant dayStart(String date) {
+        return LocalDate.parse(date).atStartOfDay(VIETNAM).toInstant();
+    }
 
     private void stamp(String orderId, String column, Instant at) {
         jdbc.update("update sales_order set " + column + " = ?::timestamptz where id = ?::uuid", at.toString(), orderId);
@@ -61,9 +69,10 @@ class ReportPeriodBasisTest extends ReportFixtures {
         stampMovements(orderId, "SALE_DEPLETION", SALE_DAY);
         jdbc.update("update stock_movement set created_at = ?::timestamptz where type = 'SALE_REVERSAL'"
                 + " and branch_id = ?::uuid", REFUND_DAY.toString(), branchIds.get(0));
+        rebuildFigures();
 
-        String week1 = report("summary", Instant.parse("2026-03-02T00:00:00Z"), Instant.parse("2026-03-09T00:00:00Z"));
-        String week2 = report("summary", Instant.parse("2026-03-09T00:00:00Z"), Instant.parse("2026-03-16T00:00:00Z"));
+        String week1 = report("summary", dayStart("2026-03-02"), dayStart("2026-03-09"));
+        String week2 = report("summary", dayStart("2026-03-09"), dayStart("2026-03-16"));
 
         assertMargin(week1, "45000", "10000");
         assertThat(num(week1, "$.orderCount")).isEqualByComparingTo("1");
@@ -85,16 +94,18 @@ class ReportPeriodBasisTest extends ReportFixtures {
         // Make it look like a pre-migration row: PAID, never completed, no timestamps.
         jdbc.update("update sales_order set status = 'PAID', completed_at = null, reversed_at = null,"
                 + " created_at = ?::timestamptz where id = ?::uuid", SALE_DAY.toString(), orderId);
+        rebuildFigures();
 
-        String week1 = report("summary", Instant.parse("2026-03-02T00:00:00Z"), Instant.parse("2026-03-09T00:00:00Z"));
+        String week1 = report("summary", dayStart("2026-03-02"), dayStart("2026-03-09"));
         assertThat(num(week1, "$.netSales")).isEqualByComparingTo("25000");
 
         mockMvc.perform(authed(post("/api/v1/orders/" + orderId + "/void"))).andExpect(status().isOk());
         assertStampedBetween(orderId, "reversed_at", before);
         stamp(orderId, "reversed_at", REFUND_DAY);
+        rebuildFigures();
 
-        String week1After = report("summary", Instant.parse("2026-03-02T00:00:00Z"), Instant.parse("2026-03-09T00:00:00Z"));
-        String week2 = report("summary", Instant.parse("2026-03-09T00:00:00Z"), Instant.parse("2026-03-16T00:00:00Z"));
+        String week1After = report("summary", dayStart("2026-03-02"), dayStart("2026-03-09"));
+        String week2 = report("summary", dayStart("2026-03-09"), dayStart("2026-03-16"));
         assertThat(num(week1After, "$.netSales")).isEqualByComparingTo("25000");
         assertThat(num(week2, "$.netSales")).isEqualByComparingTo("-25000");
     }
