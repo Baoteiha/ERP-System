@@ -223,7 +223,9 @@ filter stays off (stateless, no session).
 ignored. Without the header: 403 `FORBIDDEN`. Without the cookie: 401
 `UNAUTHORIZED`. Looks the token up by hash. A refresh token is a credential, so
 one that is unknown, expired, revoked or replayed answers 401 `UNAUTHORIZED`
-too, like a missing cookie; a disabled account answers 422 `BUSINESS_RULE`, as at
+too, like a missing cookie. Disabling an account revokes its refresh tokens, so a
+refresh after it answers 401; only a token still live on an account that is
+disabled or gone (a change made outside the app) answers 422 `BUSINESS_RULE`, as at
 login. Otherwise it **rotates the presented token** (revokes it and stamps its
 `rotated_at`) and mints a fresh pair carrying the same family id: a new access token
 in the body and the rotated refresh token in a new `Set-Cookie`. Single-use
