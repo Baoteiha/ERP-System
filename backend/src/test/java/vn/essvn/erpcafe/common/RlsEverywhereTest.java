@@ -303,6 +303,29 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void theAppRole_closesAnOpenResetLink_butCannotReopenAUsedOne() {
+        Seeded a = seedEveryTable();
+        UUID open = UUID.randomUUID();
+        UUID used = UUID.randomUUID();
+        owner().update("INSERT INTO password_reset_token (id, user_id, token_hash, created_at, expires_at)"
+                + " VALUES (?, ?, ?, now(), now() + interval '30 minutes')", open, a.user(), "open-" + open);
+        owner().update("INSERT INTO password_reset_token (id, user_id, token_hash, created_at, expires_at, used_at)"
+                + " VALUES (?, ?, ?, now(), now() + interval '30 minutes', now())", used, a.user(), "used-" + used);
+
+        // as the app closes them: by user, the one column besides used_at it may read
+        TenantContext.runAs(a.company(), () -> {
+            assertThat(inTransaction(() -> jdbc.update("UPDATE password_reset_token SET used_at = now()"
+                    + " WHERE user_id = ? AND used_at IS NULL", a.user()))).isPositive();
+            assertThatThrownBy(() -> inTransaction(() -> jdbc.update(
+                    "UPDATE password_reset_token SET used_at = NULL WHERE user_id = ?", a.user())))
+                    .rootCause().hasMessageContaining(RLS_REFUSAL);
+        });
+
+        assertThat(owner().queryForObject("SELECT count(*) FROM password_reset_token WHERE id IN (?, ?)"
+                + " AND used_at IS NOT NULL", Long.class, open, used)).isEqualTo(2);
+    }
+
+    @Test
     void theOwnerOnlyTables_giveTheAppRoleNothing_evenWereItGrantedSome() {
         for (String table : OWNER_ONLY) {
             assertThat(jdbc.queryForObject("SELECT has_table_privilege(?, 'SELECT, INSERT, UPDATE, DELETE')",
