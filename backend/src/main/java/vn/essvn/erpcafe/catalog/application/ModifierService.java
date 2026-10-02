@@ -7,13 +7,14 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.catalog.domain.ConsumptionLine;
 import vn.essvn.erpcafe.catalog.domain.Modifier;
 import vn.essvn.erpcafe.catalog.domain.ModifierGroup;
-import vn.essvn.erpcafe.catalog.domain.ModifierRecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ModifierGroupRepository;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
@@ -74,7 +75,7 @@ public class ModifierService {
 
     /** Edits a modifier; {@code recipeDeltas == null} leaves its ingredient deltas untouched. */
     public Modifier updateModifier(UUID groupId, UUID modifierId, String name, BigDecimal priceDelta,
-            boolean active, Integer displayOrder, List<ConsumptionLine> recipeDeltas) {
+            boolean active, Integer displayOrder, List<ConsumptionInput> recipeDeltas) {
         Modifier modifier = requireModifier(getGroup(groupId), modifierId);
         if (recipeDeltas != null) {
             validateDeltas(recipeDeltas);
@@ -104,20 +105,21 @@ public class ModifierService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Modifier", modifierId));
     }
 
-    private void validateDeltas(List<ConsumptionLine> recipeDeltas) {
+    private void validateDeltas(List<ConsumptionInput> recipeDeltas) {
         inventoryApi.validateConsumption(TenantContext.require(), recipeDeltas.stream()
                 .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
     }
 
-    private static void addDeltas(Modifier modifier, List<ConsumptionLine> recipeDeltas) {
-        for (ConsumptionLine line : recipeDeltas) {
-            modifier.getRecipeLines().add(new ModifierRecipeLine(line.ingredientId(), line.quantity(), line.unit()));
+    private static void addDeltas(Modifier modifier, List<ConsumptionInput> recipeDeltas) {
+        for (ConsumptionInput line : recipeDeltas) {
+            modifier.getRecipeLines().add(
+                    new ConsumptionLine(line.ingredientId(), line.quantity(), Unit.parse(line.unit())));
         }
     }
 
     /** Adds a modifier (with optional ingredient-consumption deltas) to a group. */
     public Modifier addModifier(UUID groupId, String name, BigDecimal priceDelta, int displayOrder,
-            List<ConsumptionLine> recipeDeltas) {
+            List<ConsumptionInput> recipeDeltas) {
         ModifierGroup group = getGroup(groupId);
         if (recipeDeltas != null) {
             validateDeltas(recipeDeltas);

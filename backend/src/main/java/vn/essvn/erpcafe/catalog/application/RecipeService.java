@@ -6,60 +6,69 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.essvn.erpcafe.catalog.domain.ConsumptionLine;
 import vn.essvn.erpcafe.catalog.domain.Recipe;
-import vn.essvn.erpcafe.catalog.domain.RecipeLine;
+import vn.essvn.erpcafe.catalog.domain.RecipeVersion;
 import vn.essvn.erpcafe.catalog.persistence.ProductRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeRepository;
+import vn.essvn.erpcafe.catalog.persistence.RecipeVersionRepository;
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 
 /**
- * Manages a product's recipe. Setting a recipe replaces all of its lines
- * (upsert semantics). Every line is validated against the company's ingredients
- * and units before anything is stored.
+ * Manages a product's recipe. Saving a recipe adds its next version, in force from
+ * then on, and leaves the earlier ones as they were. Every line is validated against
+ * the company's ingredients and units before anything is stored.
  */
 @Service
 @Transactional
 public class RecipeService {
 
     private final RecipeRepository recipeRepository;
+    private final RecipeVersionRepository versionRepository;
     private final ProductRepository productRepository;
     private final InventoryApi inventoryApi;
 
-    public RecipeService(RecipeRepository recipeRepository, ProductRepository productRepository,
-            InventoryApi inventoryApi) {
+    public RecipeService(RecipeRepository recipeRepository, RecipeVersionRepository versionRepository,
+            ProductRepository productRepository, InventoryApi inventoryApi) {
         this.inventoryApi = inventoryApi;
         this.recipeRepository = recipeRepository;
+        this.versionRepository = versionRepository;
         this.productRepository = productRepository;
     }
 
+    /** The version in force of the product's recipe. */
     @Transactional(readOnly = true)
-    public Recipe getForProduct(UUID productId) {
+    public RecipeVersion getForProduct(UUID productId) {
         requireProduct(productId);
-        return recipeRepository.findByProductId(productId)
+        return versionRepository.findCurrent(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("No recipe for product: " + productId));
     }
 
-    /** Creates or replaces the recipe for a product. */
-    public Recipe setRecipe(UUID productId, List<ConsumptionLine> lines, Long expectedVersion) {
+    /**
+     * Saves the lines as the product's next recipe version. {@code expectedVersion} is the version the
+     * client edited; when given, it must still be the one in force.
+     */
+    public RecipeVersion setRecipe(UUID productId, List<ConsumptionInput> lines, Long expectedVersion) {
         requireProduct(productId);
         inventoryApi.validateConsumption(TenantContext.require(), lines.stream()
                 .map(l -> new StockLine(l.ingredientId(), l.quantity(), l.unit())).toList());
-        Recipe recipe = recipeRepository.findByProductId(productId).orElseGet(() -> new Recipe(productId));
-        requireCurrentVersion(recipe.getVersion(), expectedVersion);
-        List<RecipeLine> recipeLines = lines.stream()
-                .map(l -> new RecipeLine(l.ingredientId(), l.quantity(), l.unit()))
-                .toList();
-        recipe.replaceLines(recipeLines);
-        return recipeRepository.save(recipe);
+        // A managed recipe persists its new version at flush; merging it (save) would copy the version instead.
+        Recipe recipe = recipeRepository.findByProductId(productId)
+                .orElseGet(() -> recipeRepository.save(new Recipe(productId)));
+        requireCurrentVersion(recipe.getCurrentVersionNo(), expectedVersion);
+        return recipe.revise(lines.stream()
+                .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), Unit.parse(l.unit())))
+                .toList());
     }
 
     // Same stale-form guard as IngredientService: enforced only when the client sends a version.
-    private static void requireCurrentVersion(Long current, Long expected) {
-        if (expected != null && !expected.equals(current)) {
+    private static void requireCurrentVersion(int current, Long expected) {
+        if (expected != null && expected != current) {
             throw new ConflictException(ConflictException.STALE_EDIT_MESSAGE);
         }
     }

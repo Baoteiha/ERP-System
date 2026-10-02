@@ -1,24 +1,14 @@
 package vn.essvn.erpcafe.catalog.api;
 
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Published facade of the catalog module. The sales module uses this to price
- * line items and to explode a product + chosen modifiers into ingredient
- * consumption for stock deduction — without touching catalog internals.
+ * line items without touching catalog internals. What a sale consumes is not asked
+ * here: catalog answers the core's {@code inventory.api.ConsumptionResolver} port (ADR-0010).
  */
 public interface CatalogApi {
-
-    /**
-     * Explodes {@code quantity} units of a product plus its selected modifiers
-     * into net ingredient consumption (recipe lines × quantity, adjusted by
-     * modifier deltas). Empty if the product has no recipe yet. The result reflects the
-     * recipe <em>now</em>; never use it to reverse a past sale — the recipe may have changed
-     * since, so reversals read the recorded stock movements instead.
-     */
-    List<IngredientConsumption> explode(UUID productId, int quantity, Set<UUID> modifierIds);
 
     /**
      * The one pricing path: prices a single line (product + selected modifiers) at a branch and

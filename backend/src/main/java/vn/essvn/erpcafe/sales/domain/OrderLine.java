@@ -48,6 +48,13 @@ public class OrderLine extends BaseEntity {
     @Column(name = "quantity", nullable = false)
     private int quantity;
 
+    /**
+     * The product's recipe version in force when the line was taken: its sale consumes that version,
+     * whatever the recipe says by payment. Null when the product had no recipe then (nothing is consumed).
+     */
+    @Column(name = "recipe_version_id")
+    private UUID recipeVersionId;
+
     @Embedded
     @AttributeOverrides({
             @AttributeOverride(name = "amount", column = @Column(name = "line_discount", precision = 19, scale = 4)),
@@ -71,11 +78,12 @@ public class OrderLine extends BaseEntity {
     }
 
     /** Built only by {@link Order#addLine}, which has already bounded the discount. */
-    OrderLine(PricedLine priced, int quantity, Money lineDiscount) {
+    OrderLine(PricedLine priced, int quantity, Money lineDiscount, UUID recipeVersionId) {
         this.productId = priced.productId();
         this.productName = priced.productName();
         this.unitPrice = priced.unitBasePrice();
         this.quantity = quantity;
+        this.recipeVersionId = recipeVersionId;
         this.lineDiscount = lineDiscount;
         this.lineTotal = grossTotal(priced, quantity).subtract(lineDiscount);
         priced.modifiers().forEach(m ->
@@ -105,6 +113,10 @@ public class OrderLine extends BaseEntity {
 
     public int getQuantity() {
         return quantity;
+    }
+
+    public UUID getRecipeVersionId() {
+        return recipeVersionId;
     }
 
     public Money getLineDiscount() {

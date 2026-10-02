@@ -17,6 +17,7 @@ public final class RecipeDtos {
     public record RecipeResponse(
             UUID productId,
             List<ConsumptionLineDto> lines,
+            // the recipe version in force: what an order taken now records, and the stale-edit token
             Long version) {
     }
 

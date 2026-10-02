@@ -12,9 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
-import vn.essvn.erpcafe.catalog.application.ConsumptionLine;
+import vn.essvn.erpcafe.catalog.application.ConsumptionInput;
 import vn.essvn.erpcafe.catalog.application.RecipeService;
-import vn.essvn.erpcafe.catalog.domain.Recipe;
+import vn.essvn.erpcafe.catalog.domain.RecipeVersion;
 import vn.essvn.erpcafe.catalog.web.RecipeDtos.RecipeResponse;
 import vn.essvn.erpcafe.catalog.web.RecipeDtos.SetRecipeRequest;
 import vn.essvn.erpcafe.common.web.ApiVersions;
@@ -32,22 +32,22 @@ public class RecipeController {
     @GetMapping
     @PreAuthorize("hasAuthority('catalog:read')")
     public RecipeResponse get(@PathVariable UUID productId) {
-        return toResponse(recipeService.getForProduct(productId));
+        return toResponse(productId, recipeService.getForProduct(productId));
     }
 
     @PutMapping
     @PreAuthorize("hasAuthority('catalog:write')")
     public RecipeResponse set(@PathVariable UUID productId, @Valid @RequestBody SetRecipeRequest request) {
-        List<ConsumptionLine> lines = request.lines().stream()
-                .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), l.unit()))
+        List<ConsumptionInput> lines = request.lines().stream()
+                .map(l -> new ConsumptionInput(l.ingredientId(), l.quantity(), l.unit()))
                 .toList();
-        return toResponse(recipeService.setRecipe(productId, lines, request.version()));
+        return toResponse(productId, recipeService.setRecipe(productId, lines, request.version()));
     }
 
-    private RecipeResponse toResponse(Recipe recipe) {
+    private RecipeResponse toResponse(UUID productId, RecipeVersion recipe) {
         List<ConsumptionLineDto> lines = recipe.getLines().stream()
-                .map(l -> new ConsumptionLineDto(l.getIngredientId(), l.getQuantity(), l.getUnit()))
+                .map(l -> new ConsumptionLineDto(l.ingredientId(), l.quantity(), l.unit().symbol()))
                 .toList();
-        return new RecipeResponse(recipe.getProductId(), lines, recipe.getVersion());
+        return new RecipeResponse(productId, lines, (long) recipe.getVersionNo());
     }
 }

@@ -5,13 +5,13 @@ import java.util.List;
 
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
-import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import vn.essvn.erpcafe.common.domain.AuditableEntity;
 import vn.essvn.erpcafe.common.domain.Money;
@@ -19,7 +19,7 @@ import vn.essvn.erpcafe.common.domain.Money;
 /**
  * A single option within a {@link ModifierGroup} (e.g. "Large", "Oat milk",
  * "Extra shot"). Carries a price delta and, optionally, ingredient-consumption
- * deltas (see {@link ModifierRecipeLine}) so stock deduction stays accurate.
+ * deltas (see {@link #getRecipeLines()}) so stock deduction stays accurate.
  */
 @Entity
 @Table(name = "modifier")
@@ -41,10 +41,17 @@ public class Modifier extends AuditableEntity {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    /**
+     * Signed changes to consumption: positive adds, negative removes (extra shot = +7 g coffee;
+     * oat milk = -200 ml dairy and +200 ml oat, as two lines). Not versioned (ADR-0010): a sale
+     * applies them as they stand when it completes.
+     */
     // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @JoinColumn(name = "modifier_id", nullable = false)
-    private List<ModifierRecipeLine> recipeLines = new ArrayList<>();
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "modifier_recipe_line", joinColumns = @JoinColumn(name = "modifier_id", nullable = false))
+    @AttributeOverride(name = "quantity",
+            column = @Column(name = "quantity_delta", nullable = false, precision = 19, scale = 4))
+    private List<ConsumptionLine> recipeLines = new ArrayList<>();
 
     protected Modifier() {
     }
@@ -87,7 +94,7 @@ public class Modifier extends AuditableEntity {
         this.active = active;
     }
 
-    public List<ModifierRecipeLine> getRecipeLines() {
+    public List<ConsumptionLine> getRecipeLines() {
         return recipeLines;
     }
 }

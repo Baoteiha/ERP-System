@@ -75,8 +75,10 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + " JOIN modifier_group g ON g.id = m.modifier_group_id WHERE m.id = t.modifier_id)");
         COMPANY_OF.put("product_modifier_group", "(SELECT p.company_id FROM product p WHERE p.id = t.product_id)");
         COMPANY_OF.put("recipe", "(SELECT p.company_id FROM product p WHERE p.id = t.product_id)");
-        COMPANY_OF.put("recipe_line", "(SELECT p.company_id FROM recipe r JOIN product p ON p.id = r.product_id"
+        COMPANY_OF.put("recipe_version", "(SELECT p.company_id FROM recipe r JOIN product p ON p.id = r.product_id"
                 + " WHERE r.id = t.recipe_id)");
+        COMPANY_OF.put("recipe_line", "(SELECT p.company_id FROM recipe_version v JOIN recipe r ON r.id = v.recipe_id"
+                + " JOIN product p ON p.id = r.product_id WHERE v.id = t.recipe_version_id)");
         COMPANY_OF.put("purchase_order_line", "(SELECT b.company_id FROM purchase_order o"
                 + " JOIN branch b ON b.id = o.branch_id WHERE o.id = t.purchase_order_id)");
         COMPANY_OF.put("order_line", ORDER_COMPANY);
@@ -131,6 +133,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         UUID modifier = UUID.randomUUID();
         UUID product = UUID.randomUUID();
         UUID recipe = UUID.randomUUID();
+        UUID recipeVersion = UUID.randomUUID();
         UUID ingredient = UUID.randomUUID();
         UUID supplier = UUID.randomUUID();
         UUID purchaseOrder = UUID.randomUUID();
@@ -162,16 +165,19 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + "?, 0, ?, 'Large', now(), now())", modifier, group);
         db.update("INSERT INTO ingredient (id, version, company_id, name, base_unit, " + audit
                 + "?, 0, ?, 'Beans', 'g', now(), now())", ingredient, company);
-        db.update("INSERT INTO modifier_recipe_line (id, version, modifier_id, ingredient_id, quantity_delta, unit)"
-                + " VALUES (?, 0, ?, ?, 1, 'g')", UUID.randomUUID(), modifier, ingredient);
+        db.update("INSERT INTO modifier_recipe_line (modifier_id, ingredient_id, quantity_delta, unit)"
+                + " VALUES (?, ?, 1, 'g')", modifier, ingredient);
         db.update("INSERT INTO product (id, version, company_id, category_id, name, sku, " + audit
                 + "?, 0, ?, ?, 'Latte', 'LAT', now(), now())", product, company, category);
         db.update("INSERT INTO product_modifier_group (product_id, modifier_group_id) VALUES (?, ?)", product, group);
         db.update("INSERT INTO product_branch_availability (id, version, branch_id, product_id, " + audit
                 + "?, 0, ?, ?, now(), now())", UUID.randomUUID(), branch, product);
-        db.update("INSERT INTO recipe (id, version, product_id, " + audit + "?, 0, ?, now(), now())", recipe, product);
-        db.update("INSERT INTO recipe_line (id, version, recipe_id, ingredient_id, quantity, unit)"
-                + " VALUES (?, 0, ?, ?, 18, 'g')", UUID.randomUUID(), recipe, ingredient);
+        db.update("INSERT INTO recipe (id, version, product_id, current_version_no, " + audit
+                + "?, 0, ?, 1, now(), now())", recipe, product);
+        db.update("INSERT INTO recipe_version (id, recipe_id, version_no, created_at) VALUES (?, ?, 1, now())",
+                recipeVersion, recipe);
+        db.update("INSERT INTO recipe_line (recipe_version_id, ingredient_id, quantity, unit)"
+                + " VALUES (?, ?, 18, 'g')", recipeVersion, ingredient);
         db.update("INSERT INTO supplier (id, version, company_id, name, " + audit + "?, 0, ?, 'Roaster', now(), now())",
                 supplier, company);
         db.update("INSERT INTO item (id, version, company_id, name, supplier_id, ingredient_id, unit, " + audit

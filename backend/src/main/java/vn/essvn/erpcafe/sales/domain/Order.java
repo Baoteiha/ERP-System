@@ -118,8 +118,11 @@ public class Order extends BranchScopedEntity {
 
     // --- state transitions (side effects live in the service; this enforces validity) ---
 
-    /** Adds a priced line; its discount may not exceed its gross. Totals are recomputed. */
-    public void addLine(PricedLine priced, int quantity, BigDecimal lineDiscount) {
+    /**
+     * Adds a priced line, recording the product's recipe version in force (null: no recipe); its
+     * discount may not exceed its gross. Totals are recomputed.
+     */
+    public void addLine(PricedLine priced, int quantity, BigDecimal lineDiscount, UUID recipeVersionId) {
         requireOpen("add lines to");
         if (quantity <= 0) {
             throw new BusinessRuleException("Line quantity must be positive");
@@ -130,7 +133,7 @@ public class Order extends BranchScopedEntity {
             throw new BusinessRuleException("Line discount must be between 0 and the line total of %s"
                     .formatted(gross.getAmount().toPlainString()));
         }
-        lines.add(new OrderLine(priced, quantity, discount));
+        lines.add(new OrderLine(priced, quantity, discount, recipeVersionId));
         recalculate();
     }
 

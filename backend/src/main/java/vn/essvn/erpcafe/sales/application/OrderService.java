@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.catalog.api.CatalogApi;
-import vn.essvn.erpcafe.catalog.api.IngredientConsumption;
 import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
@@ -27,6 +26,7 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
+import vn.essvn.erpcafe.inventory.api.ConsumptionResolver;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.organization.api.BranchDto;
@@ -45,8 +45,9 @@ import vn.essvn.erpcafe.sales.domain.PaymentType;
 import vn.essvn.erpcafe.sales.persistence.OrderRepository;
 
 /**
- * The POS use cases. Orders are priced via {@link CatalogApi}; on completion,
- * recipes are exploded and stock is deducted (COGS captured) via {@link InventoryApi};
+ * The POS use cases. Orders are priced via {@link CatalogApi}, and each line records its
+ * product's recipe version; on completion, {@link ConsumptionResolver} turns every line into
+ * consumption at that version and stock is deducted (COGS captured) via {@link InventoryApi};
  * void/refund return the stock. All operations act on the active branch.
  */
 @Service
@@ -59,18 +60,20 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final CatalogApi catalogApi;
+    private final ConsumptionResolver consumption;
     private final InventoryApi inventoryApi;
     private final IdentityApi identityApi;
     private final OrganizationApi organizationApi;
     private final TransactionTemplate transactions;
     private final DomainEventPublisher events;
 
-    public OrderService(OrderRepository orderRepository, CatalogApi catalogApi,
+    public OrderService(OrderRepository orderRepository, CatalogApi catalogApi, ConsumptionResolver consumption,
             InventoryApi inventoryApi, IdentityApi identityApi,
             OrganizationApi organizationApi, PlatformTransactionManager transactionManager,
             DomainEventPublisher events) {
         this.orderRepository = orderRepository;
         this.catalogApi = catalogApi;
+        this.consumption = consumption;
         this.inventoryApi = inventoryApi;
         this.identityApi = identityApi;
         this.organizationApi = organizationApi;
@@ -148,7 +151,8 @@ public class OrderService {
 
         for (LineInput li : input.lines()) {
             PricedLine priced = catalogApi.priceLine(branchId, li.productId(), li.modifierIds());
-            order.addLine(priced, li.quantity(), li.lineDiscount());
+            UUID recipeVersion = consumption.currentRecipeVersion(companyId, li.productId()).orElse(null);
+            order.addLine(priced, li.quantity(), li.lineDiscount(), recipeVersion);
         }
         order.applyOrderDiscount(input.orderDiscount());
         return order;
@@ -220,13 +224,13 @@ public class OrderService {
 
     // --- helpers ---
 
-    /** Explodes every line (product + modifiers × quantity) into ingredient stock lines. */
+    /** What every line (product + modifiers × quantity) consumes, at the recipe version it recorded. */
     private List<StockLine> stockLinesFor(Order order) {
+        UUID companyId = TenantContext.require();
         List<StockLine> lines = new ArrayList<>();
         for (OrderLine line : order.getLines()) {
-            List<IngredientConsumption> consumption =
-                    catalogApi.explode(line.getProductId(), line.getQuantity(), line.modifierIds());
-            consumption.forEach(c -> lines.add(new StockLine(c.ingredientId(), c.quantity(), c.unit())));
+            lines.addAll(consumption.consumptionFor(companyId, line.getProductId(), line.getQuantity(),
+                    line.modifierIds(), line.getRecipeVersionId()));
         }
         return lines;
     }

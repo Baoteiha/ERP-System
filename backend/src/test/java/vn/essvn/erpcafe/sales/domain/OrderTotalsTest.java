@@ -31,7 +31,7 @@ class OrderTotalsTest {
     @Test
     void subtotalIsGross_discountsCountOnce_taxOnNet() {
         Order order = order("0.1");
-        order.addLine(priced("25000"), 2, new BigDecimal("5000"));
+        order.addLine(priced("25000"), 2, new BigDecimal("5000"), null);
         order.applyOrderDiscount(new BigDecimal("3000"));
 
         assertThat(order.getSubtotal()).isEqualByComparingTo("50000");
@@ -44,7 +44,7 @@ class OrderTotalsTest {
     @Test
     void fractionalDong_roundsHalfEvenToMoneyScale_andGrandIsNetPlusTax() {
         Order order = order("0.08");
-        order.addLine(priced("33333"), 1, BigDecimal.ZERO);
+        order.addLine(priced("33333"), 1, BigDecimal.ZERO, null);
 
         assertThat(order.getTaxTotal()).isEqualTo(new BigDecimal("2666.6400"));
         assertThat(order.getGrandTotal()).isEqualTo(new BigDecimal("35999.6400"));
@@ -55,20 +55,20 @@ class OrderTotalsTest {
     @Test
     void tieOnTheMoneyScale_roundsHalfEven() {
         Order down = order("0.1");
-        down.addLine(priced("0.0005"), 1, BigDecimal.ZERO); // tax 0.00005 is a tie: 0 is even, HALF_UP would give 0.0001
+        down.addLine(priced("0.0005"), 1, BigDecimal.ZERO, null); // tax 0.00005 is a tie: 0 is even, HALF_UP would give 0.0001
         assertThat(down.getTaxTotal()).isEqualTo(new BigDecimal("0.0000"));
 
         Order up = order("0.1");
-        up.addLine(priced("0.0015"), 1, BigDecimal.ZERO); // tax 0.00015 is a tie: 2 is even, HALF_DOWN would give 0.0001
+        up.addLine(priced("0.0015"), 1, BigDecimal.ZERO, null); // tax 0.00015 is a tie: 2 is even, HALF_DOWN would give 0.0001
         assertThat(up.getTaxTotal()).isEqualTo(new BigDecimal("0.0002"));
     }
 
     @Test
     void lineDiscountAboveLineGross_isRejected() {
         Order order = order("0");
-        assertThatThrownBy(() -> order.addLine(priced("25000"), 1, new BigDecimal("25001")))
+        assertThatThrownBy(() -> order.addLine(priced("25000"), 1, new BigDecimal("25001"), null))
                 .isInstanceOf(BusinessRuleException.class);
-        assertThatThrownBy(() -> order.addLine(priced("25000"), 1, new BigDecimal("-1")))
+        assertThatThrownBy(() -> order.addLine(priced("25000"), 1, new BigDecimal("-1"), null))
                 .isInstanceOf(BusinessRuleException.class);
         assertThat(order.getLines()).isEmpty();
     }
@@ -76,7 +76,7 @@ class OrderTotalsTest {
     @Test
     void orderDiscountAboveRemainingSubtotal_isRejected() {
         Order order = order("0");
-        order.addLine(priced("25000"), 2, new BigDecimal("5000"));
+        order.addLine(priced("25000"), 2, new BigDecimal("5000"), null);
 
         assertThatThrownBy(() -> order.applyOrderDiscount(new BigDecimal("45001")))
                 .isInstanceOf(BusinessRuleException.class);
@@ -88,14 +88,14 @@ class OrderTotalsTest {
 
     @Test
     void nonPositiveQuantity_isRejected() {
-        assertThatThrownBy(() -> order("0").addLine(priced("1000"), 0, BigDecimal.ZERO))
+        assertThatThrownBy(() -> order("0").addLine(priced("1000"), 0, BigDecimal.ZERO, null))
                 .isInstanceOf(BusinessRuleException.class);
     }
 
     @Test
     void collectionsAreReadOnlyViews() {
         Order order = order("0");
-        order.addLine(priced("1000"), 1, BigDecimal.ZERO);
+        order.addLine(priced("1000"), 1, BigDecimal.ZERO, null);
 
         assertThatThrownBy(() -> order.getLines().add(order.getLines().get(0)))
                 .isInstanceOf(UnsupportedOperationException.class);

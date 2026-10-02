@@ -120,10 +120,11 @@ class TenantSeamTest extends AbstractIntegrationTest {
         Tenant a = seedCompany();
         Tenant b = seedCompany();
 
-        // a modifier has no company of its own: only its group, the query's root, is filtered
+        // a modifier has no company of its own: only its group, the query's root, is filtered, and the
+        // filter holds even where the query itself names the other company
         TenantContext.runAs(a.companyId(), () -> {
-            assertThat(modifierRepository.findThroughGroup(b.modifierId())).isEmpty();
-            assertThat(modifierRepository.findThroughGroup(a.modifierId())).isPresent();
+            assertThat(modifierRepository.findInCompany(b.companyId(), List.of(b.modifierId()))).isEmpty();
+            assertThat(modifierRepository.findInCompany(a.companyId(), List.of(a.modifierId()))).hasSize(1);
         });
     }
 

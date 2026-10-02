@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
-import vn.essvn.erpcafe.catalog.application.ConsumptionLine;
+import vn.essvn.erpcafe.catalog.application.ConsumptionInput;
 import vn.essvn.erpcafe.catalog.application.ModifierService;
 import vn.essvn.erpcafe.catalog.mapper.ModifierMapper;
 import vn.essvn.erpcafe.catalog.web.ModifierDtos.AddModifierRequest;
@@ -62,9 +62,9 @@ public class ModifierGroupController {
     @PostMapping("/{id}/modifiers")
     @PreAuthorize("hasAuthority('catalog:write')")
     public ModifierResponse addModifier(@PathVariable UUID id, @Valid @RequestBody AddModifierRequest request) {
-        List<ConsumptionLine> deltas = request.recipeDeltas() == null ? List.of()
+        List<ConsumptionInput> deltas = request.recipeDeltas() == null ? List.of()
                 : request.recipeDeltas().stream()
-                        .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), l.unit()))
+                        .map(l -> new ConsumptionInput(l.ingredientId(), l.quantity(), l.unit()))
                         .toList();
         return modifierMapper.toResponse(
                 modifierService.addModifier(id, request.name(), request.priceDelta(), request.displayOrder(), deltas));
@@ -82,9 +82,9 @@ public class ModifierGroupController {
     @PreAuthorize("hasAuthority('catalog:write')")
     public ModifierResponse updateModifier(@PathVariable UUID id, @PathVariable UUID modifierId,
             @Valid @RequestBody UpdateModifierRequest request) {
-        List<ConsumptionLine> deltas = request.recipeDeltas() == null ? null
+        List<ConsumptionInput> deltas = request.recipeDeltas() == null ? null
                 : request.recipeDeltas().stream()
-                        .map(l -> new ConsumptionLine(l.ingredientId(), l.quantity(), l.unit()))
+                        .map(l -> new ConsumptionInput(l.ingredientId(), l.quantity(), l.unit()))
                         .toList();
         return modifierMapper.toResponse(modifierService.updateModifier(id, modifierId, request.name(),
                 request.priceDelta(), request.active(), request.displayOrder(), deltas));

@@ -64,7 +64,7 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
         });
         Order order = new Order(branchId, null, OrderType.DINE_IN, BigDecimal.ZERO);
         order.addLine(new PricedLine(product.getId(), product.getName(), Money.of(BigDecimal.TEN), List.of(),
-                Money.of(BigDecimal.TEN)), 1, BigDecimal.ZERO);
+                Money.of(BigDecimal.TEN)), 1, BigDecimal.ZERO, null);
         return TenantContext.runAs(companyId, () -> orderRepository.save(order)).getId();
     }
 

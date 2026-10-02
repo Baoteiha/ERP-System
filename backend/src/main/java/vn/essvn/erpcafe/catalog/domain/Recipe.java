@@ -7,16 +7,15 @@ import java.util.UUID;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import vn.essvn.erpcafe.common.domain.AuditableEntity;
 
 /**
- * The ingredient recipe for a product (1:1). A sale explodes this into
- * ingredient consumption for stock deduction (wired in the sales phase).
+ * The ingredient recipe for a product (1:1): the F&B bill of materials. It is kept as
+ * a series of {@link RecipeVersion}s; an order line records the version in force when
+ * it was taken, and its sale consumes that version.
  */
 @Entity
 @Table(name = "recipe", uniqueConstraints = @UniqueConstraint(name = "uk_recipe_product", columnNames = "product_id"))
@@ -25,10 +24,13 @@ public class Recipe extends AuditableEntity {
     @Column(name = "product_id", nullable = false)
     private UUID productId;
 
-    // not null: the key goes into the child's own INSERT, which row-level security admits only under a visible parent
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @JoinColumn(name = "recipe_id", nullable = false)
-    private List<RecipeLine> lines = new ArrayList<>();
+    /** The version in force: what a line taken now records, and what an edit must start from. */
+    @Column(name = "current_version_no", nullable = false)
+    private int currentVersionNo;
+
+    // Only ever added to: an open order may still consume an older version.
+    @OneToMany(mappedBy = "recipe", cascade = CascadeType.PERSIST)
+    private List<RecipeVersion> versions = new ArrayList<>();
 
     protected Recipe() {
     }
@@ -41,12 +43,16 @@ public class Recipe extends AuditableEntity {
         return productId;
     }
 
-    public List<RecipeLine> getLines() {
-        return lines;
+    /** 0 until the first version is saved. */
+    public int getCurrentVersionNo() {
+        return currentVersionNo;
     }
 
-    public void replaceLines(List<RecipeLine> newLines) {
-        this.lines.clear();
-        this.lines.addAll(newLines);
+    /** Saves the lines as the next version and puts it in force; earlier versions stay as they were. */
+    public RecipeVersion revise(List<ConsumptionLine> lines) {
+        RecipeVersion next = new RecipeVersion(this, currentVersionNo + 1, lines);
+        versions.add(next);
+        currentVersionNo = next.getVersionNo();
+        return next;
     }
 }

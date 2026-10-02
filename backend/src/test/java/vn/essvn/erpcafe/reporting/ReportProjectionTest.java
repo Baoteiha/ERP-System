@@ -221,7 +221,8 @@ class ReportProjectionTest extends ReportFixtures {
         freshTenant(1, "0");
         String productId = sellableProduct();
         String beanId = jdbc.queryForObject("SELECT l.ingredient_id::text FROM recipe_line l"
-                + " JOIN recipe r ON r.id = l.recipe_id WHERE r.product_id = ?::uuid", String.class, productId);
+                + " JOIN recipe_version v ON v.id = l.recipe_version_id JOIN recipe r ON r.id = v.recipe_id"
+                + " WHERE r.product_id = ?::uuid", String.class, productId);
         // the drink's recipe takes 50 g; this modifier takes 60 g off it, so a sale returns 10 g to stock
         String groupId = JsonPath.read(create("/api/v1/modifier-groups",
                 "{\"name\":\"Strength-%s\",\"minSelect\":0,\"maxSelect\":1}".formatted(uniq())), "$.id");
