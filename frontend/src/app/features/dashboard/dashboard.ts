@@ -1,5 +1,6 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, catchError, forkJoin, of, switchMap } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
@@ -34,13 +35,20 @@ export function pct(cur: number, prev: number): number | null {
           <app-kpi-tile label="Net sales today" icon="banknote" [value]="salesReady() ? (salesSummary()!.netSales | money) : '—'" [delta]="deltas().net" [trend]="trend()" />
           <app-kpi-tile label="Orders today" icon="receipt" [value]="salesReady() ? '' + salesSummary()!.orderCount : '—'" [delta]="deltas().orders" [trend]="trend()" />
           <app-kpi-tile label="Average order" icon="trending-up" [value]="salesReady() ? (average(salesSummary()) === null ? '—' : (average(salesSummary())! | money)) : '—'" [delta]="deltas().avg" [trend]="trend()" />
-          <app-kpi-tile label="Gross margin" icon="grid" [value]="salesReady() ? (salesSummary()!.grossMargin | money) : '—'" [delta]="deltas().margin" [trend]="trend()" />
+          <app-kpi-tile label="Gross margin" icon="percent" [value]="salesReady() ? (salesSummary()!.grossMargin | money) : '—'" [delta]="deltas().margin" [trend]="trend()" />
         } @else {
           <app-kpi-tile label="Recent orders" icon="receipt" [value]="ordersState() === 'ready' ? '' + orders().length : '—'" [delta]="null" [trend]="[]" />
           <app-kpi-tile label="Active products" icon="package" [value]="productsState() === 'ready' ? '' + productCount() : '—'" [delta]="null" [trend]="[]" />
           <app-kpi-tile label="Low-stock items" icon="alert" [value]="stockState() === 'ready' ? '' + lowStock().length : '—'" [delta]="null" [trend]="[]" />
         }
       </div>
+
+      @if (auth.can('report:read') && salesState() === 'error') {
+        <div class="load-error kpi-error" role="alert">
+          Couldn't load today's figures.
+          <button type="button" class="btn btn-sm btn-outline" (click)="loadSales()">Retry</button>
+        </div>
+      }
 
       <section class="towers-slot"></section>
 
@@ -122,6 +130,7 @@ export function pct(cur: number, prev: number): number | null {
     .low-row:last-child { border-bottom: none; }
     .empty-sm { padding: 1.6rem 1rem; }
     .empty-sm .big.all-good { color: var(--green); }
+    .kpi-error { margin: -.6rem 0 1rem; padding: .8rem 1rem; }
     .towers-slot:empty { display: none; }
     .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem;
       padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
@@ -166,57 +175,90 @@ export class DashboardComponent {
     return s && s.orderCount > 0 ? Number(s.netSales) / s.orderCount : null;
   }
 
-  /** Permissions arrive after sign-in settles, so each section loads when its permission shows up (and again on a branch switch). */
+  private destroyRef = inject(DestroyRef);
+  private ordersLoad$ = new Subject<void>();
+  private salesLoad$ = new Subject<void>();
+  private stockLoad$ = new Subject<void>();
+  private productsLoad$ = new Subject<void>();
+  private canSales = computed(() => this.auth.can('sales:read'));
+  private canReport = computed(() => this.auth.can('report:read'));
+  private canInventory = computed(() => this.auth.can('inventory:read'));
+  private canCatalog = computed(() => this.auth.can('catalog:read'));
+
+  /**
+   * Each section loads when its permission shows up and again when the branch changes. A reload cancels the
+   * request before it, so an answer for the branch we left can never overwrite the current one.
+   */
   constructor() {
-    effect(() => { if (this.auth.can('sales:read')) untracked(() => this.loadOrders()); else this.ordersState.set('ready'); });
-    effect(() => { if (this.auth.can('report:read')) untracked(() => this.loadSales()); else this.salesState.set('ready'); });
-    effect(() => { if (this.auth.can('inventory:read')) untracked(() => this.loadStock()); else this.stockState.set('ready'); });
-    effect(() => { if (this.auth.can('catalog:read')) untracked(() => this.loadProducts()); else this.productsState.set('ready'); });
+    this.ordersLoad$.pipe(
+      switchMap(() => {
+        this.ordersState.set('loading');
+        return this.sales.listOrders(0, 25).pipe(catchError(() => of(null)));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((p) => {
+      if (p) { this.orders.set(p.content); this.ordersState.set('ready'); } else this.ordersState.set('error');
+    });
+
+    // today's totals come from the server summary, not from adding up the recent-orders page
+    this.salesLoad$.pipe(
+      switchMap(() => {
+        this.salesState.set('loading');
+        const yday = reportPeriod(Date.now() - 86_400_000, 1);
+        const week = reportPeriod(Date.now(), 7);
+        return forkJoin({
+          today: this.reporting.summary(),
+          yesterday: this.reporting.summary(yday.from.toISOString(), yday.to.toISOString()),
+          days: this.reporting.salesByDay(week.from.toISOString(), week.to.toISOString()),
+        }).pipe(
+          switchMap(({ today, yesterday, days }) => of({ today, yesterday, trend: zeroFillDays(week.days, days).map((d) => Number(d.netSales)) })),
+          catchError(() => of(null)),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((r) => {
+      if (!r) { this.salesState.set('error'); return; }
+      this.salesSummary.set(r.today);
+      this.yesterday.set(r.yesterday);
+      this.trend.set(r.trend);
+      this.salesState.set('ready');
+    });
+
+    this.stockLoad$.pipe(
+      switchMap(() => {
+        this.stockState.set('loading');
+        return this.inventory.lowStock().pipe(catchError(() => of(null)));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((l) => {
+      if (l) { this.lowStock.set(l); this.stockState.set('ready'); } else this.stockState.set('error');
+    });
+
+    this.productsLoad$.pipe(
+      switchMap(() => {
+        this.productsState.set('loading');
+        return this.catalog.listProducts(0, 1).pipe(catchError(() => of(null)));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((p) => {
+      if (p) { this.productCount.set(p.totalElements); this.productsState.set('ready'); } else this.productsState.set('error');
+    });
+
+    // permissions arrive after sign-in settles; the branch is read on purpose so a switch reloads
+    const load = (can: () => boolean, state: { set(v: LoadState): void }, go: () => void) => effect(() => {
+      this.auth.activeBranchId();
+      if (can()) untracked(go); else state.set('ready');
+    });
+    load(this.canSales, this.ordersState, () => this.loadOrders());
+    load(this.canReport, this.salesState, () => this.loadSales());
+    load(this.canInventory, this.stockState, () => this.loadStock());
+    load(this.canCatalog, this.productsState, () => this.loadProducts());
   }
 
-  loadOrders() {
-    this.ordersState.set('loading');
-    this.sales.listOrders(0, 25).subscribe({
-      next: (p) => { this.orders.set(p.content); this.ordersState.set('ready'); },
-      error: () => this.ordersState.set('error'),
-    });
-  }
-
-  /** Today's totals come from the server summary, not from adding up the recent-orders page. */
-  loadSales() {
-    this.salesState.set('loading');
-    const yday = reportPeriod(Date.now() - 86_400_000, 1);
-    const week = reportPeriod(Date.now(), 7);
-    forkJoin({
-      today: this.reporting.summary(),
-      yesterday: this.reporting.summary(yday.from.toISOString(), yday.to.toISOString()),
-      days: this.reporting.salesByDay(week.from.toISOString(), week.to.toISOString()),
-    }).subscribe({
-      next: ({ today, yesterday, days }) => {
-        this.salesSummary.set(today);
-        this.yesterday.set(yesterday);
-        this.trend.set(zeroFillDays(week.days, days).map((d) => Number(d.netSales)));
-        this.salesState.set('ready');
-      },
-      error: () => this.salesState.set('error'),
-    });
-  }
-
-  loadStock() {
-    this.stockState.set('loading');
-    this.inventory.lowStock().subscribe({
-      next: (l) => { this.lowStock.set(l); this.stockState.set('ready'); },
-      error: () => this.stockState.set('error'),
-    });
-  }
-
-  loadProducts() {
-    this.productsState.set('loading');
-    this.catalog.listProducts(0, 1).subscribe({
-      next: (p) => { this.productCount.set(p.totalElements); this.productsState.set('ready'); },
-      error: () => this.productsState.set('error'),
-    });
-  }
+  loadOrders() { this.ordersLoad$.next(); }
+  loadSales() { this.salesLoad$.next(); }
+  loadStock() { this.stockLoad$.next(); }
+  loadProducts() { this.productsLoad$.next(); }
 
   statusClass(status: string): string {
     switch (status) {

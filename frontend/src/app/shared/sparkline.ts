@@ -39,5 +39,9 @@ export class SparklineComponent {
   width = input(96);
   height = input(28);
   line = computed(() => sparkPath(this.values(), this.width(), this.height()));
-  fill = computed(() => (this.line() ? `${this.line()} L${this.width()},${this.height()} L0,${this.height()} Z` : ''));
+  /** A flat series gets no fill: a band under it would suggest volume that is not there. */
+  fill = computed(() => {
+    const v = this.values().filter(Number.isFinite);
+    return this.line() && Math.min(...v) !== Math.max(...v) ? `${this.line()} L${this.width()},${this.height()} L0,${this.height()} Z` : '';
+  });
 }

@@ -6,6 +6,7 @@ import { Component, Input, computed, signal } from '@angular/core';
  * Usage: <app-icon name="plus" />  ·  <app-icon name="coffee" [size]="40" />
  */
 const ICONS: Record<string, string> = {
+  percent: '<line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   minus: '<path d="M5 12h14"/>',
   close: '<path d="M18 6 6 18"/><path d="M6 6l12 12"/>',

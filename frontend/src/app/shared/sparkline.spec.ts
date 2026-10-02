@@ -28,6 +28,11 @@ describe('SparklineComponent', () => {
     f.detectChanges();
     return f.nativeElement as HTMLElement;
   };
+  it('draws the line but no fill when every value is equal', () => {
+    const el = render([0, 0, 0]);
+    expect(el.querySelector('.spark-line')?.getAttribute('d')).toBeTruthy();
+    expect(el.querySelector('.spark-fill')?.getAttribute('d') ?? '').toBe('');
+  });
   it('renders no svg for a single value', () => {
     expect(render([1]).querySelector('svg')).toBeNull();
   });
