@@ -8,12 +8,13 @@ import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { AvatarComponent } from '../../shared/avatar';
 import { CompanyRequest, CompanyResponse } from '../../core/models';
 
 @Component({
   selector: 'app-companies',
   standalone: true,
-  imports: [FormsModule, ModalComponent, DatePipe, IconComponent],
+  imports: [FormsModule, ModalComponent, DatePipe, IconComponent, AvatarComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -30,14 +31,21 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
               <tbody>
                 @for (c of items(); track c.id) {
                   <tr>
-                    <td><b>{{ c.name }}</b></td>
+                    <td>
+                      <span class="name-with-avatar"><app-avatar [name]="c.name" />
+                        @if (auth.can('company:write')) { <button class="row-open" (click)="openEdit(c)">{{ c.name }}</button> }
+                        @else { <b>{{ c.name }}</b> }
+                      </span>
+                    </td>
                     <td><span class="badge badge-gray">{{ c.code }}</span></td>
                     <td class="soft">{{ c.createdAt | date:'mediumDate' }}</td>
-                    <td class="row-actions">
-                      @if (auth.can('company:write')) {
-                        <button class="btn btn-sm btn-ghost" (click)="openEdit(c)">Edit</button>
-                        <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(c)" [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="16" /></button>
-                      }
+                    <td>
+                      <div class="row-actions">
+                        @if (auth.can('company:write')) {
+                          <button class="btn btn-sm btn-ghost" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name">Edit</button>
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(c)" [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="16" /></button>
+                        }
+                      </div>
                     </td>
                   </tr>
                 } @empty { <tr><td colspan="4"><div class="empty"><div class="big"><app-icon name="building" [size]="30" /></div>No company found</div></td></tr> }
@@ -49,7 +57,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
     </div>
 
     @if (editing()) {
-      <app-modal title="Edit company" (close)="editing.set(null)">
+      <app-modal variant="drawer" [width]="440" title="Edit company" (close)="editing.set(null)">
         <div class="field">
           <label for="co-name">Name <span class="req" aria-hidden="true">*</span></label>
           <input id="co-name" class="input" [(ngModel)]="form.name" placeholder="Ess Coffee Co." required />

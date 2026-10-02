@@ -8,12 +8,13 @@ import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 import { StatusBadgeComponent } from '../../shared/status-badge';
+import { AvatarComponent } from '../../shared/avatar';
 import { BranchRequest, BranchResponse } from '../../core/models';
 
 @Component({
   selector: 'app-branches',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent, AvatarComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -32,8 +33,13 @@ import { BranchRequest, BranchResponse } from '../../core/models';
               <thead><tr><th scope="col">Name</th><th scope="col">Code</th><th scope="col">Address</th><th scope="col">Phone</th><th scope="col">Tax</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 @for (b of items(); track b.id) {
-                  <tr>
-                    <td><span class="name-cell"><span class="mini-coin" aria-hidden="true"><app-icon name="store" [size]="14" /></span><b>{{ b.name }}</b></span></td>
+                  <tr [class.muted]="!b.active">
+                    <td>
+                      <span class="name-with-avatar"><app-avatar [name]="b.name" />
+                        @if (canActOn(b)) { <button class="row-open" (click)="openEdit(b)">{{ b.name }}</button> }
+                        @else { <b>{{ b.name }}</b> }
+                      </span>
+                    </td>
                     <td><span class="badge badge-gray">{{ b.code }}</span></td>
                     <td class="soft">{{ b.address || '—' }}</td>
                     <td class="soft">{{ b.phone || '—' }}</td>
@@ -41,11 +47,13 @@ import { BranchRequest, BranchResponse } from '../../core/models';
                     <td>
                       <app-status-badge [active]="b.active" />
                     </td>
-                    <td class="row-actions">
-                      @if (canActOn(b)) {
-                        <button class="btn btn-sm btn-ghost" (click)="openEdit(b)">Edit</button>
-                        <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(b)" [attr.aria-label]="'Delete ' + b.name"><app-icon name="trash" [size]="16" /></button>
-                      }
+                    <td>
+                      <div class="row-actions">
+                        @if (canActOn(b)) {
+                          <button class="btn btn-sm btn-ghost" (click)="openEdit(b)">Edit</button>
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(b)" [attr.aria-label]="'Delete ' + b.name"><app-icon name="trash" [size]="16" /></button>
+                        }
+                      </div>
                     </td>
                   </tr>
                 } @empty { <tr><td colspan="7"><div class="empty"><div class="big"><app-icon name="pin" [size]="30" /></div>No branches yet</div></td></tr> }
@@ -57,7 +65,7 @@ import { BranchRequest, BranchResponse } from '../../core/models';
     </div>
 
     @if (editing()) {
-      <app-modal [title]="form.id ? 'Edit branch' : 'New branch'" (close)="editing.set(null)">
+      <app-modal variant="drawer" [width]="480" [title]="form.id ? 'Edit branch' : 'New branch'" (close)="editing.set(null)">
         <div class="two-col">
           <div class="field"><label for="br-name">Name <span class="req" aria-hidden="true">*</span></label><input id="br-name" class="input" [(ngModel)]="form.name" placeholder="Downtown" required /></div>
           <div class="field"><label for="br-code">Code <span class="req" aria-hidden="true">*</span></label><input id="br-code" class="input" [(ngModel)]="form.code" placeholder="DT01" maxlength="32" required /></div>

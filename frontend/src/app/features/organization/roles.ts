@@ -6,13 +6,14 @@ import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { AvatarComponent } from '../../shared/avatar';
 import { ACTION_LABELS, ALL_PERMISSIONS, DOMAIN_LABELS, PERMISSION_GROUPS } from '../../core/permissions';
 import { RoleResponse } from '../../core/models';
 
 @Component({
   selector: 'app-roles',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, AvatarComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -20,48 +21,64 @@ import { RoleResponse } from '../../core/models';
         @if (auth.can('role:write')) { <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New role</button> }
       </div>
 
-      @if (loading()) { <div class="card"><div class="loading-block"><span class="spinner"></span> Loading…</div></div> }
-      @else {
-        <div class="roles-grid">
-          @for (r of items(); track r.id) {
-            <div class="card card-pad role-card">
-              <div class="flex" style="justify-content:space-between">
-                <div class="flex gap-1">
-                  <span class="role-coin" aria-hidden="true"><app-icon name="key" [size]="16" /></span>
-                  <div><h2>{{ r.name }}</h2><div class="soft role-desc">{{ r.description || '—' }}</div></div>
-                </div>
-                @if (auth.can('role:write')) {
-                  <button class="btn btn-sm btn-outline" (click)="openEdit(r)"
-                          [attr.aria-label]="'Edit permissions for ' + r.name">Edit permissions</button>
-                }
-              </div>
-              @if (permSummary(r); as ps) {
-                <div class="perm-chips">
-                  @for (c of ps.chips; track c.domain) {
-                    <span class="perm-chip">
-                      <span class="pc-domain">{{ c.domain }}</span>
-                      @for (a of c.actions; track a) { <span class="pc-act" [class]="'pc-' + a">{{ actionLabel(a) }}</span> }
-                    </span>
-                  }
-                  @for (p of ps.extras; track p) { <span class="badge badge-blue">{{ p }}</span> }
-                  @if (!r.permissions.length) { <span class="muted">No permissions</span> }
-                </div>
-              }
-            </div>
-          } @empty { <div class="card"><div class="empty"><div class="big"><app-icon name="key" [size]="30" /></div>No roles yet</div></div> }
-        </div>
-      }
+      <div class="card">
+        @if (loading()) { <div class="loading-block"><span class="spinner"></span> Loading…</div> }
+        @else {
+          <div class="table-wrap">
+            <table class="data">
+              <caption class="sr-only">Roles with description and the permissions each grants</caption>
+              <thead><tr><th scope="col">Role</th><th scope="col">Permissions</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody>
+                @for (r of items(); track r.id) {
+                  <tr>
+                    <td>
+                      <span class="name-with-avatar"><app-avatar [name]="r.name" />
+                        <span class="role-name">
+                          @if (auth.can('role:write')) { <button class="row-open" (click)="openEdit(r)">{{ r.name }}</button> }
+                          @else { <b>{{ r.name }}</b> }
+                          <span class="soft role-desc">{{ r.description || '—' }}</span>
+                        </span>
+                      </span>
+                    </td>
+                    <td>
+                      @if (permSummary(r); as ps) {
+                        <div class="perm-chips">
+                          @for (c of ps.chips; track c.domain) {
+                            <span class="perm-chip">
+                              <span class="pc-domain">{{ c.domain }}</span>
+                              @for (a of c.actions; track a) { <span class="pc-act" [class]="'pc-' + a">{{ actionLabel(a) }}</span> }
+                            </span>
+                          }
+                          @for (p of ps.extras; track p) { <span class="badge">{{ p }}</span> }
+                          @if (!r.permissions.length) { <span class="muted">No permissions</span> }
+                        </div>
+                      }
+                    </td>
+                    <td>
+                      <div class="row-actions">
+                        @if (auth.can('role:write')) {
+                          <button class="btn btn-sm btn-outline" (click)="openEdit(r)" [attr.aria-label]="'Edit permissions for ' + r.name">Edit permissions</button>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                } @empty { <tr><td colspan="3"><div class="empty"><div class="big"><app-icon name="key" [size]="30" /></div>No roles yet</div></td></tr> }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
     </div>
 
     @if (editing()) {
-      <app-modal [title]="form.id ? 'Edit role permissions' : 'New role'" [width]="620" (close)="editing.set(null)">
+      <app-modal variant="drawer" [title]="form.id ? 'Edit role permissions' : 'New role'" [width]="640" (close)="editing.set(null)">
         @if (!form.id) {
           <div class="two-col">
             <div class="field"><label for="role-name">Name <span class="req" aria-hidden="true">*</span></label><input id="role-name" class="input" [(ngModel)]="form.name" placeholder="Barista" required /></div>
             <div class="field"><label for="role-desc">Description</label><input id="role-desc" class="input" [(ngModel)]="form.description" /></div>
           </div>
         } @else {
-          <div class="soft" style="margin-bottom:1rem">Editing <b>{{ form.name }}</b> — toggles replace the full permission set.</div>
+          <div class="soft edit-note">Editing <b>{{ form.name }}</b> — toggles replace the full permission set.</div>
         }
         <p class="perm-note">"Manage" access automatically includes "view" for the same area.</p>
         <div class="perm-groups">
@@ -69,7 +86,7 @@ import { RoleResponse } from '../../core/models';
             <div class="perm-group">
               <div class="pg-title">{{ g.label }}</div>
               @for (p of g.perms; track p.key) {
-                <label class="checkbox perm-item">
+                <label class="checkbox perm-item" [class.on]="selected().has(p.key)">
                   <input type="checkbox" [checked]="selected().has(p.key)" (change)="toggle(p.key)" />
                   <span><b>{{ p.desc }}</b><small class="perm-key">{{ p.key }}</small></span>
                 </label>
@@ -87,28 +104,24 @@ import { RoleResponse } from '../../core/models';
     }
   `,
   styles: [`
-    .roles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.1rem; align-items: start; }
-    .role-card { transition: transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-1); }
-    .role-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-    .role-coin { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: var(--gold-soft); color: var(--gold-600);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 0 0 1px color-mix(in srgb, var(--gold-600) 25%, transparent); }
-    .role-card h2 { margin: 0; font-size: 15px; }
+    .role-name { display: flex; flex-direction: column; line-height: 1.3; }
     .role-desc { font-size: 12.5px; }
+    .edit-note { margin-bottom: 1rem; }
     .perm-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: 1rem; }
     .perm-chip { display: inline-flex; align-items: center; gap: .45rem; padding: .32rem .7rem;
-      border-radius: 999px; background: var(--surface-2); border: 1px solid var(--hairline); font-size: 12px; }
+      border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; }
     .pc-domain { font-weight: 650; color: var(--text-soft); }
     .pc-act { font-weight: 600; }
     .pc-act + .pc-act::before { content: "·"; margin-right: .45rem; color: var(--border-strong); font-weight: 400; }
     .pc-read { color: var(--text-muted); }
-    .pc-write { color: var(--azure-600); }
+    .pc-write { color: var(--accent-text); }
     .pc-refund { color: var(--red); }
     .perm-note { font-size: 12px; color: var(--text-muted); margin: 0 0 .9rem; }
     .perm-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.5rem; }
-    .pg-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; margin-bottom: .5rem; }
-    .perm-item { display: flex; align-items: flex-start; padding: .35rem 0; }
+    .pg-title { position: sticky; top: 0; z-index: 1; background: var(--surface-1); padding: .4rem 0; border-bottom: 1px solid var(--border);
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; margin-bottom: .35rem; }
+    .perm-item { display: flex; align-items: flex-start; padding: .35rem .5rem; border-radius: var(--radius); }
+    .perm-item.on { background: var(--accent-soft); }
     .perm-item > span { display: flex; flex-direction: column; line-height: 1.3; }
     .perm-item small { color: var(--text-muted); font-size: 11px; }
     .perm-key { font-family: var(--font-mono); letter-spacing: 0; }
