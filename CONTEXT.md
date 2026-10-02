@@ -109,12 +109,20 @@ branch.
 _Avoid_: menu item, item, SKU
 
 **Recipe**:
-What one product consumes, as a set of ingredient quantities. A sale explodes the
-recipe into stock movements.
-_Avoid_: bill of materials, BOM
+What one product consumes, as a set of ingredient quantities: the F&B bill of
+materials. Kept as a series of recipe versions; a sale consumes the version its
+line was taken under, and the stock it takes is recorded as movements.
+
+**Recipe version**:
+One saved state of a recipe, numbered from 1 and never changed afterwards. An
+order line records the version in force when it was taken, so paying after the
+recipe changed still consumes what the recipe said then. A modifier's deltas are
+not versioned: a sale applies them as they stand when it completes.
+_Avoid_: revision, recipe history
 
 **Recipe unit**:
-The unit a recipe line expresses consumption in. Must be reconciled against the
-ingredient's base unit before the deduction is trustworthy; today it is free text
-and is not (INV-105).
+The unit a recipe line or modifier delta expresses consumption in: a unit of the
+closed vocabulary, stored as its canonical symbol and checked at save to measure
+the same thing as the ingredient's base unit. The ledger converts it to the base
+unit when the sale deducts.
 _Avoid_: consumption unit

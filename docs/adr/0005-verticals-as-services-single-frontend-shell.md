@@ -25,3 +25,9 @@ modules deliver the per-tenant experience at monolith-frontend cost.
 - Adding a vertical = new service + new Angular feature module + entitlement
   row; the acceptance test for the core is that this requires zero core
   changes (transformation plan, Phase 5).
+
+Note (ADR-0010): "recipes-as-BOM" holds — a recipe is the F&B bill of
+materials. What a sale consumes now comes through the core's
+`inventory.api.ConsumptionResolver`, which the catalog implements, so sales no
+longer calls the vertical for it; pricing (`CatalogApi.priceLine`) is the one
+call from sales into the catalog that remains.
