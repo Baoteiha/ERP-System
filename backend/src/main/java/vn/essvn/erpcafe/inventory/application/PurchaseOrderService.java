@@ -76,7 +76,7 @@ public class PurchaseOrderService {
         }
         PurchaseOrder order = new PurchaseOrder(supplierId, activeBranch(), note);
         for (LineInput line : lines) {
-            order.addLine(toLine(line));
+            order.addLine(toLine(supplierId, line));
         }
         return purchaseOrderRepository.save(order);
     }
@@ -150,7 +150,7 @@ public class PurchaseOrderService {
 
     // A line is an item (it fixes ingredient and unit) or an ingredient with a unit, never both: two
     // sources could disagree. An ingredient alone keeps the old meaning, its base unit.
-    private PurchaseOrderLine toLine(LineInput line) {
+    private PurchaseOrderLine toLine(UUID supplierId, LineInput line) {
         if (line.itemId() != null) {
             if (line.ingredientId() != null || line.unit() != null) {
                 throw new BusinessRuleException("A line is an item, or an ingredient with a unit, not both");
@@ -158,6 +158,9 @@ public class PurchaseOrderService {
             // Items are tenant-owned, so another company's item is simply not found.
             Item item = itemRepository.findById(line.itemId())
                     .orElseThrow(() -> ResourceNotFoundException.of("Item", line.itemId()));
+            if (!item.getSupplierId().equals(supplierId)) {
+                throw new BusinessRuleException("Item " + item.getName() + " is sold by another supplier");
+            }
             return new PurchaseOrderLine(item.getId(), item.getIngredientId(), item.getUnit(),
                     line.orderedQty(), Money.of(line.unitCost()));
         }

@@ -186,4 +186,30 @@ class PurchaseLineUnitTest extends AbstractIntegrationTest {
                     .andExpect(jsonPath("$.code").exists());
         }
     }
+
+    @Test
+    void itemLine_mustBelongToTheOrdersSupplier() throws Exception {
+        String ingredientId = ingredient("g");
+        String supplierS = supplier();
+        String supplierT = supplier();
+        String itemOfS = item(supplierS, ingredientId, "kg");
+        String itemOfT = item(supplierT, ingredientId, "kg");
+        int before = ((List<?>) JsonPath.read(mockMvc.perform(authed(get("/api/v1/purchase-orders")))
+                .andReturn().getResponse().getContentAsString(), "$.content")).size();
+
+        mockMvc.perform(authed(post("/api/v1/purchase-orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
+                                .formatted(supplierS, itemOfT)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+
+        int after = ((List<?>) JsonPath.read(mockMvc.perform(authed(get("/api/v1/purchase-orders")))
+                .andReturn().getResponse().getContentAsString(), "$.content")).size();
+        assertThat(after).isEqualTo(before);
+
+        mockMvc.perform(authed(post("/api/v1/purchase-orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
+                                .formatted(supplierS, itemOfS)))
+                .andExpect(status().isCreated());
+    }
 }
