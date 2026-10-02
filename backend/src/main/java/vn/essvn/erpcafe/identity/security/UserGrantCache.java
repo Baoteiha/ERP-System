@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.identity.security;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -29,14 +30,15 @@ public class UserGrantCache {
 
     /**
      * Class: Grants
-     * Purpose: A user's auth version and the role they hold at each live branch, as one read saw them.
+     * Purpose: A user's auth version and the role they hold at each live branch, as one read begun at readAt saw them.
      */
-    public record Grants(int authVersion, Map<UUID, UUID> roleByBranch) {
+    public record Grants(int authVersion, Map<UUID, UUID> roleByBranch, Instant readAt) {
     }
 
     private final UserRepository userRepository;
     private final UserBranchAccessRepository accessRepository;
     private final OrganizationApi organizationApi;
+    private final Clock clock;
     private final ExpiringCache<UUID, Optional<Grants>> cache;
 
     @Autowired
@@ -50,6 +52,7 @@ public class UserGrantCache {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.organizationApi = organizationApi;
+        this.clock = clock;
         this.cache = new ExpiringCache<>(TTL, clock);
     }
 
@@ -68,9 +71,11 @@ public class UserGrantCache {
         cache.evictAfterCommit(userId);
     }
 
+    // stamped before the reads, so a change they might have missed counts as newer than the copy
     private Optional<Grants> load(UUID userId, UUID companyId) {
+        Instant readAt = clock.instant();
         return userRepository.findAuthVersion(userId, companyId)
-                .map(version -> new Grants(version, liveGrants(userId, companyId)));
+                .map(version -> new Grants(version, liveGrants(userId, companyId), readAt));
     }
 
     // a grant on a deleted or deactivated branch grants nothing: not the branch, not its role's permissions

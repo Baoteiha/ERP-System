@@ -115,9 +115,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
+            // the branch the request acts in, if it names one
+            UUID activeBranch = null;
+            String path = request.getRequestURI().substring(request.getContextPath().length());
+            String branchHeader = BRANCHLESS_PATHS.contains(path) ? null : request.getHeader(BRANCH_HEADER);
+            if (branchHeader != null && !branchHeader.isBlank()) {
+                try {
+                    activeBranch = UUID.fromString(branchHeader.trim());
+                } catch (IllegalArgumentException ex) {
+                    writeError(response, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Malformed " + BRANCH_HEADER);
+                    return;
+                }
+            }
+
             Optional<Grants> grants = grantCache.current(claims.userId(), claims.companyId());
-            // only another instance can have moved the version past this one's copy: read it afresh
-            if (grants.isPresent() && claims.authVersion() > grants.get().authVersion()) {
+            if (grants.isPresent() && mayBeNewer(claims, grants.get(), activeBranch)) {
                 grants = grantCache.reload(claims.userId(), claims.companyId());
             }
             if (grants.isEmpty() || grants.get().authVersion() != claims.authVersion()) {
@@ -135,17 +147,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             });
 
-            // Resolve the active branch, if one was requested.
-            UUID activeBranch = null;
-            String path = request.getRequestURI().substring(request.getContextPath().length());
-            String branchHeader = BRANCHLESS_PATHS.contains(path) ? null : request.getHeader(BRANCH_HEADER);
-            if (branchHeader != null && !branchHeader.isBlank()) {
-                try {
-                    activeBranch = UUID.fromString(branchHeader.trim());
-                } catch (IllegalArgumentException ex) {
-                    writeError(response, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Malformed " + BRANCH_HEADER);
-                    return;
-                }
+            if (activeBranch != null) {
                 UUID named = claims.roleByBranch().get(activeBranch);
                 if (named != null && current.containsKey(activeBranch) && !named.equals(current.get(activeBranch))) {
                     writeError(response, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED",
@@ -167,6 +169,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             BranchContext.clear();
             SecurityContextHolder.clearContext();
         }
+    }
+
+    /**
+     * Whether the token may reflect a change this instance's copy of the user predates; only another instance
+     * can have made one, and then the copy is read afresh before the token is judged by it. So: a higher auth
+     * version, or a role at the requested branch the copy does not hold, in a token issued after the copy was
+     * read (iat counts whole seconds, hence the second's slack). An older token never makes it read again.
+     */
+    private static boolean mayBeNewer(AccessClaims claims, Grants grants, UUID activeBranch) {
+        if (claims.authVersion() > grants.authVersion()) {
+            return true;
+        }
+        UUID named = activeBranch == null ? null : claims.roleByBranch().get(activeBranch);
+        return named != null && !named.equals(grants.roleByBranch().get(activeBranch))
+                && claims.issuedAt() != null && claims.issuedAt().plusSeconds(1).isAfter(grants.readAt());
     }
 
     /** Resolves the branch roles still granted, and the authorities in force at {@code activeBranch} (null: none). */

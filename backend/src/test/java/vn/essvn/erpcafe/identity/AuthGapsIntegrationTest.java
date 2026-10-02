@@ -119,9 +119,13 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         return user;
     }
 
-    private void grant(String admin, NewUser user, String branchId, String roleName) throws Exception {
+    private String roleId(String admin, String roleName) throws Exception {
         String roles = json(send(get("/api/v1/roles"), admin, null, null));
-        String roleId = JsonPath.<List<String>>read(roles, "$[?(@.name == '%s')].id".formatted(roleName)).get(0);
+        return JsonPath.<List<String>>read(roles, "$[?(@.name == '%s')].id".formatted(roleName)).get(0);
+    }
+
+    private void grant(String admin, NewUser user, String branchId, String roleName) throws Exception {
+        String roleId = roleId(admin, roleName);
         json(send(post("/api/v1/users/" + user.id() + "/access"), admin, null,
                 "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchId, roleId)));
     }
@@ -331,6 +335,34 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
 
         json(send(get("/api/v1/auth/me"), newer, null, null));
         expectStale(send(get("/api/v1/auth/me"), old, null, null));
+    }
+
+    @Test
+    void aFreshTokenFromAnotherInstance_namingANewRoleOrBranch_isHonoured() throws Exception {
+        String admin = adminToken();
+        String branch = firstBranch(admin);
+        String added = createBranch(admin);
+        NewUser user = userWithRole(admin, "MANAGER", branch);
+        UUID cashier = UUID.fromString(roleId(admin, "CASHIER"));
+        String old = accessToken(user.email(), PASSWORD);
+        json(send(get("/api/v1/products"), old, branch, null));
+
+        // another instance moves the user to CASHIER and grants them the new branch, then issues a token;
+        // this one still holds the grants it read
+        JdbcTemplate db = owner();
+        UUID userId = UUID.fromString(user.id());
+        db.update("UPDATE user_branch_access SET role_id = ? WHERE user_id = ?", cashier, userId);
+        db.update("INSERT INTO user_branch_access (id, version, user_id, branch_id, role_id, created_at, updated_at)"
+                + " VALUES (?, 0, ?, ?, ?, now(), now())", UUID.randomUUID(), userId, UUID.fromString(added), cashier);
+        AccessClaims claims = jwtService.parseAccessToken(old);
+        String fresh = jwtService.generateAccessToken(new AccessClaims(claims.userId(), claims.email(),
+                claims.companyId(), Map.of(UUID.fromString(branch), cashier, UUID.fromString(added), cashier),
+                claims.authVersion()));
+
+        json(send(get("/api/v1/products"), fresh, branch, null));
+        json(send(get("/api/v1/products"), fresh, added, null));
+        expectStale(send(get("/api/v1/products"), old, branch, null));
+        send(delete("/api/v1/branches/" + added), adminToken(), null, null).andExpect(status().isNoContent());
     }
 
     // --- R36: a branch lost while it is the active one ---

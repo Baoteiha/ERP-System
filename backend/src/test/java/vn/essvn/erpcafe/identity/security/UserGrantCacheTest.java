@@ -69,7 +69,7 @@ class UserGrantCacheTest {
         when(grants.findByUserId(userId)).thenReturn(List.of(
                 new UserBranchAccess(userId, live, roleId), new UserBranchAccess(userId, closed, roleId)));
 
-        assertThat(cache.current(userId, companyId)).contains(new Grants(4, Map.of(live, roleId)));
+        assertThat(cache.current(userId, companyId)).contains(new Grants(4, Map.of(live, roleId), now));
         now = now.plus(UserGrantCache.TTL).minusSeconds(1);
         cache.current(userId, companyId);
 

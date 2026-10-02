@@ -99,8 +99,10 @@ public class JwtService {
         Map<UUID, UUID> roleByBranch = new HashMap<>();
         raw.forEach((branchId, roleId) ->
                 roleByBranch.put(UUID.fromString(String.valueOf(branchId)), UUID.fromString(String.valueOf(roleId))));
+        Date issuedAt = claims.getIssuedAt();
         return new AccessClaims(UUID.fromString(claims.getSubject()), claims.get("email", String.class),
-                UUID.fromString(claims.get("companyId", String.class)), roleByBranch, authVersion);
+                UUID.fromString(claims.get("companyId", String.class)), roleByBranch, authVersion,
+                issuedAt == null ? null : issuedAt.toInstant());
     }
 
     // A token without a kid predates the key set; a refresh replaces it, as one signed with a removed key.

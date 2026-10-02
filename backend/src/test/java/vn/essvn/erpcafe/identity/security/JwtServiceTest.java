@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.identity.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -65,7 +66,9 @@ class JwtServiceTest {
 
         String token = jwt.generateAccessToken(original);
 
-        assertThat(jwt.parseAccessToken(token)).isEqualTo(original);
+        AccessClaims parsed = jwt.parseAccessToken(token);
+        assertThat(parsed).usingRecursiveComparison().ignoringFields("issuedAt").isEqualTo(original);
+        assertThat(parsed.issuedAt()).isCloseTo(Instant.now(), within(Duration.ofSeconds(5)));
     }
 
     @Test
@@ -73,7 +76,8 @@ class JwtServiceTest {
         JwtService jwt = jwtService(Duration.ofMinutes(15));
         AccessClaims none = new AccessClaims(UUID.randomUUID(), "new@esscafe.vn", UUID.randomUUID(), Map.of(), 0);
 
-        assertThat(jwt.parseAccessToken(jwt.generateAccessToken(none))).isEqualTo(none);
+        assertThat(jwt.parseAccessToken(jwt.generateAccessToken(none)))
+                .usingRecursiveComparison().ignoringFields("issuedAt").isEqualTo(none);
     }
 
     @Test
@@ -164,7 +168,8 @@ class JwtServiceTest {
         JwtService rotated = new JwtService(props(Duration.ofMinutes(15),
                 new Key("k2", NEXT_SECRET, true), new Key("k1", SECRET, false)));
 
-        assertThat(rotated.parseAccessToken(beforeRotation)).isEqualTo(claims);
+        assertThat(rotated.parseAccessToken(beforeRotation))
+                .usingRecursiveComparison().ignoringFields("issuedAt").isEqualTo(claims);
     }
 
     @Test

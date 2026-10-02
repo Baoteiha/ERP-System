@@ -14,7 +14,12 @@ is deleted or deactivated); a pair no longer granted gives nothing, and its
 branch is refused as `X-Branch-Id` (403, code `BRANCH_FORBIDDEN`; the
 branchless `/auth/me`, `/auth/refresh` and `/auth/logout` ignore the header). A branch the header names that the
 user still holds, but under another role than the token says, answers 401
-instead: a refresh brings the token up to date. Otherwise a token could keep a revoked grant
+instead: a refresh brings the token up to date. Before refusing on such a
+disagreement (another role at that branch, or a branch the token names that the
+copy lacks), an instance reads the user's grants afresh when the token was
+issued after its copy was read (to the token's `iat` second), as it does for a
+token with a higher auth version: a token another instance issued after a
+change is honoured, while an older token never makes it read again. Otherwise a token could keep a revoked grant
 for its lifetime — and with it whatever a role it names is later given. The
 filter resolves each remaining role through `RolePermissionCache` (one read per
 role per minute, dropped after a role edit commits) and sets the authorities in
