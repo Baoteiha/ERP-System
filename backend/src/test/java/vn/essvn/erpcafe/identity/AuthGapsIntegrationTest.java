@@ -495,6 +495,22 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void aChangeSomeoneMakesToThemselves_namesNoActor() throws Exception {
+        String admin = adminToken();
+        String adminId = JsonPath.read(json(send(get("/api/v1/auth/me"), admin, null, null)), "$.userId");
+        String closing = createBranch(admin);
+
+        // the owner held the branch they close: their own grant goes with it
+        send(delete("/api/v1/branches/" + closing), admin, null, null).andExpect(status().isNoContent());
+
+        String trail = json(send(get("/api/v1/auth-events?size=20&userId=" + adminId), adminToken(), null, null));
+        List<Map<String, Object>> revoked = JsonPath.read(trail,
+                "$.content[?(@.type == 'ACCESS_REVOKED' && @.detail.branchId == '%s')].detail".formatted(closing));
+        assertThat(revoked).hasSize(1);
+        assertThat(revoked.get(0)).containsEntry("reason", "BRANCH_CLOSED").doesNotContainKey("actorUserId");
+    }
+
+    @Test
     void theAuditTrail_showsOnlyTheCallersCompany() throws Exception {
         NewUser foreign = foreignUser();
         assertThat(login(foreign.email(), PASSWORD, uniqueAddress())).isEqualTo(200);

@@ -37,10 +37,16 @@ public class AuthEventLog {
         store.append(companyId, userId, type, clientAddress(), Map.copyOf(detail));
     }
 
-    /** Records a change {@code actorUserId} made to the user's access or account; the detail names them. */
+    /**
+     * Records a change {@code actorUserId} made to the user's access or account. The detail names them when
+     * they changed another user; a change they made to themselves (an owner closing a branch they held, an
+     * administrator resetting their own password) is recorded as their own, with no actor.
+     */
     void recordBy(UUID actorUserId, AuthEventType type, UUID companyId, UUID userId, Map<String, ?> detail) {
         Map<String, Object> all = new LinkedHashMap<>(detail);
-        all.put("actorUserId", actorUserId);
+        if (actorUserId != null && !actorUserId.equals(userId)) {
+            all.put("actorUserId", actorUserId);
+        }
         store.append(companyId, userId, type, clientAddress(), all);
     }
 
