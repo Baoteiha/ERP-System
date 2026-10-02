@@ -3,6 +3,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { StaffService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
+import { onBranchChange } from '../../core/branch-change';
 import { EmployeeResponse, ShiftResponse, ShiftStatus } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
@@ -216,7 +217,9 @@ export class ShiftsComponent {
   constructor() {
     this.load();
     this.loadOpen();
-    this.staff.listEmployees().subscribe({ next: (items) => this.employees.set(items) });
+    this.loadEmployees();
+    // the same week, for the new branch's rota
+    onBranchChange(() => { this.load(); this.loadOpen(); this.loadEmployees(); });
   }
 
   private snapToMonday(d: Date): Date {
@@ -236,14 +239,22 @@ export class ShiftsComponent {
     this.loading.set(true);
     const from = this.weekStart();
     const to = this.addDays(from, 7);
+    const branch = this.auth.activeBranchId();
     this.staff.listShifts(from.toISOString(), to.toISOString()).subscribe({
-      next: (items) => { this.shifts.set(items); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      // a slow answer for a branch the till has since left must not overwrite the current one
+      next: (items) => { if (this.auth.activeBranchId() === branch) { this.shifts.set(items); this.loading.set(false); } },
+      error: () => { if (this.auth.activeBranchId() === branch) this.loading.set(false); },
     });
   }
 
   loadOpen() {
-    this.staff.openShifts().subscribe({ next: (items) => this.openShifts.set(items) });
+    const branch = this.auth.activeBranchId();
+    this.staff.openShifts().subscribe({ next: (items) => { if (this.auth.activeBranchId() === branch) this.openShifts.set(items); } });
+  }
+
+  private loadEmployees() {
+    const branch = this.auth.activeBranchId();
+    this.staff.listEmployees().subscribe({ next: (items) => { if (this.auth.activeBranchId() === branch) this.employees.set(items); } });
   }
 
   moveWeek(delta: number) { this.weekStart.set(this.addDays(this.weekStart(), delta * 7)); this.load(); }

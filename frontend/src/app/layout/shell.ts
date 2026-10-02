@@ -3,7 +3,6 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { OrganizationService } from '../core/api.services';
-import { BranchResponse } from '../core/models';
 import { IconComponent } from '../shared/icon';
 import { DensityService } from '../core/density.service';
 import { ThemeService } from '../core/theme.service';
@@ -108,7 +107,8 @@ export class ShellComponent {
   private overlays = inject(OverlayStack);
 
   mobileNav = signal(false);
-  private allBranches = signal<BranchResponse[]>([]);
+  /** every branch of the company; kept on the switcher so other screens can name a branch */
+  private allBranches = this.switcher.known;
   /** the company's branches the user holds; follows /auth/me, so a branch lost mid-session drops out */
   branches = computed(() => {
     const mine = this.auth.me()?.branchIds ?? [];

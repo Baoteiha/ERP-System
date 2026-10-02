@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
+import { onBranchChange } from '../../core/branch-change';
 import { ConfirmService } from '../../core/confirm.service';
 import { OrderResponse, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
@@ -162,17 +163,30 @@ export class OrdersComponent {
 
   minus(o: OrderResponse) { return Number(o.discountTotal) > 0 ? '-' : ''; }
 
-  constructor() { this.load(); }
+  constructor() {
+    this.load();
+    // another branch's orders: close the old one's drawer and start again from its first page
+    onBranchChange(() => {
+      this.detailOpen.set(false);
+      this.selected.set(null);
+      this.paying.set(null);
+      this.page.set(0);
+      this.load();
+    });
+  }
 
   load() {
     this.loading.set(true);
+    const branch = this.auth.activeBranchId();
     this.api.listOrders(this.page()).subscribe({
+      // a slow answer for a branch the till has since left must not overwrite the current one
       next: (page) => {
+        if (this.auth.activeBranchId() !== branch) return;
         this.orders.set(page.content);
         this.totalPages.set(page.totalPages);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: () => { if (this.auth.activeBranchId() === branch) this.loading.set(false); },
     });
   }
 

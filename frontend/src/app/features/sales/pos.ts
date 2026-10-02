@@ -5,9 +5,11 @@ import { Router } from '@angular/router';
 import { catchError, debounceTime, map, of, switchMap, tap } from 'rxjs';
 import { CatalogService, SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
+import { onBranchChange } from '../../core/branch-change';
 import { CategoryResponse, CreateOrderRequest, MenuModifierGroup, MenuProduct, Money, OrderResponse, OrderType, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { LabelPipe, MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
+import { BranchSwitcher } from '../../layout/branch-switch';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -240,6 +242,7 @@ export class PosComponent {
   private toast = inject(ToastService);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
+  private switcher = inject(BranchSwitcher);
 
   categories = signal<CategoryResponse[]>([]);
   products = signal<MenuProduct[]>([]);
@@ -298,6 +301,15 @@ export class PosComponent {
 
   constructor() {
     this.load();
+    // the new branch has its own menu and prices, and an unsent ticket belonged to the old one
+    onBranchChange((id) => {
+      this.load();
+      if (!this.cart().length) return;
+      this.configuringIndex.set(null);
+      this.clearCart();
+      this.orderDiscount.set('0');
+      this.toast.info(`Cart cleared for ${this.switcher.nameOf(id) ?? 'the new branch'}`);
+    });
     toObservable(this.quoteRequest).pipe(
       // a changed cart is a different sale: it gets its own request id and order
       tap(() => {
@@ -320,10 +332,13 @@ export class PosComponent {
 
   load() {
     this.loading.set(true);
-    this.catalog.listCategories().subscribe({ next: (items) => this.categories.set(items.filter((c) => c.active)) });
+    const branch = this.auth.activeBranchId();
+    const current = () => this.auth.activeBranchId() === branch;
+    this.catalog.listCategories().subscribe({ next: (items) => { if (current()) this.categories.set(items.filter((c) => c.active)); } });
     this.catalog.menu().subscribe({
-      next: (items) => { this.products.set(items); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      // a slow menu for a branch the till has since left must not overwrite the current one
+      next: (items) => { if (current()) { this.products.set(items); this.loading.set(false); } },
+      error: () => { if (current()) this.loading.set(false); },
     });
   }
 

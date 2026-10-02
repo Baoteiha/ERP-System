@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { AuthService } from '../../core/auth.service';
 import { ShiftResponse } from '../../core/models';
 import { ShiftsComponent } from './shifts';
 
@@ -47,5 +48,35 @@ describe('ShiftsComponent PIN prompt', () => {
     expect(req.request.body).toEqual({ pin: '1234' });
     req.flush(shift(true));
     ctrl.match((r) => r.url.startsWith('/api/v1/staff')).forEach((r) => r.flush([]));
+  });
+});
+
+describe('ShiftsComponent on a branch switch', () => {
+  it('reloads the week on screen, the open shifts and the employees for the new branch', () => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const ctrl = TestBed.inject(HttpTestingController);
+    const auth = TestBed.inject(AuthService);
+    auth.activeBranchId.set('b1');
+    const shifts = TestBed.createComponent(ShiftsComponent).componentInstance;
+    TestBed.tick();
+    ctrl.match((r) => r.url.startsWith('/api/v1/staff')).forEach((r) => r.flush([]));
+    shifts.moveWeek(1);
+    const weekOf = (r: { url: string }) => r.url === '/api/v1/staff/shifts';
+    const week = ctrl.expectOne(weekOf).request.params.get('from');
+    ctrl.match((r) => r.url.startsWith('/api/v1/staff')).forEach((r) => r.flush([]));
+
+    auth.setActiveBranch('b2');
+    TestBed.tick();
+
+    const reload = ctrl.expectOne(weekOf);
+    expect(reload.request.params.get('from')).toBe(week);
+    reload.flush([shift(false)]);
+    ctrl.expectOne('/api/v1/staff/shifts/open').flush([]);
+    ctrl.expectOne('/api/v1/staff/employees').flush([]);
+    expect(shifts.shifts().map((s) => s.id)).toEqual(['s1']);
+    ctrl.verify();
   });
 });

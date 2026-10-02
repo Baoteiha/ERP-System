@@ -4,8 +4,11 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { AuthService } from '../../core/auth.service';
 import { SUPPRESS_ERROR_TOAST } from '../../core/http.interceptors';
-import { MenuProduct } from '../../core/models';
+import { BranchResponse, MenuProduct } from '../../core/models';
+import { ToastService } from '../../core/toast.service';
+import { BranchSwitcher } from '../../layout/branch-switch';
 import { PosComponent } from './pos';
 
 const money = (amount: string) => ({ amount, currency: 'VND' });
@@ -37,6 +40,7 @@ describe('PosComponent', () => {
       providers: [provideZonelessChangeDetection(), provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     });
     ctrl = TestBed.inject(HttpTestingController);
+    TestBed.inject(AuthService).activeBranchId.set('b1');
     fixture = TestBed.createComponent(PosComponent);
     pos = fixture.componentInstance;
     ctrl.expectOne('/api/v1/categories').flush([]);
@@ -187,5 +191,42 @@ describe('PosComponent', () => {
     ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o2', status: 'OPEN', grandTotal: '58000', currency: 'VND' });
     ctrl.expectOne('/api/v1/orders/o2/payments').flush({ id: 'o2', status: 'COMPLETED', grandTotal: '58000', currency: 'VND' });
     expect(pos.createdOrder()?.id).toBe('o2');
+  });
+
+  describe('on a branch switch', () => {
+    const toasts = () => TestBed.inject(ToastService).toasts().map((t) => `${t.kind}: ${t.text}`);
+    function switchTo(id: string, name: string) {
+      TestBed.inject(BranchSwitcher).known.set([{ id, name, code: id.toUpperCase() } as BranchResponse]);
+      TestBed.inject(AuthService).setActiveBranch(id);
+      TestBed.tick();
+    }
+
+    it('reloads the menu, and clears an unsent cart with a note naming the new branch', () => {
+      pos.addProduct(latte);
+      pos.addProduct(mocha);
+      nextQuote().flush(quoteOf('58000'));
+
+      switchTo('b2', 'Riverside');
+      ctrl.expectOne('/api/v1/categories').flush([]);
+      ctrl.expectOne('/api/v1/menu').flush([mocha]);
+
+      expect(pos.cart()).toEqual([]);
+      expect(pos.products().map((p) => p.name)).toEqual(['Mocha']);
+      expect(toasts()).toEqual(['info: Cart cleared for Riverside']);
+    });
+
+    it('says nothing over an empty cart, and a late menu from the branch it left does not win', () => {
+      pos.load();
+      ctrl.expectOne('/api/v1/categories').flush([]);
+      const late = ctrl.expectOne('/api/v1/menu');
+
+      switchTo('b2', 'Riverside');
+      ctrl.expectOne('/api/v1/categories').flush([]);
+      ctrl.expectOne('/api/v1/menu').flush([mocha]);
+      late.flush([latte, mocha]);
+
+      expect(pos.products().map((p) => p.name)).toEqual(['Mocha']);
+      expect(toasts()).toEqual([]);
+    });
   });
 });

@@ -3,6 +3,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, map, of, switchMap } from 'rxjs';
 import { ReportingService } from '../../core/api.services';
+import { onBranchChange } from '../../core/branch-change';
 import { BranchPerformance, DailySales, PeriodSummary } from '../../core/models';
 import { MoneyPipe } from '../../core/util';
 import { IconComponent } from '../../shared/icon';
@@ -268,6 +269,8 @@ export class ReportsComponent {
       if (o) { this.outlets.set(o); this.outletsState.set('ready'); } else this.outletsState.set('error');
     });
     this.load();
+    // the same period for the new branch; the switchMaps above drop the old branch's answers still in flight
+    onBranchChange(() => this.load());
   }
 
   setRange(r: RangeDays) { this.rangeDays.set(r); this.load(); }

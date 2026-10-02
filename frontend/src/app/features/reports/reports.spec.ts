@@ -1,8 +1,12 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ReportingService } from '../../core/api.services';
+import { AuthService } from '../../core/auth.service';
+import { stubLocalStorage } from '../../core/test-storage';
 import { ReportsComponent, reportPeriod, zeroFillDays } from './reports';
 
 describe('report days', () => {
@@ -23,8 +27,9 @@ describe('report days', () => {
 describe('ReportsComponent', () => {
   const summary = { netSales: '100', orderCount: 1, grandTotal: '110', cogs: '10', laborCost: '200', grossMargin: '90', netMargin: '-110' };
   async function render() {
+    stubLocalStorage();
     TestBed.configureTestingModule({
-      providers: [provideZonelessChangeDetection(), { provide: ReportingService, useValue: {
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(), { provide: ReportingService, useValue: {
         summary: () => of(summary),
         salesByDay: () => of(reportPeriod(Date.now(), 2).days.map((day, i) => ({ day, orderCount: 1, netSales: String(100 * (i + 1)) }))),
         outlets: () => of([]),
@@ -55,5 +60,34 @@ describe('ReportsComponent', () => {
     const region = el.querySelector('[role="region"][tabindex="0"]');
     expect(region?.getAttribute('aria-label')).toBe('Net sales by day chart');
     expect(region?.querySelector('.chart-box > svg.chart')).not.toBeNull();
+  });
+});
+
+describe('ReportsComponent on a branch switch', () => {
+  it('reloads the period on screen for the new branch', () => {
+    stubLocalStorage();
+    const summary = vi.fn((from?: string, to?: string) => of({ netSales: '0', orderCount: 0, grandTotal: '0', cogs: '0', laborCost: '0', grossMargin: '0', netMargin: '0', from, to }));
+    const salesByDay = vi.fn(() => of([]));
+    const outlets = vi.fn(() => of([]));
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(),
+        { provide: ReportingService, useValue: { summary, salesByDay, outlets } }],
+    });
+    const auth = TestBed.inject(AuthService);
+    auth.activeBranchId.set('b1');
+    const reports = TestBed.createComponent(ReportsComponent).componentInstance;
+    TestBed.tick();
+    reports.setRange(30);
+    const thirty = summary.mock.calls[1];
+    expect(summary).toHaveBeenCalledTimes(2);
+
+    auth.setActiveBranch('b2');
+    TestBed.tick();
+
+    expect(summary).toHaveBeenCalledTimes(3);
+    expect(salesByDay).toHaveBeenCalledTimes(3);
+    expect(outlets).toHaveBeenCalledTimes(3);
+    expect(summary.mock.calls[2]).toEqual(thirty);
+    expect(reports.rangeDays()).toBe(30);
   });
 });
