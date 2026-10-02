@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.LockModeType;
@@ -27,7 +28,7 @@ public interface StockItemRepository extends JpaRepository<StockItem, UUID> {
      * Pessimistic-locking lookup used on the stock-mutation path so concurrent
      * receipts/depletions of the same item serialize instead of losing updates.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StockItem s WHERE s.ingredientId = :ingredientId AND s.branchId = :branchId")
     Optional<StockItem> findForUpdate(@Param("ingredientId") UUID ingredientId, @Param("branchId") UUID branchId);

@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
@@ -29,10 +30,20 @@ public class SystemTransactions {
      * the caller's company and its filtered connection.
      */
     public <T> T run(Supplier<T> work) {
+        refuseNesting();
         return TenantContext.runAsSystem(() -> requiresNew.execute(status -> work.get()));
     }
 
     public void run(Runnable work) {
+        refuseNesting();
         TenantContext.runAsSystem(() -> requiresNew.executeWithoutResult(status -> work.run()));
+    }
+
+    // One inside another would hold two owner connections at once; enough requests doing that together
+    // take the whole pool and then wait on each other until the borrow times out.
+    private static void refuseNesting() {
+        if (TenantContext.isSystem() && TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("A system transaction is already open on this thread");
+        }
     }
 }

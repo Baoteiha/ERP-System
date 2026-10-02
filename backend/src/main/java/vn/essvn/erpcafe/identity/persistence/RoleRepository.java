@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.identity.domain.Role;
@@ -23,7 +24,7 @@ public interface RoleRepository extends JpaRepository<Role, UUID> {
      * permissions never interleave. Call before loading the role, so the load reads what the lock protects.
      * Native SQL passes the tenant filter by, so it names the company itself.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     @Query(value = "SELECT id FROM role WHERE id = :id AND company_id = :companyId FOR UPDATE", nativeQuery = true)
     Optional<UUID> lockByIdAndCompanyId(@Param("id") UUID id, @Param("companyId") UUID companyId);
 }

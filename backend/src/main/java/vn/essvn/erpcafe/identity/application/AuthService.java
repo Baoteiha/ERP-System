@@ -46,21 +46,19 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final LoginAttemptService loginAttemptService;
-    private final RefreshTokenFamilyRevoker familyRevoker;
     private final SecurityProperties securityProperties;
     private final UserGrantCache grantCache;
     private final SystemTransactions system;
 
     public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, JwtService jwtService,
-            LoginAttemptService loginAttemptService, RefreshTokenFamilyRevoker familyRevoker,
-            SecurityProperties securityProperties, UserGrantCache grantCache, SystemTransactions system) {
+            LoginAttemptService loginAttemptService, SecurityProperties securityProperties,
+            UserGrantCache grantCache, SystemTransactions system) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.loginAttemptService = loginAttemptService;
-        this.familyRevoker = familyRevoker;
         this.securityProperties = securityProperties;
         this.grantCache = grantCache;
         this.system = system;
@@ -71,14 +69,11 @@ public class AuthService {
      * address; it only ever feeds the failed-attempt throttle.
      */
     public TokenPair login(String email, String rawPassword, String clientKey) {
-        return system.run(() -> verifyAndIssue(email, rawPassword, clientKey));
-    }
-
-    private TokenPair verifyAndIssue(String email, String rawPassword, String clientKey) {
         String normalizedEmail = User.normalizeEmail(email);
         loginAttemptService.checkNotBlocked(normalizedEmail, clientKey);
 
-        User found = userRepository.findByEmail(normalizedEmail).orElse(null);
+        // The hash check runs between two system transactions, so it never holds an owner connection.
+        User found = system.run(() -> userRepository.findByEmail(normalizedEmail)).orElse(null);
         // An unknown email still pays for one hash check, so response time does not reveal which emails exist.
         boolean passwordMatches = passwordEncoder.matches(rawPassword,
                 found != null ? found.getPasswordHash() : DUMMY_HASH);
@@ -93,14 +88,26 @@ public class AuthService {
         }
 
         loginAttemptService.reset(normalizedEmail, clientKey);
-        return issueTokens(user);
+        return system.run(() -> issueTokens(user));
     }
 
     public TokenPair refresh(String rawRefreshToken) {
-        return system.run(() -> rotate(rawRefreshToken));
+        Rotation rotation = system.run(() -> rotate(rawRefreshToken));
+        if (rotation.replayedFamily() != null) {
+            // Revoked in a transaction of its own, begun after the lookup's has ended: it commits although
+            // this request then fails, and the request never holds two owner connections at once.
+            system.run(() -> refreshTokenRepository.revokeFamily(rotation.replayedFamily()));
+            throw new BusinessRuleException(
+                    "Refresh token has already been used; all sessions have been revoked");
+        }
+        return rotation.tokens();
     }
 
-    private TokenPair rotate(String rawRefreshToken) {
+    /** The rotated token pair, or the family of a token presented again after it was rotated away. */
+    private record Rotation(TokenPair tokens, UUID replayedFamily) {
+    }
+
+    private Rotation rotate(String rawRefreshToken) {
         // We store only the SHA-256 hash, so look up by hash — a DB leak never exposes usable tokens.
         String hash = sha256(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
@@ -110,9 +117,7 @@ public class AuthService {
         // replayed, or the legitimate holder's copy was. Either way the family is compromised.
         // Revoke every live token descended from that login and force a fresh sign-in.
         if (stored.isRevoked()) {
-            familyRevoker.revokeFamily(stored.getFamilyId());
-            throw new BusinessRuleException(
-                    "Refresh token has already been used; all sessions have been revoked");
+            return new Rotation(null, stored.getFamilyId());
         }
         if (!stored.isActive(Instant.now())) {
             throw new BusinessRuleException("Refresh token expired or revoked");
@@ -125,7 +130,7 @@ public class AuthService {
         if (!user.isActive()) {
             throw new BusinessRuleException("Account is disabled");
         }
-        return issueTokens(user, stored.getFamilyId());
+        return new Rotation(issueTokens(user, stored.getFamilyId()), null);
     }
 
     // the token is the credential, and a request presenting it may carry no company at all

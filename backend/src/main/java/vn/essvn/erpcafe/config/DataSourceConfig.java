@@ -23,11 +23,8 @@ import vn.essvn.erpcafe.common.persistence.TenantRoutingDataSource;
  * Purpose: Defines the app role's and the schema owner's connection pools and routes each transaction to one of them.
  */
 @Configuration
-@EnableConfigurationProperties(FlywayProperties.class)
+@EnableConfigurationProperties({FlywayProperties.class, OwnerPoolProperties.class})
 public class DataSourceConfig {
-
-    // The owner serves only the system scope: login, refresh, logout, startup, two uniqueness checks, the purge.
-    private static final int OWNER_POOL_SIZE = 4;
 
     /** {@code spring.datasource.*}: erp_app, NOSUPERUSER NOBYPASSRLS. */
     @Bean
@@ -38,10 +35,13 @@ public class DataSourceConfig {
         return dataSource;
     }
 
-    /** {@code spring.flyway.*}: the schema owner with BYPASSRLS, which runs Flyway and the system scope. */
+    /**
+     * {@code spring.flyway.*}: the schema owner with BYPASSRLS, which runs Flyway and the system scope;
+     * {@code app.datasource.owner.*} sizes it ({@code spring.datasource.hikari.*} binds only the app pool).
+     */
     @Bean
     @FlywayDataSource
-    HikariDataSource ownerDataSource(DataSourceProperties app, FlywayProperties flyway) {
+    HikariDataSource ownerDataSource(DataSourceProperties app, FlywayProperties flyway, OwnerPoolProperties pool) {
         Assert.state(StringUtils.hasText(flyway.getUser()),
                 "spring.flyway.user must name the schema owner, a role with BYPASSRLS");
         HikariDataSource dataSource = new HikariDataSource();
@@ -49,7 +49,8 @@ public class DataSourceConfig {
         dataSource.setJdbcUrl(flyway.getUrl() != null ? flyway.getUrl() : app.determineUrl());
         dataSource.setUsername(flyway.getUser());
         dataSource.setPassword(flyway.getPassword());
-        dataSource.setMaximumPoolSize(OWNER_POOL_SIZE);
+        dataSource.setMaximumPoolSize(pool.maximumPoolSize());
+        dataSource.setConnectionTimeout(pool.connectionTimeout().toMillis());
         dataSource.setMinimumIdle(1);
         return dataSource;
     }

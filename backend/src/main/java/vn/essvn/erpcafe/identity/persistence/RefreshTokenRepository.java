@@ -21,8 +21,15 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     /** Outstanding tokens for a user — revoked in bulk when their credentials or status change. */
     List<RefreshToken> findByUserIdAndRevokedFalse(UUID userId);
 
-    /** Live tokens descended from one login — revoked together when a replay is detected. */
-    List<RefreshToken> findByFamilyIdAndRevokedFalse(UUID familyId);
+    /**
+     * Revokes every live token descended from one login, when a replay is detected. One statement, so
+     * replays racing each other each revoke whatever is still live and none trips over another's version.
+     */
+    @Transactional
+    @Modifying
+    @Query("update RefreshToken t set t.revoked = true, t.version = t.version + 1"
+            + " where t.familyId = :familyId and t.revoked = false")
+    int revokeFamily(@Param("familyId") UUID familyId);
 
     /** Bulk delete used by the daily purge; returns how many rows went. */
     @Transactional

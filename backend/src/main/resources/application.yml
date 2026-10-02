@@ -34,6 +34,12 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  datasource:
+    owner:
+      # The schema owner's pool, for the system scope only (login, refresh, logout, startup, the
+      # cross-company checks, the token purge). A request holds at most one of its connections at a time.
+      maximum-pool-size: 10
+      connection-timeout: 30s
   security:
     jwt:
       access-token-ttl: 15m

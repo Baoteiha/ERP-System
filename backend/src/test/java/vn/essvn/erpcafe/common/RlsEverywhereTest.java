@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +30,7 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.persistence.SystemTransactions;
+import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
@@ -81,6 +83,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private SystemTransactions system;
     @Autowired private UserBranchAccessRepository accessRepository;
+    @Autowired private RoleRepository roleRepository;
     @Autowired @Qualifier("ownerDataSource") private DataSource ownerDataSource;
 
     /** One company's row in every table it can own; the ids a test needs to aim at them. */
@@ -277,6 +280,21 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         Seeded a = seedEveryTable();
 
         assertThat(TenantContext.runAs(a.company(), () -> accessRepository.findByUserId(a.user()))).hasSize(1);
+    }
+
+    @Test
+    void aLockQuery_outsideATransaction_isRefused() {
+        assertThatThrownBy(() -> TenantContext.runAs(UUID.randomUUID(),
+                () -> roleRepository.lockByIdAndCompanyId(UUID.randomUUID(), UUID.randomUUID())))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
+    void aSystemTransactionInsideAnother_isRefused() {
+        // it would hold a second owner connection while the first is still taken
+        assertThatThrownBy(() -> system.run(() -> system.run(() -> 1)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already open");
     }
 
     @Test
