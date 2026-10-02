@@ -61,7 +61,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         COMPANY_OF.put("company", "t.id");
         for (String table : List.of("branch", "role", "app_user", "category", "modifier_group", "product",
                 "ingredient", "supplier", "item", "employee", "shift", "domain_event", "report_daily_branch",
-                "report_shift_labor", "report_applied_event")) {
+                "report_shift_labor", "report_applied_event", "auth_event")) {
             COMPANY_OF.put(table, "t.company_id");
         }
         for (String table : List.of("user_branch_access", "product_branch_availability", "stock_item",
@@ -211,6 +211,8 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         db.update("INSERT INTO report_shift_labor (shift_id, company_id, branch_id, day, labor_cost)"
                 + " VALUES (?, ?, ?, current_date, 0)", UUID.randomUUID(), company, branch);
         db.update("INSERT INTO report_applied_event (event_id, company_id) VALUES (?, ?)", UUID.randomUUID(), company);
+        db.update("INSERT INTO auth_event (id, company_id, user_id, type) VALUES (?, ?, ?, 'LOGIN_SUCCEEDED')",
+                UUID.randomUUID(), company, user);
         return new Seeded(company, branch, user, ingredient, order, payment);
     }
 

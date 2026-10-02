@@ -19,6 +19,7 @@ import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.identity.domain.AccessPolicy;
+import vn.essvn.erpcafe.identity.domain.AuthEventType;
 import vn.essvn.erpcafe.identity.domain.HeldAccess;
 import vn.essvn.erpcafe.identity.domain.Permission;
 import vn.essvn.erpcafe.identity.domain.RefreshToken;
@@ -53,12 +54,13 @@ public class UserService {
     private final CurrentUser currentUser;
     private final UserGrantCache grantCache;
     private final AuthVersions authVersions;
+    private final AuthEventLog events;
     private final SystemTransactions system;
 
     UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser,
-            UserGrantCache grantCache, AuthVersions authVersions, SystemTransactions system) {
+            UserGrantCache grantCache, AuthVersions authVersions, AuthEventLog events, SystemTransactions system) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -68,6 +70,7 @@ public class UserService {
         this.currentUser = currentUser;
         this.grantCache = grantCache;
         this.authVersions = authVersions;
+        this.events = events;
         this.system = system;
     }
 
@@ -118,6 +121,8 @@ public class UserService {
         requireCanManage(userId);
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         grantCache.evictAfterCommit(userId);
+        events.record(AuthEventType.ACCESS_GRANTED, user.getCompanyId(), userId,
+                Map.of("branchId", branchId, "roleId", roleId));
         return accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .map(existing -> {
                     existing.setRoleId(roleId);
@@ -131,7 +136,7 @@ public class UserService {
      * it would: a user the actor can manage, and a branch the actor holds.
      */
     public void revokeAccess(UUID userId, UUID branchId) {
-        get(userId);
+        User user = get(userId);
         UserBranchAccess access = accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User " + userId + " has no access at branch " + branchId));
@@ -141,6 +146,8 @@ public class UserService {
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         accessRepository.delete(access);
         grantCache.evictAfterCommit(userId);
+        events.record(AuthEventType.ACCESS_REVOKED, user.getCompanyId(), userId,
+                Map.of("branchId", branchId, "roleId", access.getRoleId()));
     }
 
     // --- account lifecycle ---
@@ -176,6 +183,7 @@ public class UserService {
             revokeAllTokens(id);
         }
         authVersions.bump(user.getCompanyId(), List.of(id));
+        events.record(AuthEventType.STATUS_CHANGED, user.getCompanyId(), id, Map.of("status", status));
         return user;
     }
 
@@ -190,6 +198,7 @@ public class UserService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(userId);
         authVersions.bump(user.getCompanyId(), List.of(userId));
+        events.record(AuthEventType.PASSWORD_CHANGED, user.getCompanyId(), userId, Map.of());
     }
 
     /** Administrative reset; does not need the old password, but does need user:write. */
@@ -199,6 +208,7 @@ public class UserService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(user.getId());
         authVersions.bump(user.getCompanyId(), List.of(user.getId()));
+        events.record(AuthEventType.PASSWORD_RESET, user.getCompanyId(), user.getId(), Map.of());
     }
 
     // Emails are unique across companies (login finds a user by email alone), so the check runs as

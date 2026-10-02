@@ -41,7 +41,7 @@ origin of most defects in §9.
 | MFA / passwordless / SSO federation | ⬜ none |
 | Forgotten-password self-service (email flow) | ⬜ none |
 | Key rotation | ✅ a key set with key ids; any configured key verifies, the active one signs |
-| Login/session audit trail | ⬜ none beyond application logs |
+| Login/session audit trail | ✅ `auth_event`, read at `GET /api/v1/auth-events` |
 
 ## 3. Domain model
 
@@ -210,6 +210,27 @@ access tokens remain valid until they expire (up to 15 minutes).
 `GET /api/v1/auth/me` returns the caller's identity, permissions, roles, and
 accessible branches, reconstructed from the token.
 
+### AUTH-107 — Audit trail
+
+Every sign-in, failed sign-in, refresh, replayed refresh token and sign-out,
+and every grant, revoke, password change or reset and status change, is
+recorded in `auth_event`: the user it is about, their company, the type, the
+client address (as the login throttle sees it), when, and a `detail` object —
+the branch and role of a grant or revoke, the new status, the token family
+(`session`) of a sign-in, refresh or sign-out, the attempted email and reason
+of a failed sign-in, and `actorUserId` whenever someone else made the change.
+An access change is recorded in the transaction that makes it; a sign-in,
+refresh or sign-out is written as the schema owner, since no company is in
+force yet, and a failed one in a transaction of its own so it outlives the
+failed request. A failed sign-in for an email no account has is kept for no
+company, where only the owner sees it; a throttled attempt (429) is not
+recorded, so a flood cannot fill the table.
+
+`GET /api/v1/auth-events` (`user:read`) pages through the caller's company's
+trail, newest first; `userId` narrows it to one user. Row-level security keeps
+each company to its own rows, and the app role may add rows but never change or
+delete one. Nothing purges the table yet.
+
 ## 7. Request authorization pipeline
 
 For every request, in order:
@@ -288,6 +309,7 @@ from one that was never real.
 | AUTH-G16 | No account lifecycle: `UserStatus.DISABLED` and the password setter existed but were never called, so an account could not be disabled and a password never changed | `AccountLifecycleIntegrationTest` |
 | AUTH-G17 | No role lifecycle: roles could be created but never renamed or deleted | `RoleLifecycleIntegrationTest` |
 | AUTH-G08 | Revocation lag: a role, grant, status or password change stayed ineffective for up to 15 minutes | Grants, revokes and role edits reach issued tokens through the grant and role caches (ADR-0007); a status change, a password change or reset, and a branch closing move the user's `auth_version`, which ends every token carrying the old `av`. `AuthGapsIntegrationTest`. Other instances follow within the caches' lifetimes (30 s and 60 s) |
+| AUTH-G14 | No authentication audit trail: logins, refreshes, grants and revocations were not recorded as durable events | `auth_event` and `GET /api/v1/auth-events` (AUTH-107); `AuthGapsIntegrationTest`, `RlsEverywhereTest` |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
@@ -301,7 +323,6 @@ MANAGER and CASHIER.
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
 | AUTH-G12 | **No forgotten-password self-service.** Change and administrative reset now exist (AUTH-106), but a user locked out with no admin available has no email-based recovery. No password complexity policy beyond an 8-character floor | 🟡 low |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies | 🟡 low |
-| AUTH-G14 | **No authentication audit trail.** Logins, refreshes, grants, and revocations are not recorded as durable events | 🟡 low |
 | AUTH-G18 | **Login throttle is per-instance and in memory.** It resets on restart and is not shared across replicas, so it degrades as soon as the app is scaled out | 🟡 low |
 | AUTH-G19 | **A new branch has no one who can reach it.** All access is per branch, so creating a branch grants nobody access to it, including the owner who created it. Harmless today because permissions are unioned, but it is a hard blocker for AUTH-G07 | 🟠 medium |
 

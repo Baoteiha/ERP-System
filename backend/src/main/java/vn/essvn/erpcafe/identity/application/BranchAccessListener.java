@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.identity.application;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -10,6 +11,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.identity.domain.AuthEventType;
 import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.domain.Role;
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
@@ -34,14 +36,17 @@ public class BranchAccessListener {
     private final OrganizationApi organizationApi;
     private final UserGrantCache grantCache;
     private final AuthVersions authVersions;
+    private final AuthEventLog events;
 
     BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository,
-            OrganizationApi organizationApi, UserGrantCache grantCache, AuthVersions authVersions) {
+            OrganizationApi organizationApi, UserGrantCache grantCache, AuthVersions authVersions,
+            AuthEventLog events) {
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
         this.organizationApi = organizationApi;
         this.grantCache = grantCache;
         this.authVersions = authVersions;
+        this.events = events;
     }
 
     /**
@@ -72,6 +77,8 @@ public class BranchAccessListener {
             roleRepository.lockByIdAndCompanyId(id, event.companyId());
             accessRepository.save(new UserBranchAccess(event.actorUserId(), event.branchId(), id));
             grantCache.evictAfterCommit(event.actorUserId());
+            events.record(AuthEventType.ACCESS_GRANTED, event.companyId(), event.actorUserId(),
+                    Map.of("branchId", event.branchId(), "roleId", id, "reason", "BRANCH_CREATED"));
         });
     }
 
@@ -90,6 +97,8 @@ public class BranchAccessListener {
     private void revokeAll(UUID branchId, UUID companyId) {
         List<UserBranchAccess> grants = accessRepository.findByBranchId(branchId);
         accessRepository.deleteAll(grants);
+        grants.forEach(g -> events.record(AuthEventType.ACCESS_REVOKED, companyId, g.getUserId(),
+                Map.of("branchId", branchId, "roleId", g.getRoleId(), "reason", "BRANCH_CLOSED")));
         authVersions.bump(companyId, grants.stream().map(UserBranchAccess::getUserId).distinct().toList());
     }
 }

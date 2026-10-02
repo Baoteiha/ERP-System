@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.identity;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -32,9 +34,14 @@ import com.jayway.jsonpath.JsonPath;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import vn.essvn.erpcafe.config.SecurityProperties;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.config.SecurityProperties.Key;
+import vn.essvn.erpcafe.identity.domain.User;
+import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AccessClaims;
 import vn.essvn.erpcafe.identity.security.JwtService;
+import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -49,6 +56,10 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private SecurityProperties security;
     @Autowired @Qualifier("ownerDataSource") private DataSource ownerDataSource;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private UserRepository users;
+    @Autowired private CompanyRepository companies;
+    @Autowired private PasswordEncoder passwordEncoder;
 
     private record NewUser(String id, String email) {
     }
@@ -96,6 +107,47 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         String roleId = JsonPath.<List<String>>read(roles, "$[?(@.name == '%s')].id".formatted(roleName)).get(0);
         json(send(post("/api/v1/users/" + user.id() + "/access"), admin, null,
                 "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchId, roleId)));
+    }
+
+    private JdbcTemplate owner() {
+        return new JdbcTemplate(ownerDataSource);
+    }
+
+    private int login(String email, String password, String address) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/login")
+                        .with(request -> {
+                            request.setRemoteAddr(address);
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)))
+                .andReturn().getResponse().getStatus();
+    }
+
+    private String uniqueAddress() {
+        int n = SEQ.incrementAndGet();
+        return "10.36.%d.%d".formatted(n / 250, n % 250 + 1);
+    }
+
+    private ResultActions refresh(String refreshToken) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\":\"%s\"}".formatted(refreshToken)));
+    }
+
+    /** A user of a company of its own, with no grants; the password is password123. */
+    private NewUser foreignUser() {
+        int n = SEQ.incrementAndGet();
+        Company other = TenantContext.runAsSystem(
+                () -> companies.save(new Company("Gaps Other %d".formatted(n), "GPO%d".formatted(n))));
+        String email = "gaps-foreign%d@t.test".formatted(n);
+        User user = TenantContext.runAs(other.getId(),
+                () -> users.save(new User(email, passwordEncoder.encode(PASSWORD), "Foreign")));
+        return new NewUser(user.getId().toString(), email);
+    }
+
+    private List<String> eventTypes(String admin, String userId) throws Exception {
+        return JsonPath.read(json(send(get("/api/v1/auth-events?size=100&userId=" + userId), admin, null, null)),
+                "$.content[*].type");
     }
 
     private void expectStale(ResultActions result) throws Exception {
@@ -278,5 +330,98 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
                 "{\"refreshToken\":\"%s\"}".formatted(refresh))), "$.refreshToken");
         send(post("/api/v1/auth/logout"), token, branch, "{\"refreshToken\":\"%s\"}".formatted(rotated))
                 .andExpect(status().isNoContent());
+    }
+
+    // --- G14: the authentication audit trail ---
+
+    @Test
+    void aLoginFailure_writesAnAuthEvent() throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        String address = uniqueAddress();
+
+        assertThat(login(user.email(), "not-the-password", address)).isEqualTo(401);
+
+        Map<String, Object> event = owner().queryForMap("SELECT e.company_id, e.ip, e.detail ->> 'email' AS email,"
+                + " u.company_id AS user_company FROM auth_event e JOIN app_user u ON u.id = e.user_id"
+                + " WHERE e.user_id = ? AND e.type = 'LOGIN_FAILED'", UUID.fromString(user.id()));
+        assertThat(event.get("company_id")).isEqualTo(event.get("user_company"));
+        assertThat(event).containsEntry("ip", address).containsEntry("email", user.email());
+        assertThat(eventTypes(admin, user.id())).contains("LOGIN_FAILED");
+    }
+
+    @Test
+    void aLoginFailureForAnUnknownEmail_isKeptForNoCompany() throws Exception {
+        String email = "gaps-nobody%d@t.test".formatted(SEQ.incrementAndGet());
+
+        assertThat(login(email, "whatever", uniqueAddress())).isEqualTo(401);
+
+        assertThat(owner().queryForObject("SELECT count(*) FROM auth_event WHERE type = 'LOGIN_FAILED'"
+                + " AND company_id IS NULL AND user_id IS NULL AND detail ->> 'email' = ?", Long.class, email))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void theAuditTrail_recordsSessionsAndEveryAccessChange_newestFirst() throws Exception {
+        String admin = adminToken();
+        String branch = firstBranch(admin);
+        NewUser user = userWithRole(admin, "CASHIER", branch);
+        String first = JsonPath.read(loginBody(user.email(), PASSWORD), "$.refreshToken");
+        refresh(first).andExpect(status().isOk());
+        refresh(first).andExpect(status().isUnprocessableEntity());
+        String session = loginBody(user.email(), PASSWORD);
+        mockMvc.perform(post("/api/v1/auth/logout").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"%s\"}".formatted(
+                                JsonPath.<String>read(session, "$.refreshToken"))))
+                .andExpect(status().isNoContent());
+        send(post("/api/v1/users/me/password"), JsonPath.read(session, "$.accessToken"), null,
+                "{\"currentPassword\":\"%s\",\"newPassword\":\"another-pass-3\"}".formatted(PASSWORD))
+                .andExpect(status().isNoContent());
+        send(put("/api/v1/users/" + user.id() + "/password"), admin, null, "{\"newPassword\":\"another-pass-4\"}")
+                .andExpect(status().isNoContent());
+        json(send(put("/api/v1/users/" + user.id() + "/status"), admin, null, "{\"status\":\"DISABLED\"}"));
+        send(delete("/api/v1/users/" + user.id() + "/access/" + branch), admin, null, null)
+                .andExpect(status().isNoContent());
+
+        assertThat(eventTypes(admin, user.id())).containsExactly("ACCESS_REVOKED", "STATUS_CHANGED",
+                "PASSWORD_RESET", "PASSWORD_CHANGED", "LOGGED_OUT", "LOGIN_SUCCEEDED", "REFRESH_REUSE_DETECTED",
+                "TOKEN_REFRESHED", "LOGIN_SUCCEEDED", "ACCESS_GRANTED");
+        String adminId = JsonPath.read(json(send(get("/api/v1/auth/me"), admin, null, null)), "$.userId");
+        String revoked = json(send(get("/api/v1/auth-events?size=1&userId=" + user.id()), admin, null, null));
+        assertThat(JsonPath.<String>read(revoked, "$.content[0].detail.actorUserId")).isEqualTo(adminId);
+        assertThat(JsonPath.<String>read(revoked, "$.content[0].detail.branchId")).isEqualTo(branch);
+    }
+
+    @Test
+    void theAuditTrail_showsOnlyTheCallersCompany() throws Exception {
+        NewUser foreign = foreignUser();
+        assertThat(login(foreign.email(), PASSWORD, uniqueAddress())).isEqualTo(200);
+        String admin = adminToken();
+
+        send(get("/api/v1/auth-events?userId=" + foreign.id()), admin, null, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        String all = json(send(get("/api/v1/auth-events?size=200"), admin, null, null));
+        assertThat(JsonPath.<List<String>>read(all, "$.content[*].userId")).doesNotContain(foreign.id());
+        assertThat(owner().queryForObject("SELECT count(*) FROM auth_event WHERE user_id = ?", Long.class,
+                UUID.fromString(foreign.id()))).isEqualTo(1);
+    }
+
+    @Test
+    void theAuditTrail_needsUserRead() throws Exception {
+        String admin = adminToken();
+        NewUser cashier = userWithRole(admin, "CASHIER", firstBranch(admin));
+
+        send(get("/api/v1/auth-events"), accessToken(cashier.email(), PASSWORD), null, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void theAppRole_addsToTheAuditTrail_butNeverRewritesIt() {
+        assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_event', 'SELECT')", Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_event', 'INSERT')", Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_event', 'UPDATE, DELETE')", Boolean.class))
+                .isFalse();
     }
 }
