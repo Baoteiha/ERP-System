@@ -101,7 +101,8 @@ public class BranchService implements OrganizationApi {
         apply(branch, request);
         if (wasActive && !branch.isActive()) {
             requireNoLiveWork(branch);
-            events.publishEvent(new BranchDeactivated(branch.getId(), branch.getCompanyId()));
+            events.publishEvent(
+                    new BranchDeactivated(branch.getId(), branch.getCompanyId(), identityApi.requireUserId()));
         }
         return branch;
     }
@@ -112,7 +113,7 @@ public class BranchService implements OrganizationApi {
         requireBranchWriteAt(id);
         requireNoLiveWork(branch);
         branchRepository.delete(branch);
-        events.publishEvent(new BranchDeleted(id, branch.getCompanyId()));
+        events.publishEvent(new BranchDeleted(id, branch.getCompanyId(), identityApi.requireUserId()));
     }
 
     /**

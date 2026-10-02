@@ -464,6 +464,37 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void aSessionEvent_namesNoActor_whateverBearerTheRequestCarries() throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+
+        // the user signs in on a client that still sends the owner's access token
+        mockMvc.perform(post("/api/v1/auth/login").header(HttpHeaders.AUTHORIZATION, authHeader(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(user.email(), PASSWORD)))
+                .andExpect(status().isOk());
+
+        String latest = json(send(get("/api/v1/auth-events?size=1&userId=" + user.id()), admin, null, null));
+        assertThat(JsonPath.<String>read(latest, "$.content[0].type")).isEqualTo("LOGIN_SUCCEEDED");
+        assertThat(JsonPath.<Map<String, Object>>read(latest, "$.content[0].detail")).doesNotContainKey("actorUserId");
+    }
+
+    @Test
+    void aBranchClosing_namesWhoClosedIt_onEveryRevokedGrant() throws Exception {
+        String admin = adminToken();
+        String adminId = JsonPath.read(json(send(get("/api/v1/auth/me"), admin, null, null)), "$.userId");
+        String closing = createBranch(admin);
+        NewUser user = userWithRole(admin, "CASHIER", closing);
+
+        send(delete("/api/v1/branches/" + closing), admin, null, null).andExpect(status().isNoContent());
+
+        String latest = json(send(get("/api/v1/auth-events?size=1&userId=" + user.id()), adminToken(), null, null));
+        assertThat(JsonPath.<String>read(latest, "$.content[0].type")).isEqualTo("ACCESS_REVOKED");
+        assertThat(JsonPath.<String>read(latest, "$.content[0].detail.reason")).isEqualTo("BRANCH_CLOSED");
+        assertThat(JsonPath.<String>read(latest, "$.content[0].detail.actorUserId")).isEqualTo(adminId);
+    }
+
+    @Test
     void theAuditTrail_showsOnlyTheCallersCompany() throws Exception {
         NewUser foreign = foreignUser();
         assertThat(login(foreign.email(), PASSWORD, uniqueAddress())).isEqualTo(200);

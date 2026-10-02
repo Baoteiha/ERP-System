@@ -124,7 +124,7 @@ public class UserService {
         requireCanManage(userId);
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         grantCache.evictAfterCommit(userId);
-        events.record(AuthEventType.ACCESS_GRANTED, user.getCompanyId(), userId,
+        events.recordBy(currentUser.require().userId(), AuthEventType.ACCESS_GRANTED, user.getCompanyId(), userId,
                 Map.of("branchId", branchId, "roleId", roleId));
         return accessRepository.findByUserIdAndBranchId(userId, branchId)
                 .map(existing -> {
@@ -149,7 +149,7 @@ public class UserService {
         AccessPolicy.requireCanGrant(currentUser.require(), role, branchId);
         accessRepository.delete(access);
         grantCache.evictAfterCommit(userId);
-        events.record(AuthEventType.ACCESS_REVOKED, user.getCompanyId(), userId,
+        events.recordBy(currentUser.require().userId(), AuthEventType.ACCESS_REVOKED, user.getCompanyId(), userId,
                 Map.of("branchId", branchId, "roleId", access.getRoleId()));
     }
 
@@ -190,7 +190,8 @@ public class UserService {
             revokeAllTokens(id);
         }
         authVersions.bump(user.getCompanyId(), List.of(id));
-        events.record(AuthEventType.STATUS_CHANGED, user.getCompanyId(), id, Map.of("status", status));
+        events.recordBy(currentUser.require().userId(), AuthEventType.STATUS_CHANGED, user.getCompanyId(), id,
+                Map.of("status", status));
         return user;
     }
 
@@ -215,7 +216,8 @@ public class UserService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(user.getId());
         authVersions.bump(user.getCompanyId(), List.of(user.getId()));
-        events.record(AuthEventType.PASSWORD_RESET, user.getCompanyId(), user.getId(), Map.of());
+        events.recordBy(currentUser.require().userId(), AuthEventType.PASSWORD_RESET, user.getCompanyId(),
+                user.getId(), Map.of());
     }
 
     // Emails are unique across companies (login finds a user by email alone), so the check runs as

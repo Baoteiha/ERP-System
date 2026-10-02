@@ -230,7 +230,10 @@ recorded in `auth_event`: the user it is about, their company, the type, the
 client address (as the login throttle sees it), when, and a `detail` object —
 the branch and role of a grant or revoke, the new status, the token family
 (`session`) of a sign-in, refresh or sign-out, the attempted email and reason
-of a failed sign-in, and `actorUserId` whenever someone else made the change.
+of a failed sign-in, and `actorUserId` on a change someone made to another
+user (a grant, revoke, status change, administrative reset, branch closing),
+passed by the code that made it. The user's own sign-in, refresh, sign-out or
+password change names no actor, whatever access token the request carried.
 An access change is recorded in the transaction that makes it; a sign-in,
 refresh or sign-out is written as the schema owner, since no company is in
 force yet, and a failed one in a transaction of its own so it outlives the

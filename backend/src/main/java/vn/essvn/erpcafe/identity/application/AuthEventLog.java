@@ -14,33 +14,33 @@ import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.AuthEvent;
 import vn.essvn.erpcafe.identity.domain.AuthEventType;
 import vn.essvn.erpcafe.identity.persistence.AuthEventStore;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /**
  * Class: AuthEventLog
- * Purpose: Records authentication events on the audit trail, with client address and acting user, and reads it back.
+ * Purpose: Records authentication events on the audit trail, with the client address, and reads it back.
  */
 @Component
 public class AuthEventLog {
 
     private final AuthEventStore store;
-    private final CurrentUser currentUser;
 
-    AuthEventLog(AuthEventStore store, CurrentUser currentUser) {
+    AuthEventLog(AuthEventStore store) {
         this.store = store;
-        this.currentUser = currentUser;
     }
 
     /**
-     * Records an event about {@code userId} of {@code companyId} (both null for a sign-in naming no account),
-     * inside the caller's transaction. When someone else is signed in, the detail names them as the actor.
+     * Records, inside the caller's transaction, an event about {@code userId} of {@code companyId} that the
+     * user brought about themselves: a sign-in (both null when it named no account), a refresh, a sign-out,
+     * their own password change. No actor is named, whatever access token the request happened to carry.
      */
     void record(AuthEventType type, UUID companyId, UUID userId, Map<String, ?> detail) {
+        store.append(companyId, userId, type, clientAddress(), Map.copyOf(detail));
+    }
+
+    /** Records a change {@code actorUserId} made to the user's access or account; the detail names them. */
+    void recordBy(UUID actorUserId, AuthEventType type, UUID companyId, UUID userId, Map<String, ?> detail) {
         Map<String, Object> all = new LinkedHashMap<>(detail);
-        currentUser.get().map(AuthPrincipal::userId)
-                .filter(actor -> !actor.equals(userId))
-                .ifPresent(actor -> all.put("actorUserId", actor));
+        all.put("actorUserId", actorUserId);
         store.append(companyId, userId, type, clientAddress(), all);
     }
 

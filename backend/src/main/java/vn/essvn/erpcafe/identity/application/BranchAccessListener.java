@@ -84,20 +84,20 @@ public class BranchAccessListener {
 
     @EventListener
     public void onBranchDeleted(BranchDeleted event) {
-        revokeAll(event.branchId(), event.companyId());
+        revokeAll(event.branchId(), event.companyId(), event.actorUserId());
     }
 
     @EventListener
     public void onBranchDeactivated(BranchDeactivated event) {
-        revokeAll(event.branchId(), event.companyId());
+        revokeAll(event.branchId(), event.companyId(), event.actorUserId());
     }
 
     // The grant cache alone would drop the branch from tokens already issued; ending those tokens
     // makes each holder's next request refresh into one that no longer names it (R26).
-    private void revokeAll(UUID branchId, UUID companyId) {
+    private void revokeAll(UUID branchId, UUID companyId, UUID actorUserId) {
         List<UserBranchAccess> grants = accessRepository.findByBranchId(branchId);
         accessRepository.deleteAll(grants);
-        grants.forEach(g -> events.record(AuthEventType.ACCESS_REVOKED, companyId, g.getUserId(),
+        grants.forEach(g -> events.recordBy(actorUserId, AuthEventType.ACCESS_REVOKED, companyId, g.getUserId(),
                 Map.of("branchId", branchId, "roleId", g.getRoleId(), "reason", "BRANCH_CLOSED")));
         authVersions.bump(companyId, grants.stream().map(UserBranchAccess::getUserId).distinct().toList());
     }
