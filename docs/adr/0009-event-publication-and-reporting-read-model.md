@@ -143,12 +143,12 @@ another service once one is extracted.
 - COGS on the events is what the sale recorded (`Order.cogsTotal`, the cost
   the reversal returned), the ledger's cost with its own sign, and the rebuild
   costs the movements the same way. The old live query
-  (`StockMovementRepository.costOfType`, no longer used by reports) took
+  (`StockMovementRepository.costOfType`, since removed) took
   |quantity|, so where a modifier made an ingredient's net consumption
   negative, the read model now shows that stock as returned, where the old
   reports showed it as a cost.
 - `SalesApi.summary`/`salesByDay`, `InventoryApi.depletionCost` and
-  `StaffApi.laborCost`/`laborCostByBranch` no longer feed reports.
+  `StaffApi.laborCost`/`laborCostByBranch` no longer fed reports and were removed, with their queries.
 - New SQL outside the tenant seam, each naming its company or running in it,
   with row-level security as the backstop: the publisher's insert, the
   dispatcher's bookkeeping, `DailyBranchFiguresRepository.add` and

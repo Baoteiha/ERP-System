@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.staff;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -10,11 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -28,13 +25,10 @@ import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
-import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.organization.domain.Branch;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.BranchRepository;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
-import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
 import vn.essvn.erpcafe.staff.domain.ShiftStatus;
@@ -44,7 +38,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: PinClockTest
- * Purpose: Pins PIN-protected clocking and the tenant-safe, batchable labor cost of the StaffApi.
+ * Purpose: Pins PIN-protected clocking and its tenant isolation.
  */
 class PinClockTest extends AbstractIntegrationTest {
 
@@ -54,8 +48,6 @@ class PinClockTest extends AbstractIntegrationTest {
     @Autowired private ShiftRepository shiftRepository;
     @Autowired private BranchRepository branchRepository;
     @Autowired private CompanyRepository companyRepository;
-    @Autowired private StaffApi staffApi;
-    @Autowired private OrganizationApi organizationApi;
 
     private String token;
     private String branchId;
@@ -265,60 +257,12 @@ class PinClockTest extends AbstractIntegrationTest {
         assertThat(storedEmployee(foreign.employeeId()).hasPin()).isFalse();
     }
 
-    @Test
-    void laborCost_forAnotherCompanysBranch_isNotFound() throws Exception {
-        login();
-        UUID myCompany = TenantContext.runAsSystem(() -> organizationApi.companyIdOf(UUID.fromString(branchId)))
-                .orElseThrow();
-        Foreign foreign = seedForeign();
-        Instant from = Instant.now().minus(Duration.ofDays(1));
-        Instant to = Instant.now().plus(Duration.ofDays(1));
-
-        assertThatThrownBy(() -> TenantContext.runAs(myCompany,
-                () -> staffApi.laborCost(myCompany, foreign.branchIds().get(0), from, to)))
-                .isInstanceOf(ResourceNotFoundException.class);
-        assertThatThrownBy(() -> TenantContext.runAs(myCompany,
-                () -> staffApi.laborCostByBranch(myCompany, foreign.branchIds(), from, to)))
-                .isInstanceOf(ResourceNotFoundException.class);
-    }
-
-    @Test
-    void laborCostByBranch_equalsThePerBranchSums() throws Exception {
-        Foreign foreign = seedForeign();
-        Instant now = Instant.now();
-        completed(foreign, 0, now.minus(5, ChronoUnit.HOURS), 2, "30000");
-        completed(foreign, 0, now.minus(3, ChronoUnit.HOURS), 1, "20000");
-        completed(foreign, 1, now.minus(4, ChronoUnit.HOURS), 3, "10000");
-        // outside the window: clocked out two days ago
-        completed(foreign, 0, now.minus(48, ChronoUnit.HOURS), 1, "99999");
-        Instant from = now.minus(1, ChronoUnit.DAYS);
-
-        Map<UUID, BigDecimal> batch = TenantContext.runAs(foreign.companyId(),
-                () -> staffApi.laborCostByBranch(foreign.companyId(), foreign.branchIds(), from, now));
-
-        assertThat(batch).hasSize(2);
-        for (UUID b : foreign.branchIds()) {
-            assertThat(batch.get(b)).isEqualByComparingTo(TenantContext.runAs(foreign.companyId(),
-                    () -> staffApi.laborCost(foreign.companyId(), b, from, now)));
-        }
-        assertThat(batch.get(foreign.branchIds().get(0))).isEqualByComparingTo("80000");
-        assertThat(batch.get(foreign.branchIds().get(1))).isEqualByComparingTo("30000");
-    }
-
     private Shift storedShift(UUID id) {
         return TenantContext.runAsSystem(() -> shiftRepository.findById(id).orElseThrow());
     }
 
     private Employee storedEmployee(UUID id) {
         return TenantContext.runAsSystem(() -> employeeRepository.findById(id).orElseThrow());
-    }
-
-    private void completed(Foreign f, int branchIdx, Instant clockOut, int hours, String rate) {
-        Shift s = new Shift(f.branchIds().get(branchIdx), f.employeeId(),
-                clockOut.minus(hours + 1, ChronoUnit.HOURS), clockOut, null);
-        s.clockIn(clockOut.minus(hours, ChronoUnit.HOURS), Money.of(new BigDecimal(rate)));
-        s.clockOut(clockOut, Duration.ofHours(16));
-        TenantContext.runAs(f.companyId(), () -> shiftRepository.save(s));
     }
 
     private record Foreign(UUID companyId, List<UUID> branchIds, UUID employeeId) {

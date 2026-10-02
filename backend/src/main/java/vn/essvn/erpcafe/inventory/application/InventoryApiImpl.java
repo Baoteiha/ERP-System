@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,7 +16,6 @@ import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
-import vn.essvn.erpcafe.inventory.domain.MovementType;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockMovementRepository;
@@ -86,13 +84,5 @@ public class InventoryApiImpl implements InventoryApi {
     @Transactional
     public CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType) {
         return ledger.reverseDeduction(branchId, refType, refId, reversalRefType);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public BigDecimal depletionCost(UUID branchId, Instant from, Instant to) {
-        BigDecimal depleted = movementRepository.costOfType(branchId, MovementType.SALE_DEPLETION, from, to);
-        BigDecimal reversed = movementRepository.costOfType(branchId, MovementType.SALE_REVERSAL, from, to);
-        return depleted.subtract(reversed);
     }
 }

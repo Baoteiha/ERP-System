@@ -1,11 +1,7 @@
 package vn.essvn.erpcafe.staff.application;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,7 +15,6 @@ import vn.essvn.erpcafe.common.events.DomainEventPublisher;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.organization.api.OrganizationApi;
 import vn.essvn.erpcafe.staff.api.ShiftCompleted;
 import vn.essvn.erpcafe.staff.api.StaffApi;
 import vn.essvn.erpcafe.staff.domain.Employee;
@@ -31,7 +26,7 @@ import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
 /**
  * Shift scheduling and time-clock use cases for the active branch. Clock-in
  * snapshots the employee's current hourly rate; clock-out captures the shift's
- * labor cost. Implements {@link StaffApi} for reporting.
+ * labor cost. Implements {@link StaffApi}.
  */
 @Service
 @Transactional
@@ -43,19 +38,15 @@ public class ShiftService implements StaffApi {
     private final StaffProperties properties;
     // Lazy: the encoder lives in SecurityConfig, whose filter chain reaches back here via organization.
     private final ObjectProvider<PasswordEncoder> passwordEncoder;
-    // Lazy: organization already depends on this module (BranchService calls hasOpenShifts).
-    private final ObjectProvider<OrganizationApi> organizationApi;
     private final PinAttemptService pinAttempts;
     private final DomainEventPublisher events;
 
     public ShiftService(ShiftRepository shiftRepository, EmployeeRepository employeeRepository,
             StaffProperties properties, ObjectProvider<PasswordEncoder> passwordEncoder,
-            ObjectProvider<OrganizationApi> organizationApi, PinAttemptService pinAttempts,
-            DomainEventPublisher events) {
+            PinAttemptService pinAttempts, DomainEventPublisher events) {
         this.events = events;
         this.pinAttempts = pinAttempts;
         this.passwordEncoder = passwordEncoder;
-        this.organizationApi = organizationApi;
         this.properties = properties;
         this.shiftRepository = shiftRepository;
         this.employeeRepository = employeeRepository;
@@ -163,29 +154,5 @@ public class ShiftService implements StaffApi {
     @Transactional(readOnly = true)
     public boolean hasOpenShifts(UUID companyId, UUID branchId) {
         return shiftRepository.existsByCompanyIdAndBranchIdAndStatus(companyId, branchId, ShiftStatus.IN_PROGRESS);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public BigDecimal laborCost(UUID companyId, UUID branchId, Instant from, Instant to) {
-        return laborCostByBranch(companyId, List.of(branchId), from, to).get(branchId);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Map<UUID, BigDecimal> laborCostByBranch(UUID companyId, Collection<UUID> branchIds,
-            Instant from, Instant to) {
-        OrganizationApi organization = organizationApi.getObject();
-        Map<UUID, BigDecimal> result = new HashMap<>();
-        for (UUID branchId : branchIds) {
-            organization.findBranch(companyId, branchId)
-                    .orElseThrow(() -> ResourceNotFoundException.of("Branch", branchId));
-            result.put(branchId, BigDecimal.ZERO);
-        }
-        if (!result.isEmpty()) {
-            shiftRepository.laborCostByBranch(companyId, result.keySet(), from, to)
-                    .forEach(row -> result.put(row.getBranchId(), row.getTotal()));
-        }
-        return result;
     }
 }

@@ -1,7 +1,5 @@
 package vn.essvn.erpcafe.inventory.api;
 
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,11 +35,4 @@ public interface InventoryApi {
      * reference — a repeat call is a no-op returning zero cost.
      */
     CogsResult reverseDeduction(UUID branchId, String refType, UUID refId, String reversalRefType);
-
-    /**
-     * COGS measured from the stock ledger for {@code [from, to)} at a branch:
-     * Σ sale-depletion cost − Σ sale-reversal cost. The depletion-side view of
-     * COGS used by reporting (vs the order-snapshot view held by sales).
-     */
-    BigDecimal depletionCost(UUID branchId, Instant from, Instant to);
 }
