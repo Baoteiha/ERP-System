@@ -1,6 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ToastHostComponent, ConfirmHostComponent } from './shared/overlays';
+import { ThemeService } from './core/theme.service';
+import { DensityService } from './core/density.service';
 
 @Component({
   selector: 'app-root',
@@ -11,4 +13,7 @@ import { ToastHostComponent, ConfirmHostComponent } from './shared/overlays';
     <app-confirm-host />
   `,
 })
-export class App {}
+export class App {
+  // constructed at start-up so the theme and density apply before the first paint of any page
+  constructor() { inject(ThemeService); inject(DensityService); }
+}
