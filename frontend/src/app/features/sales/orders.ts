@@ -29,7 +29,7 @@ import { IconComponent } from '../../shared/icon';
           <div class="table-wrap">
             <table class="data">
               <caption class="sr-only">Orders with creation time, type, status, total and amount paid</caption>
-              <thead><tr><th scope="col">Order</th><th scope="col">Created</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col" class="num">Total</th><th scope="col" class="num">Paid</th></tr></thead>
+              <thead><tr><th scope="col">Order</th><th scope="col">Created</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col" class="right">Total</th><th scope="col" class="right">Paid</th></tr></thead>
               <tbody>
                 @for (o of orders(); track o.id) {
                   <tr (click)="select(o)" [class.row-selected]="detailOpen() && selected()?.id === o.id">

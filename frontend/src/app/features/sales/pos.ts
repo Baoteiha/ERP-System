@@ -156,7 +156,7 @@ interface CartLine {
       <app-modal [title]="'Order ' + order.status" (close)="createdOrder.set(null)">
         <div class="receipt">
           @if (order.status === 'PAID' || order.status === 'COMPLETED') {
-            <div class="paid-row">
+            <div class="paid-row" role="status">
               <span class="paid-check" aria-hidden="true"><app-icon name="check" [size]="28" /></span>
               <div><b>Paid</b><div class="mono paid-total">{{ order.grandTotal | money:order.currency }}</div></div>
             </div>
@@ -184,6 +184,8 @@ interface CartLine {
     .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
     .pos-tile { min-height: 96px; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem; display: grid; align-content: space-between; gap: .3rem; cursor: pointer; font: inherit; color: var(--text); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
     .pos-tile:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 24px -12px var(--glow); }
+    .pos-tile:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 24px -12px var(--glow); }
+    .line-main .btn, .card-head .btn { min-height: 44px; min-width: 44px; }
     .pos-tile:active { transform: scale(.98); }
     .pos-tile b { font-size: 14px; font-weight: 600; line-height: 1.3; }
     .sku { font-family: var(--font-mono); font-size: .72rem; color: var(--text-muted); }

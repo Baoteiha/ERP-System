@@ -531,8 +531,6 @@ app-icon { line-height: 0; }
 /* required-options guidance (POS ticket + modifier picker) */
 .group-title .g-hint { color: var(--text-soft); font-size: 12.5px; }
 .group-title.unmet .g-hint { color: var(--amber); font-weight: 700; }
-.thermal .btn-outline.needs-opts { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); font-weight: 650; }
-.pay-hint { padding: 0 1.05rem .5rem; color: var(--amber); font-size: 12.5px; font-weight: 600; }
 
 /* contrast escape hatch: strip texture, solidify hairlines */
 @media (prefers-contrast: more) {
