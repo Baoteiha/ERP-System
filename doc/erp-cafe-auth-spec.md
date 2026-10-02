@@ -181,6 +181,20 @@ name. `ProfileBindingTest` pins prod to `true`. The API sends no CORS headers;
 should it ever be served cross-origin, credentials must be allowed only for the
 explicit configured origins, never `*`.
 
+**Deploy note (R50).** Migration `V27_001` revokes every live refresh token, so
+tokens handed out in a body before the cookie existed cannot be replayed from a
+saved copy. Everyone signs in once after this deploy;
+`RefreshTokenRevocationMigrationTest` pins it.
+
+**Known limit: a cookie can outlive a logout (R51).** Script cannot delete an
+HttpOnly cookie, so only the server's `Set-Cookie: ...; Max-Age=0` clears it. If
+the sign-out call times out (3 s), the app is offline, or the logout is local
+only (after a failed refresh), the signed-out browser keeps a refresh cookie
+that is still live. The app never sends it without its session flag, and the
+next login overwrites it, but anyone at that till with a console could use it
+until then. There is no logout-pending retry; the shared-till reset flow does
+call the server logout.
+
 **The CSRF header.** `SameSite=Strict` is the first defence; the second is that
 `/auth/refresh` and `/auth/logout` demand `X-Requested-With: erpcafe` and answer
 403 `FORBIDDEN` without it. A cross-site request cannot add a custom header
