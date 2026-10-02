@@ -61,8 +61,8 @@ class ArchitectureTest {
     /** Public controller methods that carry no permission check, each with the reason it is open. */
     private static final Map<String, String> OPEN_ENDPOINTS = Map.of(
             "AuthController.login", "anonymous by nature: it issues the token",
-            "AuthController.refresh", "authenticated by the refresh token in the body",
-            "AuthController.logout", "authenticated by the refresh token in the body",
+            "AuthController.refresh", "authenticated by the refresh cookie and the X-Requested-With header",
+            "AuthController.logout", "authenticated by the refresh cookie and the X-Requested-With header",
             "AuthController.me", "any authenticated user reads their own identity",
             "AuthController.requestPasswordReset", "signed out by nature; answers alike for every email",
             "AuthController.confirmPasswordReset", "authenticated by the single-use token mailed to the account",

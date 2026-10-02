@@ -13,8 +13,8 @@ database holds it to that only in part: the app role holds no UPDATE or DELETE
 on `recipe_version` or `recipe_line` (V24, `RecipeVersioningTest`), so a saved
 row cannot be changed or removed through it. It does hold INSERT, and there is no trigger,
 while the row-level policy only checks that the version is the company's, so
-nothing stops it adding a `recipe_line` under an old version, so a bug or a
-hand-written statement could still extend a version already in force. Only the
+nothing stops it adding a `recipe_line` under an old version. A bug or a
+hand-written statement could therefore still extend a version already in force. Only the
 schema owner can change or delete rows. The recipe endpoint's
 `version` is the number in force. It is also the stale-edit token: a save that
 names an older number answers 409, and of two saves racing from the same

@@ -484,7 +484,7 @@ from one that was never real.
 | AUTH-G18 | The login throttle was per instance and in memory: it reset on restart and was not shared across replicas | Counters in the `login_attempt` table; `AuthGapsIntegrationTest`, `LoginAttemptServiceTest` |
 | AUTH-G12 | No forgotten-password self-service: a user locked out with no admin available had no email-based recovery | Single-use emailed reset link (AUTH-108); `AuthGapsIntegrationTest`, `forgot-password.spec.ts`, `reset-password.spec.ts` |
 | AUTH-G07 | **Permissions unioned across branches**: a MANAGER at A and CASHIER at B carried the manager set at both | Permissions are weighed at the branch a request names; the token carries role ids per branch (ADR-0007). Only `company:*`, `user:*` and `role:*` are weighed across every branch held, until company-wide grants exist. `PerBranchPermissionTest#refund_isWeighedAgainstTheRoleAtTheActiveBranch`, `#companyLevelAdministration_isWeighedAgainstEveryBranchHeld`, `#grantingYourselfMoreAtABranch_isJudgedAtThatBranch` |
-| AUTH-G19 | A new branch had no one who could reach it | The creator gets OWNER there from live grants, on an active new branch only. `BranchLifecycleIntegrationTest#ownerCreatesBranch_ownerSeesItInNextMe`, `#nonOwnerCreatesBranch_getsOwnRoleThere_orIsRefusedWithoutHeader`, `#creatingAnInactiveBranch_writesNoGrant` |
+| AUTH-G19 | A new branch had no one who could reach it | From live grants, on an active new branch only, the creator gets OWNER there if they hold it, otherwise the role they hold at the branch they act from. `BranchLifecycleIntegrationTest#ownerCreatesBranch_ownerSeesItInNextMe`, `#nonOwnerCreatesBranch_getsOwnRoleThere_orIsRefusedWithoutHeader`, `#creatingAnInactiveBranch_writesNoGrant` |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Fixed without a gap id.** A MANAGER could escalate to OWNER by granting
@@ -506,6 +506,7 @@ MANAGER and CASHIER.
 |---|---|---|
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies. **Deferred (ruling, Task 36):** one email across companies needs a company choice at sign-in, and conflicts with the planned move to an identity provider (§10), where an account is the IdP's subject rather than a company's row; it is settled there | 🟡 low |
 | AUTH-G12 (rest) | No password complexity policy beyond an 8-character floor. The emailed reset (AUTH-108) closed the recovery half; it is off in prod until a real mail adapter exists | 🟡 low |
+| — | **The email in a token goes stale after an email edit.** An edit moves no auth version (AUTH-106), so for up to 15 minutes, until the next refresh, the access token's `email` claim, `GET /auth/me` (read from the token) and the audit columns `created_by`/`updated_by` (filled from the token's principal) still carry the old address. Login uses the new address at once; nothing authorizes by email | 🟡 low |
 
 ## 10. Migration notes
 

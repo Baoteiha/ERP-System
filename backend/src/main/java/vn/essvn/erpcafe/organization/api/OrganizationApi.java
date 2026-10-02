@@ -16,6 +16,8 @@ public interface OrganizationApi {
     /**
      * The company that owns the given branch. Empty when the branch does not exist, belongs to
      * another company than the caller's (the tenant seam hides it), or when no tenant is set.
+     * Inside the system scope ({@code SystemTransactions}) nothing is hidden, so it answers for a
+     * branch of any company; a caller there must check the company itself.
      */
     Optional<UUID> companyIdOf(UUID branchId);
 

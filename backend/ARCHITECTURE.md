@@ -269,8 +269,8 @@ curl http://localhost:8090/api/v1/branches \
 ## 10. Deploying to production
 
 Every item below is checked against `application-prod.yml`, `application.yml`, the guards in
-`config/` and the migrations; `ProfileBindingTest` binds the prod profile with exactly the
-environment listed in step 2.
+`config/` and the migrations; `ProfileBindingTest` binds the prod profile with the required
+variables listed in step 2.
 
 1. **Name the profile.** There is no default profile: start with `SPRING_PROFILES_ACTIVE=prod`.
    Without it the prod file is not read and the app has no database URL or JWT key to start with.
@@ -297,34 +297,45 @@ environment listed in step 2.
    V22 writes it inside dollar quotes, and `AppRolePasswordGuard` refuses to start rather than let a
    broken quote fail a statement PostgreSQL logs in full. To keep the plain password out of the
    migration, set `spring.flyway.placeholders.appRolePassword` to a SCRAM verifier (see §9); the app
-   still connects with the plain `DB_APP_PASSWORD`. An existing `erp_app` must not be a superuser, hold
-   `BYPASSRLS` or `CREATEROLE`, or own a table of the schema (V22, V26_005); the migration stops and
-   names the remedy.
-4. **Reverse proxy.** The login throttle keys on the client address. `X-Forwarded-For` is honoured
+   still connects with the plain `DB_APP_PASSWORD`. From the environment that is
+   `SPRING_FLYWAY_PLACEHOLDERS_APPROLEPASSWORD`: relaxed binding lower-cases the map key, but the
+   variable still overrides `application.yml`'s `appRolePassword` entry, and Flyway matches placeholder
+   names case-insensitively, so V22 and `AppRolePasswordGuard` both get it. V22 uses the placeholder
+   only when it creates a missing `erp_app`; a role that already exists keeps its own password, though
+   `AppRolePasswordGuard` checks the placeholder either way. An existing `erp_app` must not be a
+   superuser, hold `BYPASSRLS` or `CREATEROLE`, or own a table of the schema (V22, V26_005); the
+   migration stops and names the remedy.
+4. **Keep one schema owner.** V22's `ALTER DEFAULT PRIVILEGES` give `erp_app` its grants on every
+   table and sequence a later migration creates, but only on those the role that ran V22 creates.
+   Keep that role (`DB_OWNER_USER`) for the schema's life. If it must change, run V22's two
+   `ALTER DEFAULT PRIVILEGES` statements again with `FOR ROLE <new owner>` before the new owner's first
+   migration; otherwise the tables it creates give `erp_app` nothing and requests on them fail with
+   permission errors.
+5. **Reverse proxy.** The login throttle keys on the client address. `X-Forwarded-For` is honoured
    only from private and loopback ranges; a proxy outside them must be listed in
    `server.tomcat.remoteip.internal-proxies`, or every client looks like the proxy and shares one
    throttle counter. `application.yml` sets only `remote-ip-header: X-Forwarded-For`; the proxy list is
    yours to add (`ForwardedAddressThrottleHttpTest` pins the behaviour with a proxy listed).
-5. **HTTPS is required.** The refresh cookie is `Secure` in prod (`app.security.refresh-cookie.secure`
+6. **HTTPS is required.** The refresh cookie is `Secure` in prod (`app.security.refresh-cookie.secure`
    defaults to true; `ProfileBindingTest` pins it), so a browser on plain HTTP never sends it back and
    nobody stays signed in. It is `SameSite=Strict` with `Path=/api/v1/auth`, and the API sends no CORS
    headers: serve the frontend and the API from one site (the dev proxy does this with `/api`).
-6. **Password reset is off.** `app.security.password-reset.enabled` is false in prod and both reset
+7. **Password reset is off.** `app.security.password-reset.enabled` is false in prod and both reset
    endpoints answer 404 until a real `MailSender` adapter exists (the logging one writes reset links
    to the log, where they are credentials, and is bound to `dev` and `test`). Turning it on without an
    adapter stops the app at startup. Users who forget a password ask a manager or the owner.
-7. **Swagger is off.** `springdoc.api-docs` and `springdoc.swagger-ui` are disabled in prod
+8. **Swagger is off.** `springdoc.api-docs` and `springdoc.swagger-ui` are disabled in prod
    (`ProfileBindingTest`), so `/swagger-ui.html` and `/v3/api-docs` are not served.
-8. **Everyone signs in once after this deploy.** `V27_001` revokes every live refresh token, because
+9. **Everyone signs in once after this deploy.** `V27_001` revokes every live refresh token, because
    tokens handed out in a response body before the cookie existed could be replayed from a saved
    copy (`RefreshTokenRevocationMigrationTest`). Access tokens from before per-branch permissions
    or the key set carry no branch roles or `kid` and are refused with 401; a refresh would fix that,
    but V27_001 has revoked the refresh tokens too, so the user signs in. Those refreshes answer 401 as
    revoked tokens, not replays (V28_001), so the audit trail records no `REFRESH_REUSE_DETECTED` for them.
-9. **Report days.** `V23` cuts the report read model's days in `app.reporting.zone` (default
-   `Asia/Ho_Chi_Minh`); set it before the first start if the café is elsewhere, since the migration
-   reads it once.
-10. **Development databases.** A database that already applied `V26_005` or `V26_006` before they were
+10. **Report days.** `V23` cuts the report read model's days in `app.reporting.zone` (default
+    `Asia/Ho_Chi_Minh`); set it before the first start if the café is elsewhere, since the migration
+    reads it once.
+11. **Development databases.** A database that already applied `V26_005` or `V26_006` before they were
     edited in place needs `flyway repair` (or a fresh volume) to accept the new checksums. A
     database that never ran them is unaffected, and so is any production database deployed from this
     branch.
