@@ -534,4 +534,38 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(200);
     }
+
+    // --- R44: an open reset link closes when the account's access or email changes ---
+
+    @Test
+    void anEmailChange_closesTheOpenResetLinks(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+        String newEmail = "gaps-moved%d@t.test".formatted(SEQ.incrementAndGet());
+
+        json(send(put("/api/v1/users/" + user.id()), admin, null,
+                "{\"email\":\"%s\",\"fullName\":\"Gaps\"}".formatted(newEmail)));
+
+        confirmReset(token, "reset-pass-5")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+        assertThat(login(newEmail, PASSWORD, uniqueAddress())).isEqualTo(200);
+    }
+
+    @Test
+    void anAccessChange_closesTheOpenResetLinks(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+
+        send(put("/api/v1/users/" + user.id() + "/password"), admin, null, "{\"newPassword\":\"set-by-admin-1\"}")
+                .andExpect(status().isNoContent());
+
+        confirmReset(token, "reset-pass-6").andExpect(status().isUnprocessableEntity());
+        assertThat(login(user.email(), "set-by-admin-1", uniqueAddress())).isEqualTo(200);
+    }
 }
+

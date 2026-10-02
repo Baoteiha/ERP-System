@@ -108,7 +108,7 @@ public class PasswordResetService {
 
     /**
      * Sets the password of the account the token was mailed for. The token works once, before it expires;
-     * the account's other links close with it, and its sessions and access tokens end.
+     * the account's other links close with it ({@link AuthVersions}), and its sessions and access tokens end.
      */
     public void confirm(String rawToken, String newPassword) {
         requireEnabled();
@@ -135,8 +135,6 @@ public class PasswordResetService {
                 throw new BusinessRuleException("Account is disabled");
             }
             user.setPasswordHash(passwordHash);
-            jdbc.update("UPDATE password_reset_token SET used_at = now() WHERE user_id = ? AND used_at IS NULL",
-                    userId);
             refreshTokenRepository.findByUserIdAndRevokedFalse(userId).forEach(RefreshToken::revoke);
             authVersions.bump(user.getCompanyId(), List.of(userId));
             events.record(AuthEventType.PASSWORD_RESET, user.getCompanyId(), userId, Map.of("via", "EMAIL"));

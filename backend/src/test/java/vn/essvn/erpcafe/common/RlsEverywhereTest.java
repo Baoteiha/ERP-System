@@ -58,7 +58,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
             + " JOIN branch b ON b.id = o.branch_id WHERE o.id = t.order_id)";
 
     /** Tables only the schema owner reads or writes: no company owns their rows, and the app role holds nothing. */
-    private static final List<String> OWNER_ONLY = List.of("login_attempt", "password_reset_token");
+    private static final List<String> OWNER_ONLY = List.of("login_attempt");
 
     /** Every table a company owns, and the company each row belongs to: independent of the policies it checks. */
     private static final Map<String, String> COMPANY_OF = new LinkedHashMap<>();
@@ -76,6 +76,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         }
         COMPANY_OF.put("role_permission", "(SELECT r.company_id FROM role r WHERE r.id = t.role_id)");
         COMPANY_OF.put("refresh_token", "(SELECT u.company_id FROM app_user u WHERE u.id = t.user_id)");
+        COMPANY_OF.put("password_reset_token", "(SELECT u.company_id FROM app_user u WHERE u.id = t.user_id)");
         COMPANY_OF.put("modifier", "(SELECT g.company_id FROM modifier_group g WHERE g.id = t.modifier_group_id)");
         COMPANY_OF.put("modifier_recipe_line", "(SELECT g.company_id FROM modifier m"
                 + " JOIN modifier_group g ON g.id = m.modifier_group_id WHERE m.id = t.modifier_id)");
@@ -220,6 +221,8 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         db.update("INSERT INTO report_applied_event (event_id, company_id) VALUES (?, ?)", UUID.randomUUID(), company);
         db.update("INSERT INTO auth_event (id, company_id, user_id, type) VALUES (?, ?, ?, 'LOGIN_SUCCEEDED')",
                 UUID.randomUUID(), company, user);
+        db.update("INSERT INTO password_reset_token (id, user_id, token_hash, created_at, expires_at)"
+                + " VALUES (?, ?, ?, now(), now())", UUID.randomUUID(), user, "rls-" + UUID.randomUUID());
         return new Seeded(company, branch, user, ingredient, order, payment);
     }
 
@@ -287,6 +290,16 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 Boolean.class)).isFalse();
         assertThat(jdbc.queryForObject("SELECT has_table_privilege('flyway_schema_history',"
                 + " 'SELECT, INSERT, UPDATE, DELETE')", Boolean.class)).isFalse();
+    }
+
+    @Test
+    void theAppRole_mayCloseResetLinks_butNeverReadTheirHashes_orAddOrRemoveOne() {
+        assertThat(jdbc.queryForObject("SELECT has_column_privilege('password_reset_token', 'used_at', 'UPDATE')",
+                Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT has_column_privilege('password_reset_token', 'token_hash', 'SELECT')",
+                Boolean.class)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT has_table_privilege('password_reset_token', 'INSERT, DELETE')",
+                Boolean.class)).isFalse();
     }
 
     @Test

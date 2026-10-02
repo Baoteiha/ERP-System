@@ -263,7 +263,14 @@ account's other open links, revokes its refresh tokens, moves its auth version
 (so its access tokens end, AUTH-G08), and records `PASSWORD_RESET` with
 `via: EMAIL`. A used, expired or unknown token answers **422**; a disabled
 account's too. Both endpoints are public and run as the schema owner, which
-alone may touch `password_reset_token`.
+alone issues and claims links.
+
+An open link also closes whenever the account's access or email changes: a
+status change, a password change or reset and a branch closing (wherever the
+auth version moves), and an email change, so a link mailed to an old address
+cannot reset the account afterwards. Those changes run as the app role, which
+may set `used_at` on its company's links but cannot read a token's hash, add a
+link or delete one.
 
 The frontend's sign-in page links to *Forgot password*, which asks for the
 email; the mailed link opens *Choose a new password*, which signs the browser

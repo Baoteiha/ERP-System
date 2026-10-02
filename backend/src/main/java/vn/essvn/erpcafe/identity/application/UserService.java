@@ -55,12 +55,14 @@ public class UserService {
     private final UserGrantCache grantCache;
     private final AuthVersions authVersions;
     private final AuthEventLog events;
+    private final PasswordResetLinks resetLinks;
     private final SystemTransactions system;
 
     UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser,
-            UserGrantCache grantCache, AuthVersions authVersions, AuthEventLog events, SystemTransactions system) {
+            UserGrantCache grantCache, AuthVersions authVersions, AuthEventLog events, PasswordResetLinks resetLinks,
+            SystemTransactions system) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -71,6 +73,7 @@ public class UserService {
         this.grantCache = grantCache;
         this.authVersions = authVersions;
         this.events = events;
+        this.resetLinks = resetLinks;
         this.system = system;
     }
 
@@ -157,8 +160,12 @@ public class UserService {
         String email = User.normalizeEmail(rawEmail);
         User user = get(id);
         requireCanManage(id);
-        if (!user.getEmail().equals(email) && emailTaken(email)) {
-            throw new ConflictException("Email already exists: " + email);
+        if (!user.getEmail().equals(email)) {
+            if (emailTaken(email)) {
+                throw new ConflictException("Email already exists: " + email);
+            }
+            // a link mailed to the old address must not reset the account any more
+            resetLinks.closeOpen(List.of(id));
         }
         user.setEmail(email);
         user.setFullName(fullName);
