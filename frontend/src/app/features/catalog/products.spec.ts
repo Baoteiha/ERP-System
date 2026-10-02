@@ -119,4 +119,18 @@ describe('ProductsComponent', () => {
     expect(rows.map((r) => r.cells[0].textContent?.trim())).toEqual(['Main', 'Riverside']);
     expect(rows.map((r) => (r.querySelector('button') as HTMLButtonElement).disabled)).toEqual([false, true]);
   });
+
+  it('falls back to all products, with "All" pressed, when the filtered category disappears', () => {
+    products.categories.set([{ id: 'c1', name: 'Coffee' }, { id: 'c2', name: 'Tea' }] as never);
+    products.items.set([latte, { ...latte, id: 'p2', categoryId: 'c2', name: 'Chai' }]);
+    products.filter.set('c2');
+    products.categories.set([{ id: 'c1', name: 'Coffee' }] as never);
+    products.items.set([latte]);
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('table.data tbody tr');
+    expect(rows.length).toBe(1);
+    const all = [...fixture.nativeElement.querySelectorAll('.pill')].find((b) => (b as HTMLElement).textContent?.trim() === 'All') as HTMLElement;
+    expect(all.getAttribute('aria-pressed')).toBe('true');
+  });
 });

@@ -38,7 +38,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
                 </button>
                 @if (auth.can('catalog:write')) {
                   <span class="mg-actions">
-                    <button class="btn btn-sm btn-tinted" (click)="openAddModifier(g)"><app-icon name="plus" [size]="15" /> Option</button>
+                    <button class="btn btn-sm btn-tinted" (click)="openAddModifier(g)" [attr.aria-label]="'Add option to ' + g.name"><app-icon name="plus" [size]="15" /> <span class="opt-btn-label">Option</span></button>
                     <button class="btn btn-sm btn-ghost btn-icon" (click)="openEditGroup(g)" [attr.aria-label]="'Edit group ' + g.name"><app-icon name="edit" [size]="16" /></button>
                     <button class="btn btn-sm btn-ghost btn-icon" (click)="removeGroup(g)" [attr.aria-label]="'Delete group ' + g.name"><app-icon name="trash" [size]="16" /></button>
                   </span>
@@ -119,7 +119,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
         </div>
         <div class="two-col">
           <div class="field"><label for="mod-edit-order">Display order</label><input id="mod-edit-order" class="input" type="number" [(ngModel)]="em.displayOrder" /></div>
-          <div class="field"><label for="mod-edit-active">Active</label><input id="mod-edit-active" type="checkbox" [(ngModel)]="em.active" /></div>
+          <label class="checkbox"><input id="mod-edit-active" type="checkbox" [(ngModel)]="em.active" /> Active</label>
         </div>
         <div footer>
           <button class="btn btn-outline" (click)="editMod.set(null)">Cancel</button>
@@ -166,9 +166,9 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
   styles: [`
     .mod-list { display: flex; flex-direction: column; gap: .9rem; max-width: 780px; }
     .mod-group { overflow: hidden; }
-    .mg-head { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem .4rem .3rem; margin: 0;
+    .mg-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .4rem .6rem .4rem .3rem; margin: 0;
       font-weight: inherit; border-bottom: 1px solid var(--border); }
-    .mg-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: .6rem; background: none; border: none;
+    .mg-toggle { flex: 1; min-width: 0; flex-wrap: wrap; display: flex; align-items: center; gap: .6rem; background: none; border: none;
       padding: .5rem .4rem; font: inherit; cursor: pointer; color: var(--text); text-align: left; border-radius: var(--radius-sm); min-height: 44px; }
     .mg-toggle:hover { background: var(--surface-2); }
     .mg-chev { display: inline-flex; color: var(--text-muted); transition: transform var(--dur-2) var(--ease-out); }
@@ -191,7 +191,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     .w-unit { max-width: 90px; }
     .note-sm { font-size: 12px; }
     .field-error { margin-top: .5rem; color: var(--red); }
-    @media (max-width: 620px) { .mg-count { display: none; } }
+    @media (max-width: 620px) { .mg-count { display: none; } .opt-btn-label { display: none; } }
   `],
 })
 export class ModifiersComponent {

@@ -41,7 +41,7 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
                   <tr [class.muted]="!c.active">
                     <td class="num">{{ c.displayOrder }}</td>
                     <td>
-                      @if (canWrite) { <button type="button" class="row-open" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name">{{ c.name }}</button> }
+                      @if (canWrite) { <button type="button" class="row-open" (click)="openEdit(c)">{{ c.name }}</button> }
                       @else { <b>{{ c.name }}</b> }
                     </td>
                     <td><app-status-badge size="sm" [active]="c.active" /></td>

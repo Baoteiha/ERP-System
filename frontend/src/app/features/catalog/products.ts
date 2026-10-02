@@ -31,9 +31,9 @@ import {
       }
       @else {
         <div class="pill-row filter-row" role="group" aria-label="Filter by category">
-          <button type="button" class="pill" [class.active]="filter() === 'all'" [attr.aria-pressed]="filter() === 'all'" (click)="filter.set('all')">All</button>
+          <button type="button" class="pill" [class.active]="activeFilter() === 'all'" [attr.aria-pressed]="activeFilter() === 'all'" (click)="filter.set('all')">All</button>
           @for (g of grouped(); track g.id) {
-            <button type="button" class="pill" [class.active]="filter() === g.id" [attr.aria-pressed]="filter() === g.id" (click)="filter.set(g.id)">{{ g.name }}</button>
+            <button type="button" class="pill" [class.active]="activeFilter() === g.id" [attr.aria-pressed]="activeFilter() === g.id" (click)="filter.set(g.id)">{{ g.name }}</button>
           }
         </div>
         <div class="card">
@@ -50,7 +50,7 @@ import {
                 @for (p of visible(); track p.id) {
                   <tr [class.muted]="!p.active">
                     <td>
-                      @if (canWrite) { <button type="button" class="row-open" (click)="openManage(p)" [attr.aria-label]="'Manage ' + p.name">{{ p.name }}</button> }
+                      @if (canWrite) { <button type="button" class="row-open" (click)="openManage(p)">{{ p.name }}</button> }
                       @else { <b>{{ p.name }}</b> }
                       <div class="sku">{{ p.sku }}</div>
                     </td>
@@ -133,7 +133,7 @@ export class ProductsComponent {
 
   nf = { categoryId: '', name: '', sku: '', basePrice: '0', description: '' };
 
-  categoryName = (id: string) => this.categories().find((c) => c.id === id)?.name ?? '—';
+  categoryName = (id: string) => this.categories().find((c) => c.id === id)?.name ?? 'Uncategorised';
 
   get canWrite() { return this.auth.can('catalog:write'); }
 
@@ -146,13 +146,15 @@ export class ProductsComponent {
       .filter((g) => g.products.length > 0);
     const known = new Set(cats.map((c) => c.id));
     const orphans = prods.filter((p) => !known.has(p.categoryId));
-    if (orphans.length) groups.push({ id: 'uncategorized', name: 'Uncategorized', products: orphans });
+    if (orphans.length) groups.push({ id: 'uncategorized', name: 'Uncategorised', products: orphans });
     return groups;
   });
 
   /** Products matching the category filter. */
+  /** The filter in effect: a category that has since vanished falls back to 'all'. */
+  activeFilter = computed(() => (this.grouped().some((g) => g.id === this.filter()) ? this.filter() : 'all'));
   visible = computed(() => {
-    const f = this.filter();
+    const f = this.activeFilter();
     return f === 'all' ? this.grouped().flatMap((g) => g.products) : (this.grouped().find((g) => g.id === f)?.products ?? []);
   });
 

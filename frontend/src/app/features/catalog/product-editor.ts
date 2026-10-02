@@ -130,7 +130,7 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
     .mg-item { align-items: flex-start; padding: .5rem 0; border-bottom: 1px solid var(--border); }
     .mg-item span { display: flex; flex-direction: column; line-height: 1.3; }
     .mg-item small { color: var(--text-muted); font-size: 11.5px; }
-    .drawer-foot { display: flex; justify-content: flex-end; margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .drawer-foot { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: flex-end; gap: .6rem; margin: 1.4rem -1.4rem -1.3rem; padding: 1rem 1.4rem; background: var(--surface-1); border-top: 1px solid var(--border); }
   `],
 })
 export class ProductEditorComponent implements OnInit {
