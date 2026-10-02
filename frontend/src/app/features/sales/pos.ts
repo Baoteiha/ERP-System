@@ -214,6 +214,8 @@ interface CartLine {
     .pay-hint { padding: 0 1rem .5rem; color: var(--amber); font-size: 12.5px; font-weight: 600; }
     .modifier-group { margin-bottom: 1rem; }
     .group-title { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .5rem; border-bottom: 1px solid var(--border-strong); padding-bottom: .35rem; }
+    .group-title .g-hint { color: var(--text-soft); font-size: 12.5px; }
+    .group-title.unmet .g-hint { color: var(--amber); font-weight: 700; }
     .modifier-options { display: grid; gap: .45rem; }
     .option { display: flex; gap: .6rem; align-items: center; min-height: 44px; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color var(--dur-1), background var(--dur-1); }
     .option .opt-name { flex: 1; }

@@ -92,9 +92,9 @@ export class PaletteService {
     .palette-backdrop { position: fixed; inset: 0; z-index: 110; background: var(--scrim);
       display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; }
     .palette { width: min(640px, 92vw); max-height: 70vh; display: flex; flex-direction: column;
-      border-radius: var(--radius-lg); border: 1px solid var(--hairline); box-shadow: var(--shadow-pop); overflow: hidden; }
+      border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow-pop); overflow: hidden; }
     .palette-input { width: 100%; padding: 1rem 1.25rem; font: inherit; font-size: 16px; color: var(--text);
-      background: transparent; border: 0; border-bottom: 1px solid var(--hairline); }
+      background: transparent; border: 0; border-bottom: 1px solid var(--border); }
     .palette-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
     #palette-list { margin: 0; padding: .4rem; overflow-y: auto; }
     .palette-group { padding: .6rem .75rem .25rem; font-size: 11px; text-transform: uppercase;
