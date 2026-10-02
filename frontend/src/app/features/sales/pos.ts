@@ -10,7 +10,6 @@ import { ToastService } from '../../core/toast.service';
 import { MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
-import { SteamComponent } from '../../shared/steam';
 
 interface CartLine {
   product: MenuProduct;
@@ -22,10 +21,10 @@ interface CartLine {
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent, SteamComponent],
+  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="pos">
-      <section class="menu counter-lip">
+      <section class="menu">
         <div class="pos-head">
           <div>
             <h1>POS</h1>
@@ -39,10 +38,10 @@ interface CartLine {
 
         <div class="toolbar">
           <input class="input search" [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Search products or SKU" aria-label="Search products or SKU" />
-          <div class="category-strip">
-            <button [class.active]="categoryId() === 'all'" (click)="categoryId.set('all')">All</button>
+          <div class="pill-row">
+            <button class="pill" [class.active]="categoryId() === 'all'" (click)="categoryId.set('all')">All</button>
             @for (c of categories(); track c.id) {
-              <button [class.active]="categoryId() === c.id" (click)="categoryId.set(c.id)">{{ c.name }}</button>
+              <button class="pill" [class.active]="categoryId() === c.id" (click)="categoryId.set(c.id)">{{ c.name }}</button>
             }
           </div>
         </div>
@@ -51,25 +50,22 @@ interface CartLine {
         @else {
           <div class="product-grid">
             @for (p of filteredProducts(); track p.id) {
-              <button class="product-tile paper-card" (click)="addProduct(p)">
+              <button class="pos-tile" (click)="addProduct(p)">
                 <span class="sku">{{ p.sku }}</span>
                 <b>{{ p.name }}</b>
-                <span class="price"><app-icon name="tag" [size]="12" aria-hidden="true" /> {{ p.effectivePrice | money }}</span>
+                <span class="price mono">{{ p.effectivePrice | money }}</span>
               </button>
-            } @empty { <div class="empty"><div class="big"><app-icon name="bean" [size]="30" /></div>No products match</div> }
+            } @empty { <div class="empty"><div class="big"><app-icon name="search" [size]="30" /></div>No products match</div> }
           </div>
         }
       </section>
 
-      <aside class="ticket">
-        <div class="printer-slot">
-          <span class="ps-cup cup-steamed" aria-hidden="true"><app-icon name="coffee" [size]="17" /><app-steam /></span>
-          <div><b>Current ticket</b><div class="sub mini">{{ cart().length }} line(s)</div></div>
-          <span class="spacer"></span>
+      <aside class="card ticket">
+        <div class="card-head">
+          <div><b>Current order</b><div class="sub mini">{{ cart().length }} line(s)</div></div>
           <button class="btn btn-sm btn-ghost" (click)="clearCart()" [disabled]="cart().length === 0">Clear</button>
         </div>
 
-        <div class="paper thermal thermal-edge">
         <div class="cart-lines">
           @for (line of cart(); track line.product.id + $index; let idx = $index) {
             <div class="cart-line">
@@ -82,7 +78,7 @@ interface CartLine {
               </div>
               <div class="line-tools">
                 <button class="qty" (click)="changeQty(idx, -1)" aria-label="Decrease quantity"><app-icon name="minus" [size]="16" /></button>
-                <span>{{ line.quantity }}</span>
+                <span class="mono">{{ line.quantity }}</span>
                 <button class="qty" (click)="changeQty(idx, 1)" aria-label="Increase quantity"><app-icon name="plus" [size]="16" /></button>
                 <button class="btn btn-sm btn-outline" [class.needs-opts]="unmetGroups(line).length" (click)="configure(idx)">
                   {{ unmetGroups(line).length ? 'Choose options' : 'Modifiers' }}
@@ -93,7 +89,7 @@ interface CartLine {
             </div>
           } @empty {
             <div class="empty">
-              <div class="big pos-cup"><app-icon name="cup" [size]="30" /><app-steam class="cup-steam" /></div>
+              <div class="big"><app-icon name="basket" [size]="30" /></div>
               Add products to start an order
             </div>
           }
@@ -112,7 +108,6 @@ interface CartLine {
           </div>
           <div class="grand"><span>Total</span><b>{{ displayQuote()?.grandTotal | money }}</b></div>
         </div>
-        </div>
 
         @if (cart().length && !ticketValid()) {
           <div class="pay-hint" role="status">Some items still need options — tap “Choose options” on the amber lines.</div>
@@ -123,7 +118,7 @@ interface CartLine {
             <option value="CARD">Card</option>
             <option value="EWALLET">E-wallet</option>
           </select>
-          <button class="btn btn-primary" (click)="submit()" [disabled]="saving() || !payable() || !auth.can('sales:write')">
+          <button class="btn btn-primary btn-lg btn-block" (click)="submit()" [disabled]="saving() || !payable() || !auth.can('sales:write')">
             @if (saving()) { <span class="spinner"></span> } Pay {{ displayQuote()?.grandTotal | money }}
           </button>
         </div>
@@ -141,11 +136,10 @@ interface CartLine {
               </div>
               <div class="modifier-options">
                 @for (m of group.modifiers; track m.id) {
-                  <label class="option leader-row">
+                  <label class="option">
                     <input type="checkbox" [checked]="line.modifierIds.includes(m.id)" (change)="toggleModifier(m.id, group)" />
-                    <span>{{ m.name }}</span>
-                    <span class="dots" aria-hidden="true"></span>
-                    <b>{{ m.priceDelta | money }}</b>
+                    <span class="opt-name">{{ m.name }}</span>
+                    <b class="mono">{{ m.priceDelta | money }}</b>
                   </label>
                 }
               </div>
@@ -160,14 +154,16 @@ interface CartLine {
 
     @if (createdOrder(); as order) {
       <app-modal [title]="'Order ' + order.status" (close)="createdOrder.set(null)">
-        <div class="receipt thermal thermal-edge thermal-edge-top print-in">
-          @if (order.status === 'PAID' || order.status === 'COMPLETED') { <span class="stamp stamp-in r-stamp" aria-hidden="true">Paid</span> }
-          <div class="r-head"><b>{{ order.id | shortId }}</b><span>{{ order.orderType }}</span></div>
-          <div><span>Paid</span><b>{{ order.amountPaid | money:order.currency }}</b></div>
-          <div><span>Total</span><b>{{ order.grandTotal | money:order.currency }}</b></div>
-          <div class="r-glee" aria-hidden="true">
-            <span class="r-cup cup-steamed"><app-icon name="cup" [size]="18" /><app-steam /></span>
-          </div>
+        <div class="receipt">
+          @if (order.status === 'PAID' || order.status === 'COMPLETED') {
+            <div class="paid-row">
+              <span class="paid-check" aria-hidden="true"><app-icon name="check" [size]="28" /></span>
+              <div><b>Paid</b><div class="mono paid-total">{{ order.grandTotal | money:order.currency }}</div></div>
+            </div>
+          }
+          <div class="r-head"><b class="mono">{{ order.id | shortId }}</b><span>{{ order.orderType }}</span></div>
+          <div><span>Paid</span><b class="mono">{{ order.amountPaid | money:order.currency }}</b></div>
+          <div><span>Total</span><b class="mono">{{ order.grandTotal | money:order.currency }}</b></div>
         </div>
         <div footer>
           <button class="btn btn-primary" (click)="newOrder()">New ticket</button>
@@ -176,85 +172,60 @@ interface CartLine {
     }
   `,
   styles: [`
-    .pos { min-height: calc(100vh - 70px); display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1rem; padding: 1rem; }
-    .menu, .ticket { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.15rem; box-shadow: var(--shadow-sm); }
-    /* counter scene */
-    .menu { background: linear-gradient(180deg, var(--surface-2), var(--bg) 85%); padding-bottom: 2.1rem; }
-    .pos-head, .line-main, .checkout > div, .receipt > div { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+    .pos { min-height: calc(100vh - 70px); display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1rem; padding: 1rem; align-items: start; }
+    .pos-head, .line-main, .checkout > div, .receipt > div, .card-head { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
     .pos-head h1 { margin: 0; font-size: 22px; }
     .sub { color: var(--text-soft); font-size: 13.5px; margin-top: .2rem; }
     .sub.mini { font-size: 12px; margin-top: 0; }
     .toolbar { display: grid; gap: .75rem; margin: 1rem 0; }
-    .search { max-width: 440px; }
-    /* segmented */
-    .segmented button { min-height: 44px; font-size: 12.5px; }
-    .segmented button.active { background: var(--brand); color: #fff; box-shadow: 0 1px 2px rgba(120,53,15,.25), inset 0 -2px 0 var(--gold); }
-    .category-strip { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .category-strip button { border: 1px solid var(--border); background: var(--surface); color: var(--text-soft); border-radius: 999px; padding: .45rem .8rem; min-height: 44px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
-    .category-strip button:hover { border-color: var(--brand); color: var(--text); }
-    .category-strip button.active { background: var(--brand); color: #fff; border-color: var(--brand); box-shadow: inset 0 -2px 0 var(--gold); }
-    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .75rem; }
-    /* menu cards */
-    .product-tile { min-height: 128px; text-align: left; border-radius: var(--radius); padding: .9rem; display: grid; align-content: space-between; gap: .3rem; cursor: pointer; font: inherit; transition: transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-1); }
-    .product-tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
-    .product-tile:active { transform: translateY(-1px) scale(.98); }
-    .product-tile:disabled { cursor: not-allowed; transform: none; box-shadow: none; }
-    .product-tile b { font-size: 14px; line-height: 1.3; color: var(--paper-ink); }
-    .sku { font-family: var(--font-mono); font-size: .72rem; color: var(--paper-ink-soft); }
-    .price { display: inline-flex; align-items: center; gap: .3rem; justify-self: end; font-family: var(--font-mono); font-weight: 700; color: var(--paper-accent); font-variant-numeric: tabular-nums; }
-    .price app-icon { color: var(--gold-600); }
-    /* ticket */
-    .ticket { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; padding: 0; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
-    .printer-slot .sub.mini { color: var(--nav-text); }
-    .ps-cup { color: var(--nav-text-hi); }
-    .ps-cup app-steam { color: var(--nav-text); }
-    .paper { margin: 0 10px 14px; padding: 1rem 1rem 1.1rem; display: grid; grid-template-rows: minmax(120px, 1fr) auto; gap: .9rem;
-      box-shadow: 0 2px 6px rgba(40,24,10,.18); }
-    .cart-lines { overflow: auto; display: grid; align-content: start; gap: .75rem; }
-    .cart-line { border-bottom: 1px dashed var(--paper-line); padding-bottom: .75rem; }
-    .cart-line .soft { color: var(--paper-ink-soft); }
-    .pos-cup { position: relative; }
-    .cup-steam { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); color: var(--brand); }
-    .paper .qty { background: rgba(255,255,255,.55); border-color: var(--paper-line); color: var(--paper-ink); }
+    .search { max-width: 440px; min-height: 44px; }
+    .segmented button, .pill { min-height: 44px; white-space: nowrap; }
+    .product-grid .empty { grid-column: 1 / -1; }
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+    .pos-tile { min-height: 96px; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem; display: grid; align-content: space-between; gap: .3rem; cursor: pointer; font: inherit; color: var(--text); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
+    .pos-tile:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 24px -12px var(--glow); }
+    .pos-tile:active { transform: scale(.98); }
+    .pos-tile b { font-size: 14px; font-weight: 600; line-height: 1.3; }
+    .sku { font-family: var(--font-mono); font-size: .72rem; color: var(--text-muted); }
+    .price { justify-self: end; font-weight: 700; color: var(--accent-text); font-variant-numeric: tabular-nums; }
+    .ticket { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
+    .cart-lines { overflow: auto; display: grid; align-content: start; gap: .75rem; padding: 1rem; min-height: 120px; }
+    .cart-line { border-bottom: 1px solid var(--border); padding-bottom: .75rem; }
     .cart-line b { font-size: 13.5px; }
     .line-tools { display: grid; grid-template-columns: 44px 26px 44px 1fr 95px; gap: .35rem; align-items: center; margin-top: .55rem; }
-    .qty { height: 44px; width: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: var(--radius-sm); cursor: pointer; transition: background .12s, border-color .12s; }
-    .qty:hover { background: var(--surface-2); border-color: var(--brand); }
+    .line-tools > span { text-align: center; }
+    .line-tools .btn { min-height: 44px; }
+    .qty { height: 44px; width: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); border-radius: var(--radius-sm); cursor: pointer; transition: background var(--dur-1), border-color var(--dur-1); }
+    .qty:hover { background: var(--surface-3); border-color: var(--accent); }
     .discount, .money-input { min-width: 0; min-height: 44px; }
     .line-total { text-align: right; margin-top: .35rem; font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
-    .checkout { border-top: 1px dashed var(--paper-line); padding-top: .75rem; display: grid; gap: .5rem; font-size: 13.5px; }
-    .checkout span, .checkout label { color: var(--paper-ink-soft); font-weight: 600; }
+    .checkout { border-top: 1px solid var(--border); padding: .75rem 1rem; display: grid; gap: .5rem; font-size: 13.5px; }
+    .checkout span, .checkout label { color: var(--text-soft); font-weight: 600; }
     .checkout b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .money-input { width: 110px; text-align: right; }
-    .grand { font-size: 1.25rem; padding-top: .6rem; border-top: 3px double var(--paper-line); }
-    .grand span { color: var(--paper-ink); font-weight: 600; }
-    .grand b { color: var(--paper-accent); font-weight: 800; }
-    .pay-strip { display: grid; grid-template-columns: 130px 1fr; gap: .5rem; padding: 0 1.05rem 1.05rem; }
-    .pay-strip .btn-primary { font-size: 14.5px; min-height: 48px;
-      background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 85%, #fff), var(--brand)); }
-    .pay-strip .btn-primary:hover { background: var(--brand-600); }
-    @media (prefers-color-scheme: dark) {
-      .pay-strip .btn-primary { background: var(--brand-700); }
-      .pay-strip .btn-primary:hover { background: color-mix(in srgb, var(--brand-700) 85%, #fff); }
-    }
+    .grand { font-size: 1.25rem; padding-top: .6rem; border-top: 1px solid var(--border-strong); }
+    .grand span { color: var(--text); font-weight: 600; }
+    .grand b { color: var(--accent-text); font-weight: 800; }
+    .pay-strip { display: grid; grid-template-columns: 130px 1fr; gap: .5rem; padding: 0 1rem 1rem; }
+    .pay-strip .select { min-height: 48px; }
+    .btn-outline.needs-opts { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); font-weight: 650; }
+    .pay-hint { padding: 0 1rem .5rem; color: var(--amber); font-size: 12.5px; font-weight: 600; }
     .modifier-group { margin-bottom: 1rem; }
-    .group-title { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .5rem;
-      border-bottom: 2px solid rgba(185,28,28,.25); padding-bottom: .35rem; }
+    .group-title { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .5rem; border-bottom: 1px solid var(--border-strong); padding-bottom: .35rem; }
     .modifier-options { display: grid; gap: .45rem; }
-    .option { gap: .5rem; align-items: center; min-height: 44px; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color .12s, background .12s; }
-    .option .dots { border-color: var(--border-strong); }
-    .option:hover { border-color: var(--brand); background: var(--brand-soft); }
-    .option b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    /* pay-success receipt */
-    .receipt { display: grid; gap: .3rem; padding: 1.1rem 1rem; margin: 10px 4px 14px;
-      box-shadow: 0 2px 6px rgba(40,24,10,.18); }
-    .receipt > div { border-bottom: 1px dashed var(--paper-line); padding: .3rem 0; }
-    .receipt b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .r-head { font-family: var(--font-mono); }
-    .r-head span { color: var(--paper-ink-soft); font-size: 12.5px; }
-    .r-stamp { position: absolute; top: 6px; right: 12px; color: #963120; }
-    .r-glee { border-bottom: none; justify-content: center; padding-top: .55rem; }
-    .r-cup { color: var(--paper-ink-soft); }
+    .option { display: flex; gap: .6rem; align-items: center; min-height: 44px; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color var(--dur-1), background var(--dur-1); }
+    .option .opt-name { flex: 1; }
+    .option:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .option b { font-variant-numeric: tabular-nums; }
+    .receipt { display: grid; gap: .3rem; padding: .5rem 0; }
+    .receipt > div { border-bottom: 1px solid var(--border); padding: .4rem 0; }
+    .receipt > .paid-row { justify-content: flex-start; gap: 1rem; border-bottom: none; padding-bottom: .9rem; }
+    .paid-check { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--green-soft); color: var(--green); box-shadow: 0 0 24px var(--green); animation: paid-in var(--dur-2) var(--ease-out) both; }
+    .paid-row b { font-size: 1.1rem; }
+    .paid-total { font-size: 1.4rem; font-weight: 700; }
+    .r-head span { color: var(--text-soft); font-size: 12.5px; }
+    @keyframes paid-in { from { transform: scale(.8); } to { transform: scale(1); } }
+    @media (prefers-reduced-motion: reduce) { .paid-check { animation: none; } }
     @media (max-width: 1050px) { .pos { grid-template-columns: 1fr; } .ticket { position: static; max-height: none; } }
   `],
 })
