@@ -190,7 +190,7 @@ interface CartLine {
     .pos-tile b { font-size: 14px; font-weight: 600; line-height: 1.3; }
     .sku { font-family: var(--font-mono); font-size: .72rem; color: var(--text-muted); }
     .price { justify-self: end; font-weight: 700; color: var(--accent-text); font-variant-numeric: tabular-nums; }
-    .ticket { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); }
+    .ticket { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto; position: sticky; top: calc(var(--topbar-h) + 1rem); max-height: calc(100vh - var(--topbar-h) - 2rem); }
     .cart-lines { overflow: auto; display: grid; align-content: start; gap: .75rem; padding: 1rem; min-height: 120px; }
     .cart-line { border-bottom: 1px solid var(--border); padding-bottom: .75rem; }
     .cart-line b { font-size: 13.5px; }

@@ -77,6 +77,9 @@
 
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --dur-1: 150ms; --dur-2: 220ms; --dur-3: 320ms;
+
+  /* the shell's sticky top bar; every sticky offset under it starts here */
+  --topbar-h: 60px;
 }
 
 :root[data-theme="light"] { @include light-tokens; }

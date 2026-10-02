@@ -178,7 +178,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     .row-selected, .row-selected:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
     .supplier-col { min-width: 160px; }
     .actions-col { white-space: nowrap; }
-    .detail { position: sticky; top: 0; }
+    .detail { position: sticky; top: calc(var(--topbar-h) + 1rem); }
     .po-id { margin: 0; font-size: 1.15rem; font-family: var(--font-mono); letter-spacing: -.03em; }
     .po-total { display: flex; justify-content: flex-end; align-items: baseline; gap: .8rem; border-top: 1px solid var(--border); }
     .note { padding: .6rem 1.35rem; border-bottom: 1px solid var(--border); color: var(--text-soft); font-size: 13.5px; }
