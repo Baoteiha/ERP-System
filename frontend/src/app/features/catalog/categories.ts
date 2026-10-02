@@ -23,36 +23,47 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
 
       @if (loading()) { <div class="card"><div class="loading-block"><span class="spinner"></span> Loading…</div></div> }
       @else if (!items().length) {
-        <div class="card"><div class="empty"><div class="big"><app-icon name="tag" [size]="30" /></div>No categories yet — hang your first tag.</div></div>
+        <div class="card"><div class="empty"><div class="big"><app-icon name="tag" [size]="30" /></div>No categories yet.</div></div>
       }
       @else {
-        <div class="rail-wall niche">
-          <div class="tag-grid" role="list">
-            @for (c of items(); track c.id) {
-              <div class="tag-slot" role="listitem">
-                <div class="rail shelf-board" aria-hidden="true"></div>
-                <div class="tag-hang reveal-zone">
-                  <button type="button" class="swing-tag tag-body obj-btn" [class.static]="!canWrite"
-                          (click)="canWrite && openEdit(c)" [tabindex]="canWrite ? null : -1"
-                          [attr.aria-label]="canWrite ? 'Edit ' + c.name : null" [class.dusty]="!c.active">
-                    <span class="order-chip">#{{ c.displayOrder }}</span>
-                    <b class="tag-name">{{ c.name }}</b>
-                    <app-status-badge size="sm" [active]="c.active" />
-                  </button>
-                  @if (canWrite) {
-                    <button type="button" class="btn btn-sm btn-icon obj-del tag-del" (click)="remove(c)"
-                            [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="15" /></button>
-                  }
-                </div>
-              </div>
-            }
+        <div class="card">
+          <div class="table-wrap">
+            <table class="data">
+              <caption class="sr-only">Categories</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="num">Order</th><th scope="col">Name</th><th scope="col">Status</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (c of items(); track c.id) {
+                  <tr [class.muted]="!c.active">
+                    <td class="num">{{ c.displayOrder }}</td>
+                    <td>
+                      @if (canWrite) { <button type="button" class="row-open" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name">{{ c.name }}</button> }
+                      @else { <b>{{ c.name }}</b> }
+                    </td>
+                    <td><app-status-badge size="sm" [active]="c.active" /></td>
+                    <td>
+                      @if (canWrite) {
+                        <div class="row-actions">
+                          <button type="button" class="btn btn-sm btn-ghost btn-icon" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name"><app-icon name="edit" [size]="15" /></button>
+                          <button type="button" class="btn btn-sm btn-ghost btn-icon" (click)="remove(c)" [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="15" /></button>
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
           </div>
         </div>
       }
     </div>
 
     @if (editing()) {
-      <app-modal [title]="form.id ? 'Edit category' : 'New category'" (close)="editing.set(null)">
+      <app-modal variant="drawer" [title]="form.id ? 'Edit category' : 'New category'" (close)="editing.set(null)">
         <div class="field"><label for="cat-name">Name <span class="req" aria-hidden="true">*</span></label><input id="cat-name" class="input" [(ngModel)]="form.name" placeholder="Espresso Drinks" required /></div>
         <div class="field"><label for="cat-order">Display order</label><input id="cat-order" class="input" type="number" [(ngModel)]="form.displayOrder" /></div>
         <label class="checkbox"><input type="checkbox" [(ngModel)]="form.active" /> Active</label>
@@ -63,30 +74,6 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
       </app-modal>
     }
   `,
-  styles: [`
-    .rail-wall { padding: 1.7rem 1.8rem 2.4rem; }
-    .tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 0; row-gap: 2.4rem; }
-    .tag-slot { display: flex; flex-direction: column; min-width: 0; }
-    .rail { width: 100%; height: 12px; }
-    .tag-slot:first-child .rail { border-top-left-radius: 6px; border-bottom-left-radius: 7px; }
-    .tag-slot:last-child .rail { border-top-right-radius: 6px; border-bottom-right-radius: 7px; }
-    .tag-hang { position: relative; display: flex; justify-content: center; }
-    .tag-body {
-      display: flex; flex-direction: column; align-items: center; gap: .45rem;
-      width: 152px; margin-top: 22px; padding: 1.7rem .8rem .95rem;
-    }
-    /* hand-hung: slight alternating lean that straightens on hover */
-    .tag-slot:nth-child(3n) .tag-body { rotate: -1.4deg; }
-    .tag-slot:nth-child(3n+1) .tag-body { rotate: 1.1deg; }
-    .tag-body:not(.static):hover { rotate: 0deg; }
-    .order-chip {
-      font-family: var(--font-mono); font-size: 10.5px; color: var(--paper-ink-soft);
-      background: rgba(255,255,255,.55); border: 1px solid var(--paper-line);
-      border-radius: 5px; padding: 0 .4rem;
-    }
-    .tag-name { font-size: 14px; font-weight: 650; color: var(--paper-ink); text-align: center; overflow-wrap: anywhere; }
-    .tag-del { top: 8px; right: calc(50% - 88px); }
-  `],
 })
 export class CategoriesComponent {
   auth = inject(AuthService);

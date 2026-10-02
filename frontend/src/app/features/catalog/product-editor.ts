@@ -21,7 +21,7 @@ type Tab = 'details' | 'recipe' | 'modifiers' | 'availability';
   standalone: true,
   imports: [FormsModule, ModalComponent, IconComponent],
   template: `
-    <app-modal [title]="product().name" [width]="680" [hasFooter]="false" (close)="closed.emit()">
+    <app-modal variant="drawer" [title]="product().name" [width]="640" [hasFooter]="false" (close)="closed.emit()">
       <div class="tabs" role="tablist">
         <button role="tab" [attr.aria-selected]="tab() === 'details'" [class.active]="tab() === 'details'" (click)="tab.set('details')">Details</button>
         <button role="tab" [attr.aria-selected]="tab() === 'recipe'" [class.active]="tab() === 'recipe'" (click)="tab.set('recipe')">Recipe</button>

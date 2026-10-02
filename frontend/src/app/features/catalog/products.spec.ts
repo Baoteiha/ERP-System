@@ -115,7 +115,7 @@ describe('ProductsComponent', () => {
     editor.tab.set('availability');
     fixture.detectChanges();
 
-    const rows = [...fixture.nativeElement.querySelectorAll('table.data tbody tr')] as HTMLTableRowElement[];
+    const rows = [...fixture.nativeElement.querySelectorAll('app-product-editor table.data tbody tr')] as HTMLTableRowElement[];
     expect(rows.map((r) => r.cells[0].textContent?.trim())).toEqual(['Main', 'Riverside']);
     expect(rows.map((r) => (r.querySelector('button') as HTMLButtonElement).disabled)).toEqual([false, true]);
   });

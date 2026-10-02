@@ -26,12 +26,11 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
       @else {
         <div class="mod-list">
           @for (g of groups(); track g.id) {
-            <section class="mod-group paper-card">
+            <section class="mod-group card">
               <h2 class="mg-head">
                 <button class="mg-toggle" (click)="toggle(g.id)"
                         [attr.aria-expanded]="isOpen(g.id)" [attr.aria-controls]="'grp-' + g.id">
                   <span class="mg-chev" [class.open]="isOpen(g.id)" aria-hidden="true"><app-icon name="chevron" [size]="18" /></span>
-                  <span class="mg-coin" aria-hidden="true"><app-icon name="sliders" [size]="14" /></span>
                   <span class="mg-name">{{ g.name }}</span>
                   <span class="badge badge-gray">{{ selectionLabel(g) }}</span>
                   @if (g.required) { <span class="badge badge-amber">required at POS</span> }
@@ -48,10 +47,10 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
               @if (isOpen(g.id)) {
                 <ul class="opt-list" [id]="'grp-' + g.id">
                   @for (m of g.modifiers; track m.id) {
-                    <li class="opt-row leader-row">
+                    <li class="opt-row">
                       <span class="opt-name">{{ m.name }}</span>
-                      <span class="dots" aria-hidden="true"></span>
-                      <span class="opt-price mono" [class.free]="isFree(m.priceDelta.amount)">
+                      <span class="spacer"></span>
+                      <span class="opt-price num" [class.free]="isFree(m.priceDelta.amount)">
                         {{ isFree(m.priceDelta.amount) ? 'Free' : ('+' + (m.priceDelta | money)) }}
                       </span>
                       @if (!m.active) { <span class="badge badge-gray">inactive</span> }
@@ -77,7 +76,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     </div>
 
     @if (newGroup()) {
-      <app-modal title="New modifier group" (close)="newGroup.set(false)">
+      <app-modal variant="drawer" title="New modifier group" (close)="newGroup.set(false)">
         <div class="field"><label for="mod-group-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-group-name" class="input" [(ngModel)]="ng.name" placeholder="Size" required /></div>
         <div class="two-col">
           <div class="field">
@@ -99,7 +98,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     }
 
     @if (editGroup(); as g) {
-      <app-modal [title]="'Edit ' + g.name" (close)="editGroup.set(null)">
+      <app-modal variant="drawer" [title]="'Edit ' + g.name" (close)="editGroup.set(null)">
         <div class="field"><label for="mod-edit-group-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-edit-group-name" class="input" [(ngModel)]="eg.name" required /></div>
         <div class="two-col">
           <div class="field"><label for="mod-edit-min">Min select</label><input id="mod-edit-min" class="input" type="number" min="0" [(ngModel)]="eg.minSelect" /></div>
@@ -113,7 +112,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     }
 
     @if (editMod(); as e) {
-      <app-modal [title]="'Edit option ' + e.modifier.name" (close)="editMod.set(null)">
+      <app-modal variant="drawer" [title]="'Edit option ' + e.modifier.name" (close)="editMod.set(null)">
         <div class="two-col">
           <div class="field"><label for="mod-edit-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-edit-name" class="input" [(ngModel)]="em.name" required /></div>
           <div class="field"><label for="mod-edit-delta">Price delta</label><input id="mod-edit-delta" class="input" type="number" min="0" [(ngModel)]="em.priceDelta" /></div>
@@ -130,7 +129,7 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
     }
 
     @if (addTo(); as g) {
-      <app-modal [title]="'Add option to ' + g.name" [width]="600" (close)="addTo.set(null)">
+      <app-modal variant="drawer" [title]="'Add option to ' + g.name" [width]="600" (close)="addTo.set(null)">
         <div class="two-col">
           <div class="field"><label for="mod-opt-name">Name <span class="req" aria-hidden="true">*</span></label><input id="mod-opt-name" class="input" [(ngModel)]="nm.name" placeholder="Large" required /></div>
           <div class="field"><label for="mod-opt-delta">Price delta</label><input id="mod-opt-delta" class="input" type="number" min="0" [(ngModel)]="nm.priceDelta" placeholder="0" /></div>
@@ -166,32 +165,25 @@ import { ConsumptionLine, IngredientResponse, ModifierGroupResponse, ModifierRes
   `,
   styles: [`
     .mod-list { display: flex; flex-direction: column; gap: .9rem; max-width: 780px; }
-    /* index card: surface comes from global .paper-card; classic red top rule below the header */
     .mod-group { overflow: hidden; }
     .mg-head { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem .4rem .3rem; margin: 0;
-      font-weight: inherit; font-size: 1.17rem; border-bottom: 2px solid rgba(185, 28, 28, .28); }
+      font-weight: inherit; border-bottom: 1px solid var(--border); }
     .mg-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: .6rem; background: none; border: none;
-      padding: .5rem .4rem; font: inherit; cursor: pointer; color: var(--paper-ink); text-align: left; border-radius: 10px; min-height: 44px; }
-    .mg-toggle:hover { background: rgba(0, 0, 0, .05); }
-    .mg-chev { display: inline-flex; color: var(--paper-ink-soft); transition: transform var(--dur-2) var(--ease-spring); }
+      padding: .5rem .4rem; font: inherit; cursor: pointer; color: var(--text); text-align: left; border-radius: var(--radius-sm); min-height: 44px; }
+    .mg-toggle:hover { background: var(--surface-2); }
+    .mg-chev { display: inline-flex; color: var(--text-muted); transition: transform var(--dur-2) var(--ease-out); }
     .mg-chev.open { transform: rotate(90deg); }
-    .mg-coin { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-      width: 26px; height: 26px; border-radius: 50%; background: var(--gold-soft); color: var(--gold-600);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 1px rgba(90,60,30,.25); }
-    .mg-name { font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
-    .mg-count { color: var(--paper-ink-soft); font-size: 13px; margin-left: auto; padding-left: .5rem; }
+    .mg-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+    .mg-count { color: var(--text-muted); font-size: 13px; margin-left: auto; padding-left: .5rem; }
     .mg-actions { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; padding-right: .3rem; }
-    .mg-actions .btn-ghost { color: var(--paper-ink-soft); }
-    .mg-actions .btn-ghost:hover { background: rgba(0, 0, 0, .05); color: var(--paper-ink); }
     .opt-list { list-style: none; margin: 0; padding: 0 .5rem .4rem; }
-    /* faint card ruling: rows can wrap, so rule each row rather than a fixed-pitch gradient */
-    .opt-row { padding: .7rem .8rem; border-bottom: 1px solid var(--paper-line); font-size: 14.5px; }
-    .opt-name { font-weight: 500; color: var(--paper-ink); }
-    .opt-price { color: var(--paper-accent); font-weight: 600; }
-    .opt-price.free { color: var(--paper-ink-soft); font-weight: 500; }
+    .opt-row { display: flex; align-items: center; gap: .6rem; padding: .7rem .8rem; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .opt-row:last-child { border-bottom: none; }
+    .opt-name { font-weight: 500; }
+    .opt-price { color: var(--accent-text); font-weight: 600; }
+    .opt-price.free { color: var(--text-muted); font-weight: 500; }
     .opt-actions { display: inline-flex; gap: .15rem; margin-left: .5rem; }
     .opt-empty { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 1rem .8rem 1.1rem; }
-    .opt-empty .muted { color: var(--paper-ink-soft); }
     .pg-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; margin: 1.2rem 0 .7rem; }
     .pg-note { font-weight: 400; text-transform: none; }
     .delta-row { display: flex; gap: .5rem; margin-bottom: .5rem; align-items: center; }
