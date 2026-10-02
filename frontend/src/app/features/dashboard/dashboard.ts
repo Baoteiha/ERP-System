@@ -1,64 +1,55 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { forkJoin } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
-import { SteamComponent } from '../../shared/steam';
+import { KpiTileComponent } from '../../shared/kpi-tile';
+import { reportPeriod, zeroFillDays } from '../reports/reports';
 
 type LoadState = 'loading' | 'ready' | 'error';
+
+/** Change of `cur` against `prev` as a fraction; null when there is no previous value to compare with. */
+export function pct(cur: number, prev: number): number | null {
+  return prev === 0 ? null : (cur - prev) / prev;
+}
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, MoneyPipe, ShortIdPipe, IconComponent, SteamComponent],
+  imports: [RouterLink, MoneyPipe, ShortIdPipe, IconComponent, KpiTileComponent],
   template: `
     <div class="page">
       <div class="page-head">
         <div>
           <h1>Dashboard</h1>
-          <div class="greet">
-            <span class="script g-script">{{ greeting() }}</span>
-            <span class="g-cup cup-steamed" aria-hidden="true"><app-icon name="coffee" [size]="17" /><app-steam /></span>
-          </div>
           <div class="sub">Here's the state of your active branch.</div>
         </div>
       </div>
 
       <div class="kpis">
-        <div class="kpi grain">
-          <div class="kpi-ic" style="background:var(--green-soft);color:var(--green)" aria-hidden="true">
-            <app-icon name="banknote" [size]="22" />
-          </div>
-          <div><div class="kpi-val">{{ salesState() === 'ready' && salesSummary() ? (salesSummary()!.netSales | money) : '—' }}</div><div class="kpi-lbl">Net sales today</div></div>
-        </div>
-        <div class="kpi grain">
-          <div class="kpi-ic" style="background:var(--blue-soft);color:var(--blue)" aria-hidden="true">
-            <app-icon name="receipt" [size]="22" />
-          </div>
-          <div><div class="kpi-val">{{ ordersState() === 'ready' ? orders().length : '—' }}</div><div class="kpi-lbl">Recent orders</div></div>
-        </div>
-        <div class="kpi grain">
-          <div class="kpi-ic" style="background:var(--violet-soft);color:var(--violet)" aria-hidden="true">
-            <app-icon name="coffee" [size]="22" />
-          </div>
-          <div><div class="kpi-val">{{ productsState() === 'ready' ? productCount() : '—' }}</div><div class="kpi-lbl">Active products</div></div>
-        </div>
-        <div class="kpi grain">
-          <div class="kpi-ic" style="background:var(--red-soft);color:var(--red)" aria-hidden="true">
-            <app-icon name="alert" [size]="22" />
-          </div>
-          <div><div class="kpi-val">{{ stockState() === 'ready' ? lowStock().length : '—' }}</div><div class="kpi-lbl">Low-stock items</div></div>
-        </div>
+        @if (auth.can('report:read')) {
+          <app-kpi-tile label="Net sales today" icon="banknote" [value]="salesReady() ? (salesSummary()!.netSales | money) : '—'" [delta]="deltas().net" [trend]="trend()" />
+          <app-kpi-tile label="Orders today" icon="receipt" [value]="salesReady() ? '' + salesSummary()!.orderCount : '—'" [delta]="deltas().orders" [trend]="trend()" />
+          <app-kpi-tile label="Average order" icon="trending-up" [value]="salesReady() ? (average(salesSummary()) === null ? '—' : (average(salesSummary())! | money)) : '—'" [delta]="deltas().avg" [trend]="trend()" />
+          <app-kpi-tile label="Gross margin" icon="grid" [value]="salesReady() ? (salesSummary()!.grossMargin | money) : '—'" [delta]="deltas().margin" [trend]="trend()" />
+        } @else {
+          <app-kpi-tile label="Recent orders" icon="receipt" [value]="ordersState() === 'ready' ? '' + orders().length : '—'" [delta]="null" [trend]="[]" />
+          <app-kpi-tile label="Active products" icon="package" [value]="productsState() === 'ready' ? '' + productCount() : '—'" [delta]="null" [trend]="[]" />
+          <app-kpi-tile label="Low-stock items" icon="alert" [value]="stockState() === 'ready' ? '' + lowStock().length : '—'" [delta]="null" [trend]="[]" />
+        }
       </div>
+
+      <section class="towers-slot"></section>
 
       <div class="dash-grid">
         @if (auth.can('sales:read')) {
           <div class="card">
             <div class="card-head"><h2>Recent orders</h2><a class="btn btn-sm btn-outline" routerLink="/orders">View all</a></div>
             @if (ordersState() === 'loading') {
-              <div class="brewing"><span class="brew-cup cup-steamed"><app-icon name="cup" [size]="20" /><app-steam /></span> Brewing…</div>
+              <div class="loading-block"><span class="spinner"></span> Loading…</div>
             } @else if (ordersState() === 'error') {
               <div class="load-error" role="alert">
                 Couldn't load recent orders.
@@ -97,7 +88,7 @@ type LoadState = 'loading' | 'ready' | 'error';
             <div class="card-head"><h2>Low stock alerts</h2><a class="btn btn-sm btn-outline" routerLink="/inventory/stock">Manage</a></div>
             <div class="card-pad">
               @if (stockState() === 'loading') {
-                <div class="brewing"><span class="brew-cup cup-steamed"><app-icon name="cup" [size]="20" /><app-steam /></span> Checking stock…</div>
+                <div class="loading-block"><span class="spinner"></span> Checking stock…</div>
               } @else if (stockState() === 'error') {
                 <div class="load-error" role="alert">
                   Couldn't load stock levels.
@@ -113,7 +104,7 @@ type LoadState = 'loading' | 'ready' | 'error';
                   </div>
                 } @empty {
                   <div class="empty empty-sm">
-                    <div class="big all-good"><app-icon name="leaf" [size]="30" /></div>
+                    <div class="big all-good"><app-icon name="check-circle" [size]="30" /></div>
                     All stock above reorder level
                   </div>
                 }
@@ -125,25 +116,13 @@ type LoadState = 'loading' | 'ready' | 'error';
     </div>
   `,
   styles: [`
-    .greet { display: flex; align-items: center; gap: .7rem; margin-top: .1rem; }
-    .g-script { font-size: 24px; color: var(--brand); line-height: 1.1; }
-    .g-cup { color: var(--brand); }
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1.1rem; margin-bottom: 1.4rem; }
-    /* cork coasters: rim ring + grain overlay (global .grain) */
-    .kpi { position: relative; display: flex; align-items: center; gap: 1rem; padding: 1.35rem 1.45rem;
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm), inset 0 0 0 6px color-mix(in srgb, var(--wood-mid) 20%, var(--surface));
-      overflow: hidden; transition: box-shadow .15s, transform .15s; }
-    .kpi:hover { box-shadow: var(--shadow-md), inset 0 0 0 6px color-mix(in srgb, var(--wood-mid) 20%, var(--surface)); transform: translateY(-1px); }
-    .kpi-ic { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center;
-      justify-content: center; flex-shrink: 0; }
-    .kpi-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
-    .kpi-lbl { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.4rem; }
     .dash-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.2rem; align-items: start; }
     .low-row { display: flex; align-items: center; gap: .7rem; padding: .55rem 0; border-bottom: 1px solid var(--border); font-size: 13px; }
     .low-row:last-child { border-bottom: none; }
     .empty-sm { padding: 1.6rem 1rem; }
     .empty-sm .big.all-good { color: var(--green); }
+    .towers-slot:empty { display: none; }
     .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem;
       padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
     @media (max-width: 980px) { .dash-grid { grid-template-columns: 1fr; } }
@@ -165,17 +144,34 @@ export class DashboardComponent {
   stockState = signal<LoadState>('loading');
   productsState = signal<LoadState>('loading');
 
-  greeting = computed(() => {
-    const h = new Date().getHours();
-    const t = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    return t;
+  private yesterday = signal<PeriodSummary | null>(null);
+  trend = signal<number[]>([]);
+  salesReady = computed(() => this.salesState() === 'ready' && this.salesSummary() !== null);
+
+  /** Today's change against yesterday for each tile. */
+  deltas = computed(() => {
+    const t = this.salesSummary(), y = this.yesterday();
+    if (!t || !y) return { net: null, orders: null, avg: null, margin: null };
+    const ta = this.average(t), ya = this.average(y);
+    return {
+      net: pct(Number(t.netSales), Number(y.netSales)),
+      orders: pct(t.orderCount, y.orderCount),
+      avg: ta === null || ya === null ? null : pct(ta, ya),
+      margin: pct(Number(t.grossMargin), Number(y.grossMargin)),
+    };
   });
 
+  /** Net sales per order, or null when there were no orders. */
+  average(s: PeriodSummary | null): number | null {
+    return s && s.orderCount > 0 ? Number(s.netSales) / s.orderCount : null;
+  }
+
+  /** Permissions arrive after sign-in settles, so each section loads when its permission shows up (and again on a branch switch). */
   constructor() {
-    if (this.auth.can('sales:read')) this.loadOrders(); else this.ordersState.set('ready');
-    if (this.auth.can('report:read')) this.loadSales(); else this.salesState.set('ready');
-    if (this.auth.can('inventory:read')) this.loadStock(); else this.stockState.set('ready');
-    if (this.auth.can('catalog:read')) this.loadProducts(); else this.productsState.set('ready');
+    effect(() => { if (this.auth.can('sales:read')) untracked(() => this.loadOrders()); else this.ordersState.set('ready'); });
+    effect(() => { if (this.auth.can('report:read')) untracked(() => this.loadSales()); else this.salesState.set('ready'); });
+    effect(() => { if (this.auth.can('inventory:read')) untracked(() => this.loadStock()); else this.stockState.set('ready'); });
+    effect(() => { if (this.auth.can('catalog:read')) untracked(() => this.loadProducts()); else this.productsState.set('ready'); });
   }
 
   loadOrders() {
@@ -189,8 +185,19 @@ export class DashboardComponent {
   /** Today's totals come from the server summary, not from adding up the recent-orders page. */
   loadSales() {
     this.salesState.set('loading');
-    this.reporting.summary().subscribe({
-      next: (s) => { this.salesSummary.set(s); this.salesState.set('ready'); },
+    const yday = reportPeriod(Date.now() - 86_400_000, 1);
+    const week = reportPeriod(Date.now(), 7);
+    forkJoin({
+      today: this.reporting.summary(),
+      yesterday: this.reporting.summary(yday.from.toISOString(), yday.to.toISOString()),
+      days: this.reporting.salesByDay(week.from.toISOString(), week.to.toISOString()),
+    }).subscribe({
+      next: ({ today, yesterday, days }) => {
+        this.salesSummary.set(today);
+        this.yesterday.set(yesterday);
+        this.trend.set(zeroFillDays(week.days, days).map((d) => Number(d.netSales)));
+        this.salesState.set('ready');
+      },
       error: () => this.salesState.set('error'),
     });
   }
