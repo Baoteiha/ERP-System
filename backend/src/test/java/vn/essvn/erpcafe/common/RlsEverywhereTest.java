@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -480,6 +481,46 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
             // the server logs a failed statement in full: the one that failed must not carry the password
             assertThat(serverLogOnceItShows(refusal)).doesNotContain(secret);
         });
+    }
+
+    @Test
+    void anAppRoleThatCanCreateRoles_isRefused() {
+        inAFreshDatabase((url, role) -> {
+            flyway(url, role, "unused", "26.004").migrate();
+            owner().execute("ALTER ROLE erp_app CREATEROLE");
+            try {
+                assertThat(catchThrowable(() -> flyway(url, role, "unused", null).migrate()))
+                        .hasStackTraceContaining("erp_app holds CREATEROLE");
+            } finally {
+                owner().execute("ALTER ROLE erp_app NOCREATEROLE");
+            }
+        });
+    }
+
+    @Test
+    void anAppRoleThatOwnsATable_throughARoleItCanBecome_isRefused() {
+        String strayOwner = "stray_owner_" + SEQ.incrementAndGet();
+        HikariDataSource superuser = (HikariDataSource) ownerDataSource;
+        owner().execute("CREATE ROLE " + strayOwner + " NOLOGIN");
+        try {
+            inAFreshDatabase((url, role) -> {
+                flyway(url, role, "unused", "26.004").migrate();
+                // a table some other role owns, and erp_app a member of that role
+                JdbcTemplate there = new JdbcTemplate(
+                        new DriverManagerDataSource(url, superuser.getUsername(), superuser.getPassword()));
+                there.execute("CREATE TABLE stray (id INT)");
+                there.execute("ALTER TABLE stray OWNER TO " + strayOwner);
+                owner().execute("GRANT " + strayOwner + " TO erp_app");
+                try {
+                    assertThat(catchThrowable(() -> flyway(url, role, "unused", null).migrate()))
+                            .hasStackTraceContaining("erp_app owns a table");
+                } finally {
+                    owner().execute("REVOKE " + strayOwner + " FROM erp_app");
+                }
+            });
+        } finally {
+            owner().execute("DROP ROLE IF EXISTS " + strayOwner);
+        }
     }
 
     private String serverLogOnceItShows(String text) {

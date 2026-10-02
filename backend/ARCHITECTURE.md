@@ -215,7 +215,9 @@ fresh volume; on an existing volume migration V22 creates it.
 | `JWT_SECRET` / `JWT_KEY_ID` | the active access-token signing key and its `kid` (default `primary`); to rotate, set the whole `app.security.jwt.keys` list instead (see `application-prod.yml`) |
 
 The owner must own the schema and its tables and hold `BYPASSRLS` (or be a superuser), and needs
-`CREATEROLE` unless `erp_app` already exists; V22 checks this before it does anything else. `erp_app`
+`CREATEROLE` unless `erp_app` already exists; V22 checks this before it does anything else. An existing
+`erp_app` must not be a superuser, hold `BYPASSRLS` or `CREATEROLE`, or own a table of the schema,
+itself or through a role it is a member of (V22, V26_005): no policy would bind it. `erp_app`
 is a cluster-wide role, so run one PostgreSQL cluster per environment. A Flyway run outside the app
 must supply the `appRolePassword` placeholder (the password `erp_app` is created with; the app passes
 `spring.datasource.password`) and the `reportingZone` placeholder (the zone V23 cuts report days in; the
