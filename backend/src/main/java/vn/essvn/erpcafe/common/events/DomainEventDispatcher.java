@@ -116,11 +116,13 @@ public class DomainEventDispatcher {
         }
     }
 
+    // A broken payload class or a runaway listener fails its own event, not every company's delivery;
+    // only errors the JVM cannot recover from (out of memory, say) end the run.
     private Outcome deliver(Pending event) {
         try {
             return TenantContext.runAs(event.companyId(),
                     () -> transactions.execute(status -> deliverInTransaction(event)));
-        } catch (RuntimeException ex) {
+        } catch (Exception | LinkageError | StackOverflowError ex) {
             recordFailure(event, ex);
             return Outcome.FAILED;
         }
@@ -152,7 +154,7 @@ public class DomainEventDispatcher {
         }
     }
 
-    private void recordFailure(Pending event, RuntimeException ex) {
+    private void recordFailure(Pending event, Throwable ex) {
         Integer attempts = TenantContext.runAs(event.companyId(), () -> transactions.execute(status ->
                 jdbc.queryForObject("UPDATE domain_event SET attempts = attempts + 1, last_error = ?,"
                         + " next_attempt_at = now() + (attempts + 1) * ? * interval '1 second'"
@@ -166,7 +168,7 @@ public class DomainEventDispatcher {
         }
     }
 
-    private static String describe(RuntimeException ex) {
+    private static String describe(Throwable ex) {
         Throwable cause = NestedExceptionUtils.getMostSpecificCause(ex);
         String text = cause.getClass().getName() + ": " + cause.getMessage();
         return text.length() > MAX_ERROR_LENGTH ? text.substring(0, MAX_ERROR_LENGTH) : text;

@@ -42,7 +42,8 @@ public class ReportProjection {
     }
 
     // Each listener runs in the dispatcher's delivery transaction, inside the event's company: the
-    // figures and the event's processed mark commit together.
+    // figures and the event's processed mark commit together. Rows take the company the event was
+    // recorded under, never one its payload names.
     @EventListener
     @Transactional(propagation = Propagation.MANDATORY)
     public void onOrderCompleted(DomainEvent<OrderCompleted> event) {
@@ -50,11 +51,11 @@ public class ReportProjection {
             return;
         }
         OrderCompleted sale = event.payload();
-        figures.add(sale.companyId(), sale.branchId(), dayOf(sale.occurredAt()), 1, sale.grossSales(),
+        figures.add(event.companyId(), sale.branchId(), dayOf(sale.occurredAt()), 1, sale.grossSales(),
                 sale.discountTotal(), sale.netSales(), sale.taxTotal(), sale.cogs(), ZERO);
         if (sale.previouslyBookedAt() != null) {
             // a legacy PAID order was booked on the day it was created; it moves to its completion day
-            figures.add(sale.companyId(), sale.branchId(), dayOf(sale.previouslyBookedAt()), -1,
+            figures.add(event.companyId(), sale.branchId(), dayOf(sale.previouslyBookedAt()), -1,
                     sale.grossSales().negate(), sale.discountTotal().negate(), sale.netSales().negate(),
                     sale.taxTotal().negate(), ZERO, ZERO);
         }
@@ -68,7 +69,7 @@ public class ReportProjection {
         }
         // the order count stays the sales made; only the money is taken back
         OrderReversed reversal = event.payload();
-        figures.add(reversal.companyId(), reversal.branchId(), dayOf(reversal.occurredAt()), 0,
+        figures.add(event.companyId(), reversal.branchId(), dayOf(reversal.occurredAt()), 0,
                 reversal.grossSales().negate(), reversal.discountTotal().negate(), reversal.netSales().negate(),
                 reversal.taxTotal().negate(), reversal.cogs().negate(), ZERO);
     }
@@ -84,13 +85,13 @@ public class ReportProjection {
         // an adjustment restates the shift: what it added before comes off first, wherever it was booked
         shiftLabor.lockByShiftId(shift.shiftId()).ifPresentOrElse(
                 previous -> {
-                    addLabor(shift.companyId(), previous.getBranchId(), previous.getDay(),
+                    addLabor(event.companyId(), previous.getBranchId(), previous.getDay(),
                             previous.getLaborCost().negate());
                     previous.restate(day, shift.laborCost());
                 },
                 () -> shiftLabor.save(
-                        new ShiftLabor(shift.shiftId(), shift.companyId(), shift.branchId(), day, shift.laborCost())));
-        addLabor(shift.companyId(), shift.branchId(), day, shift.laborCost());
+                        new ShiftLabor(shift.shiftId(), event.companyId(), shift.branchId(), day, shift.laborCost())));
+        addLabor(event.companyId(), shift.branchId(), day, shift.laborCost());
     }
 
     private boolean firstDelivery(DomainEvent<?> event) {

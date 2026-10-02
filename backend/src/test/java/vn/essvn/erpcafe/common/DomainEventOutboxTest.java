@@ -66,6 +66,7 @@ class DomainEventOutboxTest extends AbstractIntegrationTest {
 
     private final List<Seen> seen = new CopyOnWriteArrayList<>();
     private final Set<String> failing = ConcurrentHashMap.newKeySet();
+    private final Set<String> broken = ConcurrentHashMap.newKeySet();
     private final List<UUID> companies = new ArrayList<>();
     private final ApplicationListener<ApplicationEvent> listener = this::onEvent;
 
@@ -88,6 +89,9 @@ class DomainEventOutboxTest extends AbstractIntegrationTest {
                     TransactionSynchronizationManager.isActualTransactionActive()));
             if (failing.contains(probe.label())) {
                 throw new IllegalStateException("probe " + probe.label() + " refused");
+            }
+            if (broken.contains(probe.label())) {
+                throw new NoClassDefFoundError("probe " + probe.label() + " broken");
             }
         }
     }
@@ -194,6 +198,24 @@ class DomainEventOutboxTest extends AbstractIntegrationTest {
 
         assertThat(labelsSeen()).containsExactly("a1", "a2");
         assertThat(row(a, "a2").get("processed_at")).isNotNull();
+    }
+
+    @Test
+    void aDeliveryFailingWithALinkageError_isRecordedLikeAnyFailure_andOtherCompaniesStillGo() {
+        UUID a = company();
+        UUID b = company();
+        broken.add("a1");
+        publishAs(a, "a1");
+        publishAs(b, "b1");
+
+        dispatcher.dispatchPending();
+
+        assertThat(labelsSeen()).containsExactly("a1", "b1");
+        Map<String, Object> failed = row(a, "a1");
+        assertThat(failed.get("processed_at")).isNull();
+        assertThat(failed.get("attempts")).isEqualTo(1);
+        assertThat((String) failed.get("last_error")).contains("NoClassDefFoundError").contains("probe a1 broken");
+        assertThat(row(b, "b1").get("processed_at")).isNotNull();
     }
 
     @Test

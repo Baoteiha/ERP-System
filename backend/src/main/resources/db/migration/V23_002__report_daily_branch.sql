@@ -23,11 +23,19 @@
 -- of stored amounts. Its COGS can differ from the events' only immaterially: an event carries its
 -- sale's cost rounded line by line (at most 0.00005 a line from one rounding of the day), and a
 -- movement is stamped within milliseconds of its sale's completion or reversal, which moves it to
--- another day only within those milliseconds of midnight. This migration runs it for every branch
--- (the backfill), in the zone of the reportingZone placeholder, which the app takes from
--- app.reporting.zone; a Flyway run outside the app must supply it. After changing
--- app.reporting.zone, run it again for every branch, as the schema owner, in a REPEATABLE READ
--- transaction, so the sources it reads and the events it marks are one snapshot.
+-- another day only within those milliseconds of midnight.
+--
+-- This migration runs it for every branch (the backfill), in the zone of the reportingZone
+-- placeholder, which the app takes from app.reporting.zone; a Flyway run outside the app must
+-- supply it. Stop the instances running the previous version before migrating: a sale they
+-- complete afterwards records no event, so the figures would never see it (otherwise, rebuild
+-- every branch once the rollout is over). After changing app.reporting.zone, run it again for
+-- every branch, as the schema owner, in a REPEATABLE READ transaction, so the sources it reads
+-- and the events it marks are one snapshot. The zone must be a name (Asia/Ho_Chi_Minh), not an offset.
+
+-- A branch's figures can only be its own company's: the read model's rows reference this pair.
+ALTER TABLE branch ADD CONSTRAINT uk_branch_id_company UNIQUE (id, company_id);
+
 CREATE TABLE report_daily_branch (
     company_id     UUID          NOT NULL,
     branch_id      UUID          NOT NULL,
@@ -41,7 +49,7 @@ CREATE TABLE report_daily_branch (
     labor_cost     NUMERIC(19,4) NOT NULL DEFAULT 0,
     CONSTRAINT pk_report_daily_branch PRIMARY KEY (branch_id, day),
     CONSTRAINT fk_report_daily_branch_company FOREIGN KEY (company_id) REFERENCES company (id),
-    CONSTRAINT fk_report_daily_branch_branch FOREIGN KEY (branch_id) REFERENCES branch (id)
+    CONSTRAINT fk_report_daily_branch_branch FOREIGN KEY (branch_id, company_id) REFERENCES branch (id, company_id)
 );
 
 CREATE TABLE report_shift_labor (
@@ -52,7 +60,7 @@ CREATE TABLE report_shift_labor (
     labor_cost NUMERIC(19,4) NOT NULL,
     CONSTRAINT pk_report_shift_labor PRIMARY KEY (shift_id),
     CONSTRAINT fk_report_shift_labor_company FOREIGN KEY (company_id) REFERENCES company (id),
-    CONSTRAINT fk_report_shift_labor_branch FOREIGN KEY (branch_id) REFERENCES branch (id)
+    CONSTRAINT fk_report_shift_labor_branch FOREIGN KEY (branch_id, company_id) REFERENCES branch (id, company_id)
 );
 
 CREATE INDEX idx_report_shift_labor_branch ON report_shift_labor (branch_id);
@@ -147,9 +155,12 @@ $$;
 -- The backfill's and an operator's tool, run as the schema owner; the app never calls it.
 REVOKE EXECUTE ON FUNCTION report_rebuild_branch(UUID, TEXT) FROM PUBLIC;
 
--- An unknown zone fails here even on an empty database, where no row would have tried it.
+-- Only a zone name will do, checked even on an empty database where no row would try it: PostgreSQL
+-- reads an offset ('+07:00', 'UTC+7') with the POSIX sign, the opposite of Java's.
 DO $$
 BEGIN
-    PERFORM now() AT TIME ZONE '${reportingZone}';
+    IF NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = '${reportingZone}') THEN
+        RAISE EXCEPTION 'reportingZone % is not a time zone name such as Asia/Ho_Chi_Minh', '${reportingZone}';
+    END IF;
     PERFORM report_rebuild_branch(b.id, '${reportingZone}') FROM branch b;
 END $$;

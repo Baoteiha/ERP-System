@@ -14,6 +14,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,9 @@ import com.jayway.jsonpath.JsonPath;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.events.DomainEventPublisher;
+import vn.essvn.erpcafe.organization.domain.Company;
+import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
+import vn.essvn.erpcafe.sales.api.OrderCompleted;
 import vn.essvn.erpcafe.sales.api.OrderReversed;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -39,6 +43,7 @@ import vn.essvn.erpcafe.staff.persistence.ShiftRepository;
  */
 class ReportProjectionTest extends ReportFixtures {
 
+    private static final AtomicInteger SEQ = new AtomicInteger();
     private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final Instant SALE_DAY = Instant.parse("2026-03-02T05:00:00Z");
     /** gross 50,000, discount 5,000, net 45,000, tax 4,500 at 10%, grand 49,500; COGS 2 x 50 g x 100 = 10,000. */
@@ -49,6 +54,7 @@ class ReportProjectionTest extends ReportFixtures {
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private EmployeeRepository employeeRepository;
     @Autowired private ShiftRepository shiftRepository;
+    @Autowired private CompanyRepository companyRepository;
 
     private static LocalDate dayOf(Instant at) {
         return LocalDate.ofInstant(at, VIETNAM);
@@ -145,6 +151,31 @@ class ReportProjectionTest extends ReportFixtures {
 
         assertSales(figures(dayOf(completedAt)), 1, "50000", "5000", "45000", "4500", "10000");
         assertSales(figures(dayOf(refundedAt)), 0, "-50000", "-5000", "-45000", "-4500", "-10000");
+    }
+
+    @Test
+    void anEventNamingAnotherCompanysBranch_isRefusedAndWritesNothing() throws Exception {
+        freshTenant(1, "0");
+        int n = SEQ.incrementAndGet();
+        Company other = TenantContext.runAsSystem(
+                () -> companyRepository.save(new Company("Rpt Other %d".formatted(n), "RPO%d".formatted(n))));
+        // recorded by the other company, but naming this company's branch
+        TenantContext.runAs(other.getId(), () -> new TransactionTemplate(transactionManager).executeWithoutResult(s ->
+                publisher.publish(new OrderCompleted(UUID.randomUUID(), other.getId(), branch(), Instant.now(),
+                        new BigDecimal("25000"), BigDecimal.ZERO, new BigDecimal("25000"), BigDecimal.ZERO,
+                        BigDecimal.ZERO, null))));
+        try {
+            dispatcher.dispatchPending();
+
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM report_daily_branch WHERE branch_id = ?", Long.class,
+                    branch())).isZero();
+            Map<String, Object> refused = jdbc.queryForMap("SELECT attempts, processed_at FROM domain_event"
+                    + " WHERE company_id = ?", other.getId());
+            assertThat(refused.get("processed_at")).isNull();
+            assertThat(refused.get("attempts")).isEqualTo(1);
+        } finally {
+            jdbc.update("DELETE FROM domain_event WHERE company_id = ?", other.getId());
+        }
     }
 
     @Test

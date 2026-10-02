@@ -36,14 +36,21 @@ publishes `DomainEvent<T>` — the payload with the id and company it was
 recorded under — to the `@EventListener`s, and sets `processed_at`; the
 listeners' writes and the mark commit together.
 
-- **Order.** A company's events are delivered in the order they were written
-  (`seq`). One that fails holds back its company's later events until it is
-  retried, and one another dispatcher is delivering holds them back for that
-  run; other companies carry on.
-- **Retries.** A failure records `attempts`, `last_error` and
-  `next_attempt_at` (30 s × attempts). After ten attempts the event is given
-  up: logged at ERROR, left unprocessed for someone to look at, and no longer
-  holding its company back. Setting `attempts` back to 0 resubmits it.
+- **Order.** A company's events are delivered in `seq` order among the events
+  already committed. `seq` is taken as an event is written, not as its
+  transaction commits, so an event committed after a later-numbered one was
+  delivered follows it; events about the same order or shift commit one after
+  the other and keep their order. One that fails holds back its company's
+  later events until it is retried, and one another dispatcher is delivering
+  holds them back for that run; other companies carry on.
+- **Retries.** A failure — an exception, or a `LinkageError` or
+  `StackOverflowError` such as a broken payload class raises — records
+  `attempts`, `last_error` and `next_attempt_at` (30 s × attempts); it never
+  stops the run for the other companies. After ten attempts the event is given
+  up: logged at ERROR, left unprocessed, and no longer holding its company
+  back. To recover it, fix the cause and set `attempts` back to 0, which
+  resubmits it; if it can never be delivered, rebuild its branch (below),
+  which counts it from the sources and marks it applied.
 - **Once.** Delivery is at least once; a consumer applies each event once by
   its id. The report projection records the id in `report_applied_event` in
   the same transaction as its figures.
@@ -55,7 +62,10 @@ its completion day (and takes it off `previouslyBookedAt`'s day), a reversal
 as negatives on its own day with the order count unchanged, and a shift's
 labour on its clock-out day. `report_shift_labor` keeps each shift's current
 share, so an adjusted shift moves its labour instead of adding to it. All three
-tables carry `company_id` under the usual policy. `ReportService` answers the
+tables carry `company_id` under the usual policy, and every row takes the
+company the event was recorded under, never one its payload names; a day row
+or shift share references `branch (id, company_id)`, so a branch's figures can
+only be its own company's. `ReportService` answers the
 summary and the outlet comparison with one grouped query over the branches
 asked about, and the daily series from the day rows; the grand total is net +
 tax, and the margins are computed as before. The figures follow the rules of
@@ -64,7 +74,9 @@ Tasks 16 and 17.
 **Whole days.** Figures are kept per day, so a report period is the set of
 report days `[from, to)` touches; a `to` exactly at the start of a day leaves
 that day out. The reports page and the dashboard already ask for whole days
-in that zone.
+in that zone. `app.reporting.zone` must be a named region: PostgreSQL reads
+an offset (`+07:00`, `UTC+7`) with the POSIX sign, the opposite of Java's, so
+the app refuses one at startup and V23 refuses one before the backfill.
 
 **Backfill and rebuild.** `report_rebuild_branch(branch, zone)` (V23) recomputes
 a branch's rows and shift shares from orders, the stock ledger and shifts under
@@ -75,14 +87,16 @@ at the Money scale — and marks
 every event already written about the branch as applied, so one still on its
 way is not counted twice. The migration runs it for every branch in the zone
 of the `reportingZone` placeholder (application.yml passes
-`app.reporting.zone`; a Flyway run outside the app must supply it). After
-changing the zone, run it again for every branch as the schema owner, in a
-`REPEATABLE READ` transaction so the sources and the events it marks are one
-snapshot. A rebuild and the events can differ only immaterially: an event
-carries its sale's cost rounded line by line (at most 0.00005 a line from one
-rounding of the day), and a movement is stamped within milliseconds of its
-sale's completion or reversal, which moves it to another day only within
-those milliseconds of midnight. Tests that rewrite a row's timestamps after the fact — which no
+`app.reporting.zone`; a Flyway run outside the app must supply it). Stop the
+instances running the previous version before migrating: a sale they complete
+afterwards records no event, so the figures would never see it (or rebuild
+every branch once the rollout is over). After changing the zone, run it again
+for every branch as the schema owner, in a `REPEATABLE READ` transaction so
+the sources and the events it marks are one snapshot. A rebuild and the events
+can differ only immaterially: an event carries its sale's cost rounded line by
+line (at most 0.00005 a line from one rounding of the day), and a movement is
+stamped within milliseconds of its sale's completion or reversal, which moves
+it to another day only within those milliseconds of midnight. Tests that rewrite a row's timestamps after the fact — which no
 event announces — call it too.
 
 **Branch lifecycle events stay synchronous.** `BranchCreated`,

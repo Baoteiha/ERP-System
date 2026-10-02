@@ -2,12 +2,18 @@
 -- (DomainEventPublisher), so the event exists exactly when that transaction commits; the
 -- dispatcher delivers it to the listeners afterwards. Delivery only ever writes bookkeeping back:
 -- processed_at once every listener has run, or attempts, last_error and next_attempt_at when one
--- failed. An event that has failed attempts times in a row (the dispatcher's limit) is left
--- unprocessed for someone to look at.
+-- failed. An event that has failed attempts times in a row (the dispatcher's limit) is given up and
+-- left unprocessed. To recover one: fix the cause and set its attempts back to 0, which resubmits it;
+-- or, if it can never be delivered, rebuild its branch's report figures (report_rebuild_branch, V23
+-- part 2, in a REPEATABLE READ transaction), which counts it from the sources and marks it applied.
 --
--- seq is the order the events were written in; a company's events reach its listeners in that
--- order. A row belongs to the company whose transaction wrote it and follows the same policy as
--- every company-owned table, so the app writes and delivers it only inside that company. The
+-- seq is taken as an event is written, not as its transaction commits: a company's events reach its
+-- listeners in seq order among the events already committed, so one committed after a later-numbered
+-- event was delivered follows it. Events about the same order or shift commit one after the other,
+-- so they keep their order.
+--
+-- A row belongs to the company whose transaction wrote it and follows the same policy as every
+-- company-owned table, so the app writes and delivers it only inside that company. The
 -- dispatcher finds the pending rows of every company as the schema owner (SystemTransactions),
 -- then delivers each inside its company on the app connection.
 CREATE TABLE domain_event (
