@@ -51,6 +51,11 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.flyway.password", POSTGRES::getPassword);
     }
 
+    /** Everything the test database server has logged so far. */
+    protected static String databaseLog() {
+        return POSTGRES.getLogs();
+    }
+
     @Autowired
     protected MockMvc mockMvc;
 

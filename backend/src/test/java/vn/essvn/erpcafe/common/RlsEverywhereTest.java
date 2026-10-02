@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,12 +10,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 import javax.sql.DataSource;
 
+import org.assertj.core.util.Throwables;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -385,30 +391,66 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT current_user", String.class)).isEqualTo("erp_app");
     }
 
-    @Test
-    void anEmptyDatabase_migratesUnderANonSuperuserOwnerWithBypassRls() {
+    /** Runs work on a new, empty database owned by a new NOSUPERUSER BYPASSRLS role, and drops both after. */
+    private void inAFreshDatabase(BiConsumer<String, String> work) {
         int n = SEQ.incrementAndGet();
-        String ownerRole = "rls_owner_" + n;
+        String role = "rls_owner_" + n;
         String database = "rls_fresh_" + n;
         JdbcTemplate superuser = owner();
-        superuser.execute("CREATE ROLE " + ownerRole + " LOGIN PASSWORD 'owner' NOSUPERUSER BYPASSRLS");
-        superuser.execute("CREATE DATABASE " + database + " OWNER " + ownerRole);
+        superuser.execute("CREATE ROLE " + role + " LOGIN PASSWORD 'owner' NOSUPERUSER BYPASSRLS");
+        superuser.execute("CREATE DATABASE " + database + " OWNER " + role);
         try {
             String url = ((HikariDataSource) ownerDataSource).getJdbcUrl()
                     .replaceFirst("/[^/?]+(\\?|$)", "/" + database + "$1");
-            Flyway flyway = Flyway.configure()
-                    .dataSource(url, ownerRole, "owner")
-                    .locations("classpath:db/migration")
-                    .placeholders(Map.of("appRolePassword", "unused-the-role-exists"))
-                    .load();
-
-            assertThat(flyway.migrate().success).isTrue();
-            // the password is not part of a migration's checksum: changing it never fails validation
-            Flyway.configure().dataSource(url, ownerRole, "owner").locations("classpath:db/migration")
-                    .placeholders(Map.of("appRolePassword", "rotated")).load().validate();
+            work.accept(url, role);
         } finally {
             superuser.execute("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
-            superuser.execute("DROP ROLE IF EXISTS " + ownerRole);
+            superuser.execute("DROP ROLE IF EXISTS " + role);
         }
+    }
+
+    private Flyway flyway(String url, String role, String appRolePassword, String target) {
+        FluentConfiguration config = Flyway.configure()
+                .dataSource(url, role, "owner")
+                .locations("classpath:db/migration")
+                .placeholders(Map.of("appRolePassword", appRolePassword));
+        return (target == null ? config : config.target(target)).load();
+    }
+
+    @Test
+    void anEmptyDatabase_migratesUnderANonSuperuserOwnerWithBypassRls() {
+        inAFreshDatabase((url, role) -> {
+            assertThat(flyway(url, role, "unused-the-role-exists", null).migrate().success).isTrue();
+            // the password is not part of a migration's checksum: changing it never fails validation
+            flyway(url, role, "rotated", null).validate();
+        });
+    }
+
+    @Test
+    void anOwnerWithoutBypassRls_isRefusedBeforeTheAppRolePasswordIsSent() {
+        String secret = "must-not-leak-" + UUID.randomUUID();
+        inAFreshDatabase((url, role) -> {
+            flyway(url, role, "unused", "21.001").migrate();
+            owner().execute("ALTER ROLE " + role + " NOBYPASSRLS");
+
+            Throwable refused = catchThrowable(() -> flyway(url, role, secret, null).migrate());
+
+            String refusal = "Flyway runs as " + role + ", which lacks BYPASSRLS";
+            assertThat(refused).hasStackTraceContaining(refusal);
+            assertThat(Throwables.getStackTrace(refused)).doesNotContain(secret);
+            // the server logs a failed statement in full: the one that failed must not carry the password
+            assertThat(serverLogOnceItShows(refusal)).doesNotContain(secret);
+        });
+    }
+
+    private String serverLogOnceItShows(String text) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        String log = databaseLog();
+        while (!log.contains(text) && System.nanoTime() < deadline) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
+            log = databaseLog();
+        }
+        assertThat(log).contains(text);
+        return log;
     }
 }

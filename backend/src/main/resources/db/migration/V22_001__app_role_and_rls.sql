@@ -4,16 +4,23 @@
 -- Two database identities from here on:
 --   * the schema owner (spring.flyway.user) runs Flyway, and the system work that must see every
 --     company before one is known: login, refresh, logout, startup seeding, the cross-company
---     email and company-code checks, and the refresh-token purge. It must own the tables and hold
---     BYPASSRLS (or be a superuser): V8 turns row_security off, which only such a role may do on
---     a FORCE ROW LEVEL SECURITY table, and the system work must not be filtered. It also needs
---     CREATEROLE, unless erp_app was created beforehand (docker/postgres-init does so for dev).
+--     email and company-code checks, and the refresh-token purge. It must own the schema and its
+--     tables and hold BYPASSRLS (or be a superuser): V8 turns row_security off, which only such a
+--     role may do on a FORCE ROW LEVEL SECURITY table, and the system work must not be filtered.
+--     It also needs CREATEROLE, unless erp_app was created beforehand (docker/postgres-init does so
+--     for dev).
 --   * erp_app (spring.datasource.*) does all request work, as NOSUPERUSER NOBYPASSRLS. The app
---     sets app.company_id at the start of every transaction (TenantTransactionManager).
+--     sets app.company_id at the start of every transaction (TenantTransactionManager). A role
+--     belongs to the whole PostgreSQL cluster, not one database: run one cluster per environment.
 --
--- erp_app is created here only if missing, with the password the app connects with
--- (the appRolePassword placeholder, which application.yml takes from spring.datasource.password).
--- A role that already exists keeps its password and is refused if it could bypass the policies.
+-- erp_app is created here only if missing, with the password the app connects with (the
+-- appRolePassword placeholder, which application.yml takes from spring.datasource.password; a
+-- Flyway run outside the app must supply it). Every check runs first, in a statement without the
+-- password, so a misconfigured deploy fails before the password is sent: PostgreSQL logs a failed
+-- statement in full. The placeholder may be a SCRAM verifier ('SCRAM-SHA-256$...', which PostgreSQL
+-- stores as given), so that even an echo exposes only a hash. A password containing $pw$ would end
+-- its dollar quote early. A role that already exists keeps its password, and is refused if it could
+-- bypass the policies, itself or through a role it can become.
 --
 -- Which rows a company sees, table by table (a policy with only USING also checks written rows,
 -- so a row can be neither read nor written outside the company):
@@ -21,6 +28,9 @@
 --   * a branch-owned table: the rows whose branch is visible;
 --   * any other table: the rows whose parent row is visible (a line through its order, a
 --     modifier through its group, a refresh token through its user).
+-- Each table follows that one path. Foreign keys are checked past row-level security, so a row
+-- that names another company's row in some other column (a stock row's ingredient, a grant's role)
+-- is kept out by the application's own checks, not by these policies.
 -- With no company in force NULLIF yields NULL and nothing matches: the policies fail closed.
 -- Two tables have no policy: permission is one catalog for every company (erp_app may only read
 -- it; startup syncs it as the owner) and the Flyway history, which erp_app cannot touch.
@@ -32,15 +42,32 @@ BEGIN
             current_user;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'erp_app') THEN
-        -- Dollar-quoted, so any password is a literal. Flyway misses a placeholder written right
-        -- after a '$', hence the leading '-', which substr drops.
-        EXECUTE format('CREATE ROLE erp_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD %L',
-            substr($pw$-${appRolePassword}$pw$, 2));
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolcreaterole)) THEN
+            RAISE EXCEPTION 'erp_app does not exist and % lacks CREATEROLE: create erp_app first, or grant CREATEROLE',
+                current_user;
+        END IF;
     ELSIF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'erp_app' AND (rolsuper OR rolbypassrls)) THEN
         RAISE EXCEPTION 'erp_app is a superuser or holds BYPASSRLS, so no policy would apply to it';
+    ELSIF EXISTS (SELECT 1 FROM pg_roles r
+                  WHERE r.rolname <> 'erp_app'
+                    AND (r.rolsuper OR r.rolbypassrls OR r.rolname = current_user)
+                    AND pg_has_role('erp_app', r.oid, 'MEMBER')) THEN
+        RAISE EXCEPTION 'erp_app is a member of the schema owner or of a role that bypasses row-level security';
     END IF;
 END $$;
 
+-- Runs only once the checks above have passed. Dollar-quoted, so any password is a literal; Flyway
+-- misses a placeholder written right after a '$', hence the leading '-', which substr drops.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'erp_app') THEN
+        EXECUTE format('CREATE ROLE erp_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD %L',
+            substr($pw$-${appRolePassword}$pw$, 2));
+    END IF;
+END $$;
+
+-- PostgreSQL 15 already withholds CREATE on the schema from everyone; older versions did not.
+REVOKE CREATE ON SCHEMA ${flyway:defaultSchema} FROM PUBLIC;
 GRANT USAGE ON SCHEMA ${flyway:defaultSchema} TO erp_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${flyway:defaultSchema} TO erp_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${flyway:defaultSchema} TO erp_app;
