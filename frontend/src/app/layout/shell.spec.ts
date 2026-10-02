@@ -5,6 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../core/auth.service';
+import { OverlayStack } from '../shared/overlay-stack';
 import { ShellComponent } from './shell';
 
 @Component({ template: '' })
@@ -192,5 +193,36 @@ describe('ShellComponent layout', () => {
     f.detectChanges();
     expect(f.componentInstance.userMenu()).toBe(false);
     expect(f.componentInstance.mobileNav()).toBe(false);
+  });
+
+  describe('focus after navigation', () => {
+    const main = (f: { nativeElement: HTMLElement }) => f.nativeElement.querySelector('#main-content') as HTMLElement;
+    const go = async (url: string) => { await router.navigateByUrl(url); await new Promise((r) => setTimeout(r)); };
+    const start = async () => {
+      const f = TestBed.createComponent(ShellComponent);
+      f.detectChanges();
+      await go('/'); // the first navigation never moves focus
+      (document.activeElement as HTMLElement | null)?.blur();
+      return f;
+    };
+
+    it('does not move focus on a query-only navigation', async () => {
+      const f = await start();
+      await go('/?a=1');
+      expect(document.activeElement).not.toBe(main(f));
+    });
+
+    it('does not move focus while an overlay is open', async () => {
+      const f = await start();
+      TestBed.inject(OverlayStack).push({});
+      await go('/nowhere');
+      expect(document.activeElement).not.toBe(main(f));
+    });
+
+    it('still moves focus on a real path change', async () => {
+      const f = await start();
+      await go('/nowhere');
+      expect(document.activeElement).toBe(main(f));
+    });
   });
 });

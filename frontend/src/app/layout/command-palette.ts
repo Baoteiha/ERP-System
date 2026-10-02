@@ -122,6 +122,7 @@ export class CommandPaletteComponent {
   private switcher = inject(BranchSwitcher);
   private field = viewChild<ElementRef<HTMLInputElement>>('field');
   private opener: HTMLElement | null = null;
+  private wasOpen = false;
 
   query = signal('');
   active = signal(0);
@@ -175,6 +176,7 @@ export class CommandPaletteComponent {
     effect(() => {
       if (this.palette.isOpen()) {
         untracked(() => {
+          this.wasOpen = true;
           this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           afterNextRender(() => this.field()?.nativeElement.focus(), { injector: this.injector });
         });
@@ -182,7 +184,13 @@ export class CommandPaletteComponent {
         untracked(() => {
           this.query.set('');
           this.active.set(0);
-          this.opener?.focus();
+          if (this.wasOpen) {
+          // the opener may have been removed while the palette was up: fall back to the trigger, then the page
+          const target = this.opener?.isConnected ? this.opener
+            : document.querySelector<HTMLElement>('.palette-trigger') ?? document.getElementById('main-content');
+          target?.focus();
+          this.wasOpen = false;
+          }
           this.opener = null;
         });
       }

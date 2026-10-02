@@ -9,6 +9,7 @@ import { DensityService } from '../core/density.service';
 import { ThemeService } from '../core/theme.service';
 import { readPref, writePref } from '../core/prefs';
 import { NAV_SECTIONS, visibleNav } from './nav';
+import { OverlayStack } from '../shared/overlay-stack';
 import { BranchSwitcher } from './branch-switch';
 import { CommandPaletteComponent, PALETTE_SHORTCUT, PaletteService } from './command-palette';
 
@@ -104,6 +105,7 @@ export class ShellComponent {
   palette = inject(PaletteService);
   shortcut = PALETTE_SHORTCUT;
   private switcher = inject(BranchSwitcher);
+  private overlays = inject(OverlayStack);
 
   mobileNav = signal(false);
   private allBranches = signal<BranchResponse[]>([]);
@@ -156,9 +158,15 @@ export class ShellComponent {
     // Move focus to the content region after in-app navigation so screen
     // reader and keyboard users land on the new page, not stale nav state.
     let firstNav = true;
+    let lastPath = this.router.url.split(/[?#]/)[0];
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => {
       this.url.set(this.router.url);
+      const path = this.router.url.split(/[?#]/)[0];
+      const samePath = path === lastPath;
+      lastPath = path;
       if (firstNav) { firstNav = false; return; }
+      // a query-only change (or one under a dialog) is not a new page: leave focus where it is
+      if (samePath || this.overlays.size > 0) return;
       document.getElementById('main-content')?.focus({ preventScroll: false });
     });
   }

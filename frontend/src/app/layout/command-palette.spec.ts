@@ -112,6 +112,25 @@ describe('CommandPaletteComponent', () => {
     opener.remove();
   });
 
+  it('puts focus on the page when the opener vanished while the palette was open', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const f = TestBed.createComponent(CommandPaletteComponent);
+    f.detectChanges();
+    TestBed.inject(PaletteService).open();
+    f.detectChanges();
+    const page = document.createElement('main');
+    page.id = 'main-content';
+    page.tabIndex = -1;
+    document.body.appendChild(page);
+    opener.remove();
+    TestBed.inject(PaletteService).close();
+    f.detectChanges();
+    expect(document.activeElement).toBe(page);
+    page.remove();
+  });
+
   it('ignores keys while an IME is composing', () => {
     const f = TestBed.createComponent(CommandPaletteComponent);
     const nav = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);

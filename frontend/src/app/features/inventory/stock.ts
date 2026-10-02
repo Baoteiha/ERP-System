@@ -179,7 +179,15 @@ export class StockComponent {
   private canWrite = computed(() => this.auth.can('inventory:write'));
 
   constructor() {
-    effect(() => { if (this.action() === 'adjust' && this.canWrite()) untracked(() => { this.openAction('adjust'); void this.router.navigate([], { queryParams: { action: null }, queryParamsHandling: 'merge', replaceUrl: true }); }); });
+    // a link's intent is one-shot: act on it once identity is known, then drop it, permitted or not
+    effect(() => {
+      if (this.action() === 'adjust' && this.auth.me()) {
+        untracked(() => {
+          if (this.canWrite()) this.openAction('adjust');
+          void this.router.navigate([], { queryParams: { action: null }, queryParamsHandling: 'merge', replaceUrl: true });
+        });
+      }
+    });
     // runs once at start and again whenever the till switches branch, so no other branch's rows linger
     effect(() => {
       this.auth.activeBranchId();

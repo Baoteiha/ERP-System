@@ -100,10 +100,10 @@ describe('StockComponent route intent', () => {
     void f;
   });
 
-  it('does nothing without the permission', () => {
+  it('does not open without the permission, but still clears the param', () => {
     const { nav, f, ctrl } = setup([], 'adjust');
     expect(f.componentInstance.mode() === 'adjust').toBe(false);
-    expect(nav).not.toHaveBeenCalled();
+    expect(nav).toHaveBeenCalledWith([], { queryParams: { action: null }, queryParamsHandling: 'merge', replaceUrl: true });
     ctrl.match(() => true);
     void f;
   });

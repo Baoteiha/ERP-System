@@ -107,10 +107,10 @@ describe('PurchaseOrdersComponent route intent', () => {
     void f;
   });
 
-  it('does nothing without the permission', () => {
+  it('does not open without the permission, but still clears the param', () => {
     const { nav, f, ctrl } = setup([], '1');
     expect(f.componentInstance.creating()).toBe(false);
-    expect(nav).not.toHaveBeenCalled();
+    expect(nav).toHaveBeenCalledWith([], { queryParams: { new: null }, queryParamsHandling: 'merge', replaceUrl: true });
     ctrl.match(() => true);
     void f;
   });
