@@ -80,8 +80,9 @@ export class ResetPasswordComponent {
     this.identity.confirmPasswordReset({ token: this.token, newPassword: this.password }).subscribe({
       next: () => {
         this.loading.set(false);
-        // the reset ended every session of the account, this browser's included
-        void this.auth.logout(false);
+        // the reset ended the account's sessions; a till signed in as someone else must not stay so, on the
+        // server either (logout revokes its refresh token; for the reset account's it is already revoked)
+        void this.auth.logout();
         void this.router.navigate(['/login'], { queryParams: { reset: 'done' } });
       },
       error: (err) => {

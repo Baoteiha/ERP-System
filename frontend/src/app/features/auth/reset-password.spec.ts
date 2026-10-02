@@ -44,6 +44,24 @@ describe('ResetPasswordComponent', () => {
     expect(navigate).toHaveBeenCalledWith(['/login'], { queryParams: { reset: 'done' } });
   });
 
+  it('ends on the server too the session of whoever was signed in on this till', () => {
+    const page = open('abc123');
+    const auth = TestBed.inject(AuthService);
+    auth.accessToken.set('someone-else');
+    auth.refreshToken.set('their-refresh');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    page.password = 'new-pass-1';
+    page.confirm = 'new-pass-1';
+
+    page.submit();
+    ctrl.expectOne('/api/v1/auth/password-reset/confirm').flush(null, { status: 204, statusText: 'No Content' });
+
+    const logout = ctrl.expectOne('/api/v1/auth/logout');
+    expect(logout.request.body).toEqual({ refreshToken: 'their-refresh' });
+    logout.flush(null, { status: 204, statusText: 'No Content' });
+    expect(auth.refreshToken()).toBeNull();
+  });
+
   it('refuses a short or repeated-wrong password without calling the server', () => {
     const page = open('abc123');
 
