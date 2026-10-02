@@ -227,7 +227,9 @@ public class StockLedgerService {
             merged.merge(converted.ingredientId(), converted,
                     (a, b) -> new StockLine(a.ingredientId(), a.quantity().add(b.quantity()), a.unit()));
         }
-        return List.copyOf(merged.values());
+        return merged.values().stream()
+                .map(l -> new StockLine(l.ingredientId(), toLedgerScale(l.quantity()), l.unit()))
+                .toList();
     }
 
     /**
@@ -238,7 +240,7 @@ public class StockLedgerService {
      */
     public BigDecimal toBase(UUID branchId, UUID ingredientId, BigDecimal quantity, String unit) {
         Unit base = requireBase(baseUnitsOf(branchId, List.of(ingredientId)), ingredientId);
-        return convert(quantity, unit, base);
+        return toLedgerScale(convert(quantity, unit, base));
     }
 
     /** Re-rates a cost given per {@code unit} to per base unit; the price counterpart of {@link #toBase}. */
@@ -263,7 +265,12 @@ public class StockLedgerService {
         if (unit == null || unit.isBlank()) {
             return quantity;
         }
-        return Unit.convert(quantity, Unit.parse(unit), base).setScale(QUANTITY_SCALE, RoundingMode.HALF_EVEN);
+        return Unit.convert(quantity, Unit.parse(unit), base);
+    }
+
+    // Rounded once per stored quantity: after lines are merged, not before, so tiny lines still add up.
+    private static BigDecimal toLedgerScale(BigDecimal quantity) {
+        return quantity.setScale(QUANTITY_SCALE, RoundingMode.HALF_EVEN);
     }
 
     // Only ingredients of the company that owns the branch: a foreign ingredient id is treated

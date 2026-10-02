@@ -196,6 +196,33 @@ class InventoryGuardsTest extends AbstractIntegrationTest {
         assertThat((List<?>) JsonPath.read(movements, "$.content")).isEmpty();
     }
 
+    @Test
+    void adjustment_thatRoundsToZeroInTheBaseUnit_isABadRequestToo() throws Exception {
+        String ingredientId = ingredient();
+
+        // 0.00001 g, and 0.01 mg (also 0.00001 g): both are nothing at the ledger's four decimals
+        for (String delta : List.of("\"quantityDelta\":0.00001", "\"quantityDelta\":0.01,\"unit\":\"mg\"")) {
+            mockMvc.perform(authed(post("/api/v1/stock/adjust")).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"ingredientId\":\"%s\",%s}".formatted(ingredientId, delta)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").exists());
+        }
+        String movements = mockMvc.perform(authed(get("/api/v1/stock/movements?ingredientId=" + ingredientId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat((List<?>) JsonPath.read(movements, "$.content")).isEmpty();
+    }
+
+    @Test
+    void newOrder_itemWhoseIngredientIsInactive_isRefusedAtCreate() throws Exception {
+        String ingredientId = ingredient();
+        String supplierId = supplier();
+        String itemId = item(supplierId, ingredientId);
+        deactivateIngredient(ingredientId);
+
+        expectRefused(orderBody(supplierId, "{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}".formatted(itemId)),
+                "inactive");
+    }
+
     private BigDecimal onHand(String ingredientId) throws Exception {
         String json = mockMvc.perform(authed(get("/api/v1/stock")))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

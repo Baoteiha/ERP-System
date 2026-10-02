@@ -129,4 +129,20 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
         assertThat(tie).isEqualTo(new BigDecimal("0.0002"));
         assertThat(above).isEqualTo(new BigDecimal("0.0004"));
     }
+
+    @Test
+    void deduct_roundsTheMergedSumOnce_soTinyLinesStillAddUp() throws Exception {
+        UUID ingredientId = seedGramIngredient();
+        UUID refId = UUID.randomUUID();
+
+        // 0.03 mg is 0.00003 g: each line alone rounds to 0.0000, together they are 0.00006 g, i.e. 0.0001.
+        asCompany(() -> ledger.deduct(branchId, List.of(
+                new StockLine(ingredientId, new BigDecimal("0.03"), "mg"),
+                new StockLine(ingredientId, new BigDecimal("0.03"), "mg")),
+                "TEST_DEDUCT", refId));
+
+        List<StockMovement> movements = asCompany(() -> movementRepository.findByRefTypeAndRefId("TEST_DEDUCT", refId));
+        assertThat(movements).hasSize(1);
+        assertThat(movements.get(0).getQuantity()).isEqualByComparingTo("-0.0001");
+    }
 }

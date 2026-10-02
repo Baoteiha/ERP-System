@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springdoc.core.properties.SpringDocConfigProperties;
+import org.springdoc.core.properties.SwaggerUiConfigProperties;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.bind.validation.ValidationBindHandler;
@@ -84,7 +86,12 @@ class ProfileBindingTest {
         assertThat(prod.bind("springdoc.api-docs.enabled", Boolean.class).get()).isFalse();
         assertThat(prod.bind("springdoc.swagger-ui.enabled", Boolean.class).get()).isFalse();
 
-        assertThat(binder("dev", Map.of()).bind("springdoc.api-docs.enabled", Boolean.class).orElse(true)).isTrue();
+        // dev sets nothing, so springdoc's own defaults decide: bound as the app binds them, both are on
+        Binder dev = binder("dev", Map.of());
+        assertThat(dev.bind("springdoc.api-docs.enabled", Boolean.class)).isNotEqualTo(java.util.Optional.of(false));
+        assertThat(bind(dev, "springdoc.api-docs", SpringDocConfigProperties.ApiDocs.class).isEnabled()).isTrue();
+        assertThat(bind(dev, "springdoc.swagger-ui", SwaggerUiConfigProperties.class).isEnabled()).isTrue();
+        assertThat(bind(prod, "springdoc.api-docs", SpringDocConfigProperties.ApiDocs.class).isEnabled()).isFalse();
     }
 
     @Test

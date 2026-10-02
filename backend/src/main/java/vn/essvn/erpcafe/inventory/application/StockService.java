@@ -61,11 +61,13 @@ public class StockService {
     }
 
     public StockItem adjust(UUID ingredientId, BigDecimal quantityDelta, String unit, String note) {
-        if (quantityDelta.signum() == 0) {
+        requireIngredient(ingredientId);
+        UUID branchId = BranchContext.require();
+        // judged as the ledger will store it: a delta that rounds to nothing changes nothing
+        if (ledger.toBase(branchId, ingredientId, quantityDelta, unit).signum() == 0) {
             throw new BadRequestException("An adjustment must change the quantity");
         }
-        requireIngredient(ingredientId);
-        return ledger.adjust(BranchContext.require(), ingredientId, quantityDelta, unit, note);
+        return ledger.adjust(branchId, ingredientId, quantityDelta, unit, note);
     }
 
     public StockItem waste(UUID ingredientId, BigDecimal quantity, String unit, String note) {

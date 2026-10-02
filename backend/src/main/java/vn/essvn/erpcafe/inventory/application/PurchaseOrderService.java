@@ -168,6 +168,7 @@ public class PurchaseOrderService {
             if (!item.isActive()) {
                 throw new BusinessRuleException("Item " + item.getName() + " is inactive");
             }
+            requireActive(requireIngredient(item.getIngredientId()));
             if (!item.getSupplierId().equals(supplierId)) {
                 throw new BusinessRuleException("Item " + item.getName() + " is sold by another supplier");
             }
