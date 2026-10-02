@@ -48,12 +48,16 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: .1rem .4rem; bord
 .menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); }
 .menu-item[aria-checked="true"] { color: var(--accent-text); }
 .content { flex: 1; min-width: 0; }
+.content { scroll-margin-top: 60px; }
 .content:focus { outline: none; }
 .scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 18; }
 @media (max-width: 900px) {
   .shell, .shell.railed { grid-template-columns: 1fr; }
-  .nav { position: fixed; left: 0; top: 0; bottom: 0; width: 264px; transform: translateX(-100%); transition: transform var(--dur-2) var(--ease-out); }
-  .nav-open .nav { transform: none; }
+  .nav { position: fixed; left: 0; top: 0; bottom: 0; width: 264px; transform: translateX(-100%); visibility: hidden;
+    transition: transform var(--dur-2) var(--ease-out), visibility 0s linear var(--dur-2); }
+  .nav-open .nav { transform: none; visibility: visible; transition-delay: 0s; }
+  .railed .brand { justify-content: flex-start; padding: 0 1.15rem; }
+  .railed .nav-section + .nav-section { margin-top: .9rem; padding-top: 0; border-top: 0; }
   .railed .brand-txt, .railed .nav-label, .railed .nav-title { display: revert; }
   .railed .nav-link { justify-content: flex-start; padding: 0 .65rem; }
   .rail-toggle { display: none; }

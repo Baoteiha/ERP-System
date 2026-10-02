@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { ElementRef, Component, HostListener, Injector, afterNextRender, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { AuthService } from '../core/auth.service';
@@ -48,7 +48,11 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
         <header class="topbar" [class.glass]="scrolled()">
           <button class="btn btn-icon btn-ghost hamburger" (click)="mobileNav.set(!mobileNav())"
                   aria-label="Toggle menu" aria-controls="app-nav" [attr.aria-expanded]="mobileNav()"><app-icon name="menu" [size]="18" /></button>
-          <div class="crumbs"><span class="crumb-section">{{ pageTitle().section }}</span><span class="crumb-sep" aria-hidden="true">/</span><b>{{ pageTitle().label }}</b></div>
+          <div class="crumbs">
+            @if (pageTitle().label) {
+              <span class="crumb-section">{{ pageTitle().section }}</span><span class="crumb-sep" aria-hidden="true">/</span><b>{{ pageTitle().label }}</b>
+            }
+          </div>
           <button type="button" class="palette-trigger" (click)="openPalette()" aria-label="Search or jump to (Control K)">
             <app-icon name="search" [size]="15" /><span class="pt-txt">Search or jump to…</span><kbd>⌘K</kbd>
           </button>
@@ -66,10 +70,10 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
             <app-icon [name]="theme.pref() === 'system' ? 'monitor' : theme.pref() === 'dark' ? 'moon' : 'sun'" [size]="17" />
           </button>
           <div class="user-menu">
-            <button type="button" class="avatar-btn" (click)="userMenu.set(!userMenu())" aria-haspopup="menu"
+            <button type="button" class="avatar-btn" (click)="toggleUserMenu()" aria-haspopup="menu"
                     [attr.aria-expanded]="userMenu()" aria-label="Account menu"><span class="avatar">{{ initials() }}</span></button>
             @if (userMenu()) {
-              <div class="menu glass" role="menu">
+              <div class="menu glass" role="menu" (keydown)="onMenuKey($event)">
                 <div class="menu-who"><b class="truncate">{{ auth.me()?.email || 'User' }}</b><small class="truncate">{{ (auth.me()?.roles || []).join(', ') || '—' }}</small></div>
                 <button type="button" role="menuitemcheckbox" [attr.aria-checked]="density.pref() === 'compact'" class="menu-item" (click)="density.toggle()">
                   <app-icon name="table" [size]="15" /> Compact tables
@@ -90,6 +94,8 @@ export class ShellComponent {
   auth = inject(AuthService);
   private org = inject(OrganizationService);
   private router = inject(Router);
+  private injector = inject(Injector);
+  private host = inject(ElementRef<HTMLElement>);
   theme = inject(ThemeService);
   density = inject(DensityService);
 
@@ -106,15 +112,22 @@ export class ShellComponent {
   /** the saved sidebar choice; the POS screen rails the sidebar without changing it */
   collapsed = signal(readPref(SIDEBAR_KEY, ['expanded', 'rail'] as const, 'expanded') === 'rail');
   private url = signal(this.router.url);
-  railed = computed(() => this.collapsed() || this.url().startsWith('/pos'));
+  railed = computed(() => {
+    const path = this.url().split(/[?#]/)[0];
+    return this.collapsed() || path === '/pos' || path.startsWith('/pos/');
+  });
 
+  /** the longest nav path the URL sits under, on a segment boundary; '/' matches only exactly */
   pageTitle = computed(() => {
     const path = this.url().split(/[?#]/)[0];
+    let best: { section: string; label: string; len: number } | null = null;
     for (const section of NAV_SECTIONS) {
-      const item = section.items.find((i) => i.path === path);
-      if (item) return { section: section.title, label: item.label };
+      for (const item of section.items) {
+        const hit = item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/');
+        if (hit && (!best || item.path.length > best.len)) best = { section: section.title, label: item.label, len: item.path.length };
+      }
     }
-    return { section: 'ERP-Cafe', label: '' };
+    return best ? { section: best.section, label: best.label } : { section: 'ERP-Cafe', label: '' };
   });
 
   visibleSections = computed(() => {
@@ -153,12 +166,40 @@ export class ShellComponent {
   @HostListener('document:keydown.escape')
   onEscape() {
     if (this.mobileNav()) this.mobileNav.set(false);
-    if (this.userMenu()) this.userMenu.set(false);
+    if (this.userMenu()) this.closeUserMenu(true);
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(e: Event) {
     if (this.userMenu() && !(e.target as Element | null)?.closest('.user-menu')) this.userMenu.set(false);
+  }
+
+  toggleUserMenu() {
+    if (this.userMenu()) { this.userMenu.set(false); return; }
+    this.userMenu.set(true);
+    afterNextRender(() => this.menuItems()[0]?.focus(), { injector: this.injector });
+  }
+
+  private menuItems(): HTMLElement[] {
+    return Array.from((this.host.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.menu [role^="menuitem"]'));
+  }
+
+  private closeUserMenu(restoreFocus: boolean) {
+    this.userMenu.set(false);
+    if (restoreFocus) (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>('.avatar-btn')?.focus();
+  }
+
+  onMenuKey(e: KeyboardEvent) {
+    const items = this.menuItems();
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const go = (n: number) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
+    switch (e.key) {
+      case 'ArrowDown': go(i + 1); break;
+      case 'ArrowUp': go(i - 1); break;
+      case 'Home': go(0); break;
+      case 'End': go(items.length - 1); break;
+      case 'Tab': this.closeUserMenu(false); break;
+    }
   }
 
   toggleRail() {
