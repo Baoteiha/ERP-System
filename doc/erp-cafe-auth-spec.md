@@ -170,12 +170,45 @@ key set carries no `kid` and is refused; the client refreshes once.
 Only its SHA-256 hash is persisted, so a database leak yields nothing usable.
 30-day TTL.
 
+**The refresh cookie** (FE-14). The refresh token never appears in a response
+body. Login and refresh set it as
+`Set-Cookie: erpcafe_refresh=<token>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=<refresh TTL>`,
+so page scripts cannot read it and the browser sends it to the auth endpoints
+alone. The response body is `{accessToken, tokenType}`. `Secure` follows
+`app.security.refresh-cookie.secure`: true by default and in prod, false in the
+dev and test configuration (plain HTTP on localhost); no code looks at a profile
+name. `ProfileBindingTest` pins prod to `true`. The API sends no CORS headers;
+should it ever be served cross-origin, credentials must be allowed only for the
+explicit configured origins, never `*`.
+
+**The CSRF header.** `SameSite=Strict` is the first defence; the second is that
+`/auth/refresh` and `/auth/logout` demand `X-Requested-With: erpcafe` and answer
+403 `FORBIDDEN` without it. A cross-site request cannot add a custom header
+without a CORS preflight, which this API never grants. Spring Security's CSRF
+filter stays off (stateless, no session).
+
 ### AUTH-103 — Refresh with rotation
 
-`POST /api/v1/auth/refresh`. Looks up by hash, rejects expired, **revokes the
-presented token**, and mints a fresh pair carrying the same family id. Single-use
+`POST /api/v1/auth/refresh` with the `erpcafe_refresh` cookie and the
+`X-Requested-With: erpcafe` header; there is no request body, and one sent is
+ignored. Without the header: 403 `FORBIDDEN`. Without the cookie: 401
+`UNAUTHORIZED`. Looks up by hash, rejects expired, **revokes the presented
+token**, and mints a fresh pair carrying the same family id: a new access token
+in the body and the rotated refresh token in a new `Set-Cookie`. Single-use
 rotation, so a stolen token is invalidated the moment the legitimate client next
 refreshes.
+
+**Two refreshes at once.** Two tabs of one browser share the cookie, so both may
+present the same token in the same instant. Each rotation writes its row under
+`@Version`: one wins (200, rotated cookie), and the other either loses that race
+(409 `CONFLICT`, its transaction rolled back, the winner's session untouched) or,
+having read the row after the winner committed, sees a spent token and is treated
+as a replay (422, the family revoked, the winner's session with it).
+`RefreshTokenReuseIntegrationTest` pins that exactly one wins and the loser fails
+cleanly, never with a 500; the 409 outcome is the one seen in practice. There is
+no reuse grace window. The frontend avoids the race itself: tabs refresh inside
+one Web Lock, and a tab that finds a different access token in storage than the
+one it began with adopts that token instead of calling the server.
 
 **Reuse detection.** Presenting a token that was *already rotated away* means
 either it was stolen and replayed, or the legitimate holder's copy was. Either
@@ -214,8 +247,12 @@ so disabling is the correct primitive for offboarding.
 
 ### AUTH-104 — Logout
 
-`POST /api/v1/auth/logout` revokes the presented refresh token. Outstanding
-access tokens remain valid until they expire (up to 15 minutes).
+`POST /api/v1/auth/logout` revokes the refresh token in the cookie. It also
+requires `X-Requested-With: erpcafe` (403 `FORBIDDEN` without it), so a
+cross-site page cannot force a sign-out. It always answers 204 and always clears
+the cookie (`Max-Age=0`, same name, path and attributes), whether the token was
+live, already revoked, or absent. Outstanding access tokens remain valid until
+they expire (up to 15 minutes).
 
 ### AUTH-105 — Current principal
 
@@ -344,6 +381,8 @@ app:
           active: true
       access-token-ttl: 15m
       refresh-token-ttl: 30d
+    refresh-cookie:
+      secure: true         # optional, default true; false in the dev and test profiles
     bootstrap:
       admin-email: <seed admin>
       admin-password: <seed password>

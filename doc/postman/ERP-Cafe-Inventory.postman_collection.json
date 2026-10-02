@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7f3a91c2-5d84-4b6e-9f21-0a3c8d1e4b57",
     "name": "ERP-Cafe — Inventory API (v1)",
-    "description": "Every endpoint of the ERP-Cafe inventory module: ingredients, items (supplier ↔ ingredient purchase mapping), suppliers, stock and purchase orders.\n\n## Getting started\n1. Select the **ERP-Cafe — Local** environment.\n2. Run **00 · Setup → Login** — it stores `accessToken`, `refreshToken`, `companyId` and the first accessible `branchId` into the environment.\n3. Every other request inherits Bearer auth from the collection; branch-scoped ones send `X-Branch-Id: {{branchId}}`.\n\n## Conventions\n- Base path `/api/v1`; `baseUrl` defaults to `http://localhost:8090` (dev profile).\n- Create requests capture the new id (and `version`) into environment variables, so the whole collection can be run top-to-bottom in the Collection Runner and pass green — the delete requests target scratch rows on purpose, and the purchase order is only partially received so it can still be cancelled.\n- Ingredients / items / suppliers use optimistic locking: PUT echoes the `version` you loaded. A stale value returns 409; omitting it skips the check.\n- Branch-scoped endpoints (stock, purchase orders) return 422 \"Active branch required\" without `X-Branch-Id`.\n- Errors are RFC 7807 ProblemDetail: 400 validation, 404 not found, 409 conflict/stale version, 422 business rule.\n- Units: `mg, g, kg, ml, cl, l, pc` — an item's `unit` must measure the same dimension as its ingredient's `baseUnit`.",
+    "description": "Every endpoint of the ERP-Cafe inventory module: ingredients, items (supplier ↔ ingredient purchase mapping), suppliers, stock and purchase orders.\n\n## Getting started\n1. Select the **ERP-Cafe — Local** environment.\n2. Run **00 · Setup → Login** — it stores `accessToken`, `companyId` and the first accessible `branchId` into the environment.\n3. Every other request inherits Bearer auth from the collection; branch-scoped ones send `X-Branch-Id: {{branchId}}`.\n\n## Conventions\n- Base path `/api/v1`; `baseUrl` defaults to `http://localhost:8090` (dev profile).\n- Create requests capture the new id (and `version`) into environment variables, so the whole collection can be run top-to-bottom in the Collection Runner and pass green — the delete requests target scratch rows on purpose, and the purchase order is only partially received so it can still be cancelled.\n- Ingredients / items / suppliers use optimistic locking: PUT echoes the `version` you loaded. A stale value returns 409; omitting it skips the check.\n- Branch-scoped endpoints (stock, purchase orders) return 422 \"Active branch required\" without `X-Branch-Id`.\n- Errors are RFC 7807 ProblemDetail: 400 validation, 404 not found, 409 conflict/stale version, 422 business rule.\n- Units: `mg, g, kg, ml, cl, l, pc` — an item's `unit` must measure the same dimension as its ingredient's `baseUnit`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -57,7 +57,6 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
                   "pm.environment.set('accessToken', body.accessToken);",
-                  "pm.environment.set('refreshToken', body.refreshToken);",
                   "pm.test('access token issued', () => pm.expect(body.accessToken).to.be.a('string').and.not.empty);"
                 ]
               }
@@ -160,8 +159,7 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.environment.set('accessToken', body.accessToken);",
-                  "pm.environment.set('refreshToken', body.refreshToken);"
+                  "pm.environment.set('accessToken', body.accessToken);"
                 ]
               }
             }
@@ -173,20 +171,16 @@
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
-                "value": "application/json"
+                "key": "X-Requested-With",
+                "value": "erpcafe"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/refresh",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "auth", "refresh"]
             },
-            "description": "Rotates the token pair when the 15-minute access token expires."
+            "description": "Rotates the token pair when the 15-minute access token expires. The refresh token travels in the HttpOnly `erpcafe_refresh` cookie, which Postman keeps in its cookie jar after Login; the `X-Requested-With: erpcafe` header is required."
           }
         }
       ]
