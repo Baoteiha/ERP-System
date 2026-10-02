@@ -6,6 +6,7 @@ import { provideRouter } from '@angular/router';
 import { stubLocalStorage } from '../../core/test-storage';
 import { AuthService } from '../../core/auth.service';
 import { MeResponse } from '../../core/models';
+import { WEBGL_SUPPORTED } from '../../three/webgl';
 import { DashboardComponent, pct } from './dashboard';
 
 describe('pct', () => {
@@ -20,7 +21,9 @@ describe('DashboardComponent', () => {
     cogs: '0', laborCost: '0', grossMargin: net, netMargin: net,
   });
   const page = { content: [], page: 0, size: 25, totalElements: 0, totalPages: 0 };
-  const isReport = (r: HttpRequest<unknown>) => r.url.includes('/reports/');
+  // the branch-towers panel asks for /reports/outlets on its own; these tests are about the KPI calls
+  const isOutlets = (r: HttpRequest<unknown>) => r.url.endsWith('/reports/outlets');
+  const isReport = (r: HttpRequest<unknown>) => r.url.includes('/reports/') && !isOutlets(r);
   let ctrl: HttpTestingController;
   let auth: AuthService;
 
@@ -28,7 +31,8 @@ describe('DashboardComponent', () => {
   function start(permissions: string[]) {
     stubLocalStorage();
     TestBed.configureTestingModule({
-      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        { provide: WEBGL_SUPPORTED, useValue: () => false }],
     });
     ctrl = TestBed.inject(HttpTestingController);
     auth = TestBed.inject(AuthService);
@@ -53,7 +57,10 @@ describe('DashboardComponent', () => {
     reqs.find((r) => r.request.url.endsWith('/summary') && r.request.params.has('from'))!.flush(yesterday);
     reqs.find((r) => r.request.url.endsWith('/sales-by-day'))!.flush([]);
   }
-  afterEach(() => ctrl.verify());
+  afterEach(() => {
+    ctrl.match(isOutlets); // the towers panel's own call, covered by branch-towers.spec
+    ctrl.verify();
+  });
 
   it('shows the average order as a dash when there are no orders', () => {
     const f = start(['report:read']);
@@ -72,6 +79,16 @@ describe('DashboardComponent', () => {
     const labels = [...text(f).querySelectorAll('.kpi-label')].map((e) => e.textContent);
     expect(labels).toEqual(['Recent orders', 'Active products', 'Low-stock items']);
     expect(ctrl.match(isReport).length).toBe(0);
+    expect(ctrl.match(isOutlets).length).toBe(0);
+    expect(text(f).querySelector('app-branch-towers')).toBeNull();
+  });
+
+  it('shows the branch towers panel with report:read', () => {
+    const f = start(['report:read']);
+    answerReports(summary('0', 0));
+    TestBed.tick(); f.detectChanges();
+    expect(text(f).querySelector('.towers-slot app-branch-towers')).not.toBeNull();
+    expect(ctrl.match(isOutlets).length).toBe(1);
   });
 
   it('sends exactly one new request per permitted section when the branch changes', () => {

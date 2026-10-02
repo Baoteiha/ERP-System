@@ -9,6 +9,7 @@ import { IngredientResponse, OrderResponse, PeriodSummary, StockItemResponse } f
 import { IconComponent } from '../../shared/icon';
 import { KpiTileComponent } from '../../shared/kpi-tile';
 import { reportPeriod, zeroFillDays } from '../reports/reports';
+import { BranchTowersComponent } from './branch-towers';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -20,7 +21,7 @@ export function pct(cur: number, prev: number): number | null {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, MoneyPipe, QtyPipe, ShortIdPipe, LabelPipe, IconComponent, KpiTileComponent],
+  imports: [RouterLink, MoneyPipe, QtyPipe, ShortIdPipe, LabelPipe, IconComponent, KpiTileComponent, BranchTowersComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -50,7 +51,7 @@ export function pct(cur: number, prev: number): number | null {
         </div>
       }
 
-      <section class="towers-slot"></section>
+      <section class="towers-slot">@if (canReport()) {<app-branch-towers />}</section>
 
       <div class="dash-grid">
         @if (auth.can('sales:read')) {
@@ -131,6 +132,7 @@ export function pct(cur: number, prev: number): number | null {
     .empty-sm { padding: 1.6rem 1rem; }
     .empty-sm .big.all-good { color: var(--green); }
     .kpi-error { margin: -.6rem 0 1rem; padding: .8rem 1rem; }
+    .towers-slot { margin-bottom: 1.4rem; }
     .towers-slot:empty { display: none; }
     .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem;
       padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
@@ -183,7 +185,7 @@ export class DashboardComponent {
   private stockLoad$ = new Subject<void>();
   private productsLoad$ = new Subject<void>();
   private canSales = computed(() => this.auth.can('sales:read'));
-  private canReport = computed(() => this.auth.can('report:read'));
+  protected canReport = computed(() => this.auth.can('report:read'));
   private canInventory = computed(() => this.auth.can('inventory:read'));
   private canCatalog = computed(() => this.auth.can('catalog:read'));
 
