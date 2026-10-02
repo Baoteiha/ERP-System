@@ -76,7 +76,7 @@ describe('StockShelvesComponent', () => {
     expect(el(f).querySelector('input#shelf-search.input')).not.toBeNull();
     expect(labels(f).map(text)).toEqual(['Beans', 'Cream', 'Milk', 'Sugar syrup']); // shelf by shelf, in reading order
     expect(el(f).querySelector('.stage')?.getAttribute('aria-hidden')).toBe('true');
-    expect(el(f).querySelector('[role="status"].wait')?.textContent).toContain('Loading 3D view…');
+    expect(el(f).querySelector('[role="status"].scene-wait')?.textContent).toContain('Loading 3D view…');
     expect(loader).toHaveBeenCalledTimes(1);
   });
 
@@ -147,6 +147,18 @@ describe('StockShelvesComponent', () => {
     }
     expect(label(f, 'Beans').getAttribute('aria-label')).toContain('out of stock');
     expect(label(f, 'Sugar syrup').getAttribute('aria-label')).toContain('no reorder level set');
+  });
+
+  it('closes a tip opened by hover alone when Escape is pressed anywhere', () => {
+    const f = start(true);
+    const cream = el(f).querySelector<HTMLElement>('.shelf-anchor[data-id="cream"]')!;
+    cream.dispatchEvent(new MouseEvent('mouseenter'));
+    settle(f);
+    expect(el(f).querySelector('.shelf-tip b')?.textContent).toBe('Cream');
+    expect(cream.contains(document.activeElement)).toBe(false);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    settle(f);
+    expect(el(f).querySelector('.shelf-tip')).toBeNull();
   });
 
   it('builds nothing when it is destroyed before three has loaded', async () => {

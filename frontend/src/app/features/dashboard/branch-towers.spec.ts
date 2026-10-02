@@ -152,6 +152,21 @@ describe('BranchTowersComponent', () => {
     expect(el(f).textContent).not.toContain("isn't available");
   });
 
+  it('closes a tip opened by hover alone when Escape is pressed anywhere', () => {
+    const f = start(true);
+    ctrl.expectOne(isOutlets).flush([outlet('Q1', '1887000'), outlet('HN', '862000')]);
+    settle(f);
+    const hn = el(f).querySelector<HTMLElement>('.tower-anchor[data-id="id-HN"]')!;
+    hn.dispatchEvent(new MouseEvent('mouseenter'));
+    settle(f);
+    expect(el(f).querySelector('.tower-tip b')?.textContent).toBe('Branch HN');
+    expect(hn.contains(document.activeElement)).toBe(false); // no focus to hang an Escape on
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    settle(f);
+    expect(el(f).querySelector('.tower-tip')).toBeNull();
+    expect(f.componentInstance.focused()).toBeNull();
+  });
+
   it('builds nothing when it is destroyed before three has loaded', async () => {
     let resolve!: (m: unknown) => void;
     const f = start(true, () => new Promise((r) => (resolve = r)));

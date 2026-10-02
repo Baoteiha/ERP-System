@@ -555,6 +555,30 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: .1rem .4rem; bord
 /* A section whose data failed to load: the message and its Retry button, centred. */
 .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem; padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
 
+/* ---- 3D overlays */
+/* Focusable labels pinned over a three.js canvas (dashboard towers, stock shelves); each opens a tip on hover or focus. */
+.overlay-labels { position: absolute; inset: 0; pointer-events: none; }
+.label-anchor { position: absolute; left: 0; top: 0; z-index: var(--z, 0); }
+.label-anchor:not(.placed) { visibility: hidden; }
+.label-anchor.on { z-index: 20000; }
+/* the label sits over its tip's hover bridge, so the bridge never takes the label's clicks */
+.label-anchor > button { z-index: 1; }
+/* --dx shifts the card to stay inside the stage; --tip-lift clears the view's label height */
+.label-tip { pointer-events: auto; position: absolute; left: var(--dx, -110px); bottom: var(--tip-lift, 40px); width: 220px;
+  padding: .7rem .85rem .65rem; background: var(--surface-1); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-pop); font-size: 12.5px; line-height: 1.4; }
+/* a column from the card back down to its label, so the pointer can move onto the tip without it closing (WCAG 1.4.13) */
+.label-tip::after { content: ""; position: absolute; top: 100%; left: calc(-1 * var(--dx, -110px) - 32px); width: 64px; height: var(--tip-lift, 40px); }
+.below .label-tip { bottom: auto; top: 10px; }
+.below .label-tip::after { top: auto; bottom: 100%; height: 50px; }
+.label-tip b { display: block; font-size: 13px; }
+.label-tip dl { display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; margin: .45rem 0 .5rem; }
+.label-tip dt { color: var(--text-muted); }
+.label-tip dd { margin: 0; }
+/* three is still loading: a status line over the empty stage */
+.scene-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: .6rem;
+  color: var(--text-muted); font-size: 13px; pointer-events: none; }
+
 /* ---- screens: inventory */
 /* A unit is a token, not prose: monospace keeps "kg" and "ml" scannable down a column. */
 .unit-chip { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);

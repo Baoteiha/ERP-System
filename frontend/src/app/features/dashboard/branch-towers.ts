@@ -11,6 +11,8 @@ import { BranchPerformance } from '../../core/models';
 import { ThemeService } from '../../core/theme.service';
 import { MoneyPipe, formatMoney } from '../../core/util';
 import { IconComponent } from '../../shared/icon';
+import { LabelPlacer, LabelTips, ScreenPoint } from '../../three/label-overlay';
+import { LazyStage } from '../../three/lazy-stage';
 import { ThreeStage } from '../../three/three-stage';
 import { TowerModel, TowerSpec, towerModel } from '../../three/tower-model';
 import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
@@ -19,8 +21,6 @@ import { reportPeriod } from '../reports/reports';
 type Three = typeof import('three');
 type Period = 1 | 7 | 30;
 type Mode = '3d' | 'table' | 'loading' | 'error' | 'empty';
-/** A tower top on the canvas: CSS pixels, plus a z-index rank that grows as the tower gets nearer the camera. */
-interface Point { x: number; y: number; z: number; }
 
 const ORBIT_RAD_PER_MS = 0.00012;
 const DRAG_RAD_PER_PX = 0.01;
@@ -70,8 +70,8 @@ class TowerScene {
   };
   private readonly point: Vector3;
   /** One reusable screen point per tower, so projecting every frame allocates nothing. */
-  private slots: { t: TowerSpec; p: Point }[] = [];
-  private readonly points = new Map<string, Point>();
+  private slots: { t: TowerSpec; p: ScreenPoint }[] = [];
+  private readonly points = new Map<string, ScreenPoint>();
   /** How far the outermost tower reaches from the turntable's centre, base included. */
   private radius = 0;
   private fitted = { aspect: 0, radius: -1 };
@@ -163,7 +163,7 @@ class TowerScene {
   }
 
   /** Where each tower's top lands on a w × h canvas, by branch id. The map and its points are reused every call. */
-  screenPoints(w: number, h: number): ReadonlyMap<string, Point> {
+  screenPoints(w: number, h: number): ReadonlyMap<string, ScreenPoint> {
     this.world.updateMatrixWorld();
     const camera = this.stage.camera;
     for (const { t, p } of this.slots) {
@@ -248,22 +248,22 @@ class TowerScene {
           <div class="scene" [class.dim]="busy()">
             <div #stage class="stage" aria-hidden="true" (pointerdown)="onPointerDown($event)" (pointermove)="onPointerMove($event)"
               (pointerup)="onPointerUp($event)" (pointercancel)="onPointerUp($event)"></div>
-            @if (!ready()) { <div class="wait" role="status"><span class="spinner"></span> Loading 3D view…</div> }
-            <div class="labels">
+            @if (!ready()) { <div class="scene-wait" role="status"><span class="spinner"></span> Loading 3D view…</div> }
+            <div class="overlay-labels">
               @for (t of model().towers; track t.branchId) {
-                <div #anchor class="tower-anchor" [attr.data-id]="t.branchId" [class.on]="focused()?.branchId === t.branchId"
-                  (mouseenter)="show(t)" (mouseleave)="leave(anchor)" (focusin)="show(t)" (focusout)="blur(anchor, $event)">
+                <div #anchor class="label-anchor tower-anchor" [attr.data-id]="t.branchId" [class.on]="focused()?.branchId === t.branchId"
+                  (mouseenter)="show(t)" (mouseleave)="tips.leave(anchor)" (focusin)="show(t)" (focusout)="tips.blur(anchor, $event)">
                   <button #label type="button" class="tower-label glass" [class.top]="t.top" [attr.aria-label]="labelFor(t)"
-                    (pointerdown)="pressed(t)" (click)="toggle(t, $event)" (keydown.escape)="focused.set(null)">{{ t.code }}</button>
+                    (pointerdown)="pressed(t)" (click)="toggle(t, $event)">{{ t.code }}</button>
                   @if (focused()?.branchId === t.branchId) {
-                    <div class="tower-tip">
+                    <div class="label-tip tower-tip">
                       <b>{{ t.name }}</b>
                       <dl>
                         <dt>Net sales</dt><dd class="num">{{ t.netSales | money }}</dd>
                         <dt>Orders</dt><dd class="num">{{ t.orderCount }}</dd>
                         <dt>Net margin</dt><dd class="num" [class.neg]="t.loss">{{ t.netMargin | money }}</dd>
                       </dl>
-                      <a routerLink="/reports" (keydown.escape)="closeTo(label)">View report</a>
+                      <a routerLink="/reports" (keydown.escape)="tips.closeTo(label)">View report</a>
                     </div>
                   }
                 </div>
@@ -289,35 +289,18 @@ class TowerScene {
     .stage { position: absolute; inset: 0; line-height: 0; cursor: grab; touch-action: pan-y;
       mask-image: radial-gradient(ellipse 60% 80% at 50% 45%, currentColor 50%, transparent); }
     .stage:active { cursor: grabbing; }
-    .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: .6rem;
-      color: var(--text-muted); font-size: 13px; pointer-events: none; }
-    .labels { position: absolute; inset: 0; pointer-events: none; }
-    .tower-anchor { position: absolute; left: 0; top: 0; z-index: var(--z, 0); }
-    .tower-anchor:not(.placed) { visibility: hidden; }
-    .tower-anchor.on { z-index: 5000; }
     .tower-label { pointer-events: auto; position: absolute; left: 0; bottom: 8px; transform: translateX(-50%);
       padding: .22rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text);
       font: 600 11.5px/1.2 var(--font-mono); letter-spacing: .02em; white-space: nowrap; cursor: pointer;
       transition: border-color var(--dur-1), color var(--dur-1); }
     .tower-label.top { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)); }
     .tower-label:hover, .on .tower-label { color: var(--accent-text); border-color: var(--accent); }
-    .tower-tip { pointer-events: auto; position: absolute; left: var(--dx, -110px); bottom: 40px; width: 220px;
-      padding: .7rem .85rem .65rem; background: var(--surface-1); border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm); box-shadow: var(--shadow-pop); font-size: 12.5px; line-height: 1.4; }
-    .tower-tip::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 16px; }
-    .below .tower-tip { bottom: auto; top: 10px; }
-    .below .tower-tip::after { top: auto; bottom: 100%; height: 22px; }
-    .tower-tip b { display: block; font-size: 13px; }
-    .tower-tip dl { display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; margin: .45rem 0 .5rem; }
-    .tower-tip dt { color: var(--text-muted); }
-    .tower-tip dd { margin: 0; }
     .tower-tip a { font-weight: 600; }
   `],
 })
 export class BranchTowersComponent implements OnDestroy {
   private reporting = inject(ReportingService);
   private theme = inject(ThemeService);
-  private loadThree = inject(THREE_LOADER);
   /** Whether this device can draw WebGL at all; without it the panel is always a table. */
   private readonly webgl = inject(WEBGL_SUPPORTED)();
 
@@ -325,8 +308,9 @@ export class BranchTowersComponent implements OnDestroy {
     { days: 1, label: 'Today' }, { days: 7, label: '7 days' }, { days: 30, label: '30 days' },
   ];
   readonly period = signal<Period>(1);
+  readonly tips = new LabelTips<TowerSpec>((t) => t.branchId);
   /** The tower whose label is hovered or focused; its tip is open. */
-  readonly focused = signal<TowerSpec | null>(null);
+  readonly focused = this.tips.open;
   readonly asTable = signal(false);
   /** three failed to load or the renderer could not start: the same fallback as no WebGL. */
   private readonly broken = signal(false);
@@ -349,18 +333,27 @@ export class BranchTowersComponent implements OnDestroy {
   private readonly stageRef = viewChild<ElementRef<HTMLElement>>('stage');
   private readonly anchors = viewChildren<ElementRef<HTMLElement>>('anchor');
   private readonly reload$ = new Subject<void>();
-  private stage: ThreeStage | null = null;
-  private scene: TowerScene | null = null;
-  private host: HTMLElement | null = null;
-  /** Bumped on every mount and unmount, so a three import that resolves late knows it is stale. */
-  private generation = 0;
+  /** three, the stage and the towers scene, mounted while the stage element is on the page. */
+  private readonly lazy = new LazyStage<TowerScene>(inject(THREE_LOADER), {
+    build: (three, stage) => new TowerScene(three, stage),
+    started: (scene, stage) => {
+      scene.setTowers(this.model().towers);
+      this.orbiting = !this.interacted && !this.motion?.matches;
+      stage.setAnimator((dt) => this.frame(dt));
+      this.ready.set(true);
+    },
+    failed: () => this.broken.set(true),
+    stopped: () => {
+      this.drag = null;
+      this.ready.set(false);
+    },
+  });
+  private readonly placer = new LabelPlacer({ width: TIP_W, flipBelow: TIP_FLIP_Y });
   private orbiting = false;
   private readonly motion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
   private readonly onMotion = (e: { matches: boolean }) => { if (e.matches) this.stopOrbit(); };
   /** Whether the label's tip was already open when the current pointer press began. */
   private openAtPress = false;
-  /** What each label's style was last set to, so an unmoved label is not written again. */
-  private readonly labelAt = new WeakMap<HTMLElement, Point>();
   /** The user has touched the scene; the orbit stays off from then on, even if the scene is rebuilt. */
   private interacted = false;
   private drag: { id: number; x: number; angle: number } | null = null;
@@ -405,11 +398,11 @@ export class BranchTowersComponent implements OnDestroy {
 
   show(t: TowerSpec): void {
     this.stopOrbit();
-    this.focused.set(t);
+    this.tips.show(t);
   }
 
   pressed(t: TowerSpec): void {
-    this.openAtPress = this.focused()?.branchId === t.branchId;
+    this.openAtPress = this.tips.isOpen(t);
   }
 
   /**
@@ -417,27 +410,9 @@ export class BranchTowersComponent implements OnDestroy {
    * press flips the state it had before the press, because hover and focus may have opened it on the way in.
    */
   toggle(t: TowerSpec, e: MouseEvent): void {
-    const open = e.detail === 0 ? this.focused()?.branchId !== t.branchId : !this.openAtPress;
+    const open = e.detail === 0 ? !this.tips.isOpen(t) : !this.openAtPress;
     if (open) this.show(t);
-    else this.focused.set(null);
-  }
-
-  /** Escape inside a tip: focus goes back to its label first (that refocus would reopen it), then the tip closes. */
-  closeTo(label: HTMLElement): void {
-    label.focus();
-    this.focused.set(null);
-  }
-
-  /** The pointer left a label: close its tip unless the keyboard focus is still there. */
-  leave(anchor: HTMLElement): void {
-    if (!anchor.contains(document.activeElement)) this.close(anchor);
-  }
-
-  /** Focus left a label or its tip: close the tip unless focus moved within it or the pointer is over it. */
-  blur(anchor: HTMLElement, e: FocusEvent): void {
-    const next = e.relatedTarget as Node | null;
-    if ((next && anchor.contains(next)) || anchor.matches(':hover')) return;
-    this.close(anchor);
+    else this.tips.hide();
   }
 
   onPointerDown(e: PointerEvent): void {
@@ -459,8 +434,11 @@ export class BranchTowersComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.motion?.removeEventListener('change', this.onMotion);
-    this.unmount();
+    this.lazy.unmount();
   }
+
+  private get scene(): TowerScene | null { return this.lazy.scene; }
+  private get stage(): ThreeStage | null { return this.lazy.stage; }
 
   private load(): void {
     if (this.failed()) { this.failed.set(false); this.outlets.set(null); }
@@ -468,52 +446,9 @@ export class BranchTowersComponent implements OnDestroy {
     this.reload$.next();
   }
 
-  private close(anchor: HTMLElement): void {
-    if (this.focused()?.branchId === anchor.dataset['id']) this.focused.set(null);
-  }
-
+  /** The stage element came, went or stayed: mount, tear down, or rebuild the towers in place. */
   private sync(host: HTMLElement | null, towers: readonly TowerSpec[]): void {
-    if (host !== this.host) {
-      this.unmount();
-      if (host) void this.mount(host);
-    } else {
-      this.scene?.setTowers(towers);
-    }
-  }
-
-  private async mount(host: HTMLElement): Promise<void> {
-    const run = ++this.generation;
-    this.host = host;
-    let three: Three;
-    try {
-      three = await this.loadThree();
-    } catch {
-      if (run === this.generation) this.broken.set(true);
-      return;
-    }
-    if (run !== this.generation) return; // the page or the view changed while three was loading
-    try {
-      this.stage = new ThreeStage(three, host);
-      this.scene = new TowerScene(three, this.stage);
-    } catch {
-      this.unmount();
-      this.broken.set(true);
-      return;
-    }
-    this.scene.setTowers(this.model().towers);
-    this.orbiting = !this.interacted && !this.motion?.matches;
-    this.stage.setAnimator((dt) => this.frame(dt));
-    this.ready.set(true);
-  }
-
-  private unmount(): void {
-    this.generation++;
-    this.stage?.destroy();
-    this.stage = null;
-    this.scene = null;
-    this.host = null;
-    this.drag = null;
-    this.ready.set(false);
+    if (this.lazy.follow(host)) this.scene?.setTowers(towers);
   }
 
   /** One frame: advance the orbit, frame the camera, then pin every label to its tower's top. Loops while orbiting. */
@@ -525,37 +460,12 @@ export class BranchTowersComponent implements OnDestroy {
     return this.orbiting;
   }
 
-  /**
-   * Moves each label to its tower's top. A label is only written when it moved by more than half a pixel or
-   * changed depth rank; its tip offsets are skipped while orbiting (no tip can be open then) unless `force`.
-   */
+  /** Pins each label to its tower's top, nearer towers' labels on top; tip offsets wait while the scene orbits. */
   private placeLabels(force = false): void {
-    const host = this.host;
+    const host = this.lazy.host;
     if (!host || !this.scene) return;
     const w = host.clientWidth;
-    const points = this.scene.screenPoints(w, host.clientHeight);
-    for (const { nativeElement: a } of this.anchors()) {
-      const p = points.get(a.dataset['id'] ?? '');
-      if (!p) continue;
-      let last = this.labelAt.get(a);
-      const fresh = !last;
-      if (!last) this.labelAt.set(a, (last = { x: NaN, y: NaN, z: NaN }));
-      const moved = !(Math.abs(p.x - last.x) <= 0.5 && Math.abs(p.y - last.y) <= 0.5);
-      if (moved) {
-        last.x = p.x;
-        last.y = p.y;
-        a.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-      }
-      if (p.z !== last.z) {
-        last.z = p.z;
-        a.style.setProperty('--z', String(p.z));
-      }
-      if (fresh || force || (moved && !this.orbiting)) {
-        a.style.setProperty('--dx', `${(clamp(p.x - TIP_W / 2, 8, w - TIP_W - 8) - p.x).toFixed(1)}px`);
-        a.classList.toggle('below', p.y < TIP_FLIP_Y);
-      }
-      if (fresh) a.classList.add('placed');
-    }
+    this.placer.place(this.anchors(), this.scene.screenPoints(w, host.clientHeight), w, { tips: true, moving: this.orbiting, force });
   }
 
   /** Any interaction stops the orbit for good; the angle is wrapped back into ±π for the drag's bounds. */
