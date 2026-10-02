@@ -7,13 +7,14 @@ import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 import { IngredientRequest, IngredientResponse } from '../../core/models';
 import { UNIT_GROUPS } from '../../core/units';
 
 @Component({
   selector: 'app-ingredients',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -45,9 +46,7 @@ import { UNIT_GROUPS } from '../../core/units';
                         <span class="jar-cat">{{ i.category || 'Uncategorized' }}</span>
                         <span class="jar-unit">{{ i.baseUnit }}</span>
                       </span>
-                      <span class="badge dot jar-status" [class]="i.active ? 'badge-green' : 'badge-gray'">
-                        {{ i.active ? 'Active' : 'Inactive' }}
-                      </span>
+                      <app-status-badge size="sm" [active]="i.active" />
                     </span>
                   </button>
                   @if (canWrite) {
@@ -149,7 +148,6 @@ import { UNIT_GROUPS } from '../../core/units';
     .jar-cat { font-size: 11.5px; color: var(--paper-ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .jar-unit { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
       background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 5px; padding: 0 .35rem; }
-    .jar-status { height: 20px; font-size: 10.5px; padding: 0 .5rem; }
 
     .jar-del { top: 10px; right: 2px; }
 

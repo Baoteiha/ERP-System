@@ -7,12 +7,13 @@ import { afterSave } from '../../core/save-handler';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 import { CategoryRequest, CategoryResponse } from '../../core/models';
 
 @Component({
   selector: 'app-categories',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -36,7 +37,7 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
                           [attr.aria-label]="canWrite ? 'Edit ' + c.name : null" [class.dusty]="!c.active">
                     <span class="order-chip">#{{ c.displayOrder }}</span>
                     <b class="tag-name">{{ c.name }}</b>
-                    <span class="badge dot tag-status" [class]="c.active ? 'badge-green' : 'badge-gray'">{{ c.active ? 'Active' : 'Inactive' }}</span>
+                    <app-status-badge size="sm" [active]="c.active" />
                   </button>
                   @if (canWrite) {
                     <button type="button" class="btn btn-sm btn-icon obj-del tag-del" (click)="remove(c)"
@@ -84,7 +85,6 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
       border-radius: 5px; padding: 0 .4rem;
     }
     .tag-name { font-size: 14px; font-weight: 650; color: var(--paper-ink); text-align: center; overflow-wrap: anywhere; }
-    .tag-status { height: 20px; font-size: 10.5px; padding: 0 .5rem; }
     .tag-del { top: 8px; right: calc(50% - 88px); }
   `],
 })

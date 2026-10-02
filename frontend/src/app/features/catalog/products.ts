@@ -6,6 +6,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmService } from '../../core/confirm.service';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 import { afterSave } from '../../core/save-handler';
 import { MoneyPipe } from '../../core/util';
 import { ProductEditorComponent } from './product-editor';
@@ -16,7 +17,7 @@ import {
 @Component({
   selector: 'app-products',
   standalone: true,
-  imports: [FormsModule, ModalComponent, MoneyPipe, IconComponent, ProductEditorComponent],
+  imports: [FormsModule, ModalComponent, MoneyPipe, IconComponent, ProductEditorComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -52,7 +53,7 @@ import {
                           <span class="mc-price">{{ p.basePrice | money }}</span>
                         </span>
                         <span class="mc-foot">
-                          <span class="badge dot mc-status" [class]="p.active ? 'badge-green' : 'badge-gray'">{{ p.active ? 'Active' : 'Inactive' }}</span>
+                          <app-status-badge size="xs" [active]="p.active" />
                           @if (canWrite) { <span class="mc-go">Manage <app-icon name="chevron" [size]="12" /></span> }
                         </span>
                       </button>
@@ -133,7 +134,6 @@ import {
     .mc-sku { font-family: var(--font-mono); font-size: 10.5px; color: var(--paper-ink-soft); }
     .mc-price { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--paper-accent); }
     .mc-foot { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .2rem; }
-    .mc-status { height: 19px; font-size: 10px; padding: 0 .45rem; }
     .mc-go { display: inline-flex; align-items: center; gap: .15rem; font-size: 11.5px; font-weight: 600; color: var(--paper-ink-soft); }
     .menu-card:not(.static):hover .mc-go { color: var(--paper-accent); }
     .mc-del { top: 6px; right: calc(5% + 4px); }

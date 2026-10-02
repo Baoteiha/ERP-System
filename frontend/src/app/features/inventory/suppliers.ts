@@ -8,11 +8,12 @@ import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { StatusBadgeComponent } from '../../shared/status-badge';
 
 @Component({
   selector: 'app-suppliers',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent],
+  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -40,7 +41,7 @@ import { IconComponent } from '../../shared/icon';
                       @if (s.address) {
                         <span class="sup-addr"><app-icon name="pin" [size]="12" /><span class="addr-text">{{ s.address }}</span></span>
                       }
-                      <span class="badge dot sup-status" [class]="s.active ? 'badge-green' : 'badge-gray'">{{ s.active ? 'Active' : 'Inactive' }}</span>
+                      <app-status-badge class="sup-status" size="sm" [active]="s.active" />
                     </span>
                   </button>
                   @if (canWrite) {
@@ -110,7 +111,7 @@ import { IconComponent } from '../../shared/icon';
     .sup-addr { display: flex; align-items: flex-start; gap: .3rem; font-size: 11.5px; color: var(--paper-ink-soft); }
     .sup-addr app-icon { flex-shrink: 0; margin-top: 1px; }
     .sup-addr .addr-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .sup-status { rotate: -3deg; align-self: flex-end; height: 20px; font-size: 10.5px; padding: 0 .5rem; }
+    .sup-status { rotate: -3deg; align-self: flex-end; }
 
     .crate-del { top: 8px; right: 8px; }
 
