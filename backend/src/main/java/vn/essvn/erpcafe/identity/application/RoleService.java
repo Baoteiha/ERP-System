@@ -122,12 +122,18 @@ public class RoleService {
 
     /** Deletes a custom role that nobody currently holds. */
     public void delete(UUID roleId) {
+        // Locked first, like every other change to a role: a grant inserted while we check would otherwise
+        // slip past existsByRoleId and hit the foreign key on delete. If one still does, the global handler
+        // answers 409 rather than 500.
+        roleRepository.lockByIdAndCompanyId(roleId, TenantContext.require())
+                .orElseThrow(() -> ResourceNotFoundException.of("Role", roleId));
         Role role = requireCustomRole(roleId);
         if (accessRepository.existsByRoleId(roleId)) {
             throw new BusinessRuleException(
                     "Cannot delete a role that is still granted to a user; revoke those grants first");
         }
         roleRepository.delete(role);
+        roleRepository.flush();
         roleCache.evictAfterCommit(roleId);
     }
 

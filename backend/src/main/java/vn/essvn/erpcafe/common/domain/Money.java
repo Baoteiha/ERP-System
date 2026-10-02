@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.common.domain;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Currency;
 import java.util.Objects;
 
 import jakarta.persistence.Column;
@@ -42,7 +43,16 @@ public class Money {
     public static Money of(BigDecimal amount, String currency) {
         Objects.requireNonNull(amount, "amount");
         Objects.requireNonNull(currency, "currency");
+        requireIso4217(currency);
         return new Money(amount, currency);
+    }
+
+    private static void requireIso4217(String currency) {
+        try {
+            Currency.getInstance(currency);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Not an ISO 4217 currency code: " + currency, e);
+        }
     }
 
     public static Money of(BigDecimal amount) {

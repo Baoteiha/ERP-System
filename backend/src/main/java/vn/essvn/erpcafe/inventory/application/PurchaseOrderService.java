@@ -23,6 +23,7 @@ import vn.essvn.erpcafe.inventory.domain.Item;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderLine;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
+import vn.essvn.erpcafe.inventory.domain.Supplier;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.ItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.PurchaseOrderRepository;
@@ -70,7 +71,7 @@ public class PurchaseOrderService {
     }
 
     public PurchaseOrder create(UUID supplierId, String note, List<LineInput> lines) {
-        requireSupplier(supplierId);
+        requireActiveSupplier(supplierId);
         if (lines == null || lines.isEmpty()) {
             throw new BusinessRuleException("A purchase order needs at least one line");
         }
@@ -100,6 +101,7 @@ public class PurchaseOrderService {
                 && order.getStatus() != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
             throw new BusinessRuleException("Order must be SENT to receive (was %s)".formatted(order.getStatus()));
         }
+        requireActiveSupplier(order.getSupplierId());
         // Resolve every receipt to its PO line up front, then process in ingredientId
         // order. Stock rows must be locked in the same global order on every path or a
         // goods receipt and an order completion touching the same two ingredients can
@@ -119,6 +121,7 @@ public class PurchaseOrderService {
         for (Resolved entry : resolved) {
             ReceiptInput receipt = entry.receipt();
             PurchaseOrderLine line = entry.line();
+            requireActive(requireIngredient(line.getIngredientId()));
             BigDecimal qty = receipt.receivedQty();
             if (qty == null || qty.signum() <= 0) {
                 throw new BusinessRuleException("Received quantity must be positive");
@@ -152,12 +155,19 @@ public class PurchaseOrderService {
     // sources could disagree. An ingredient alone keeps the old meaning, its base unit.
     private PurchaseOrderLine toLine(UUID supplierId, LineInput line) {
         if (line.itemId() != null) {
-            if (line.ingredientId() != null || line.unit() != null) {
+            if (line.ingredientId() != null) {
                 throw new BusinessRuleException("A line is an item, or an ingredient with a unit, not both");
+            }
+            if (line.unit() != null) {
+                throw new BusinessRuleException(
+                        "An item line takes its unit from the item; leave the unit out, even if blank");
             }
             // Items are tenant-owned, so another company's item is simply not found.
             Item item = itemRepository.findById(line.itemId())
                     .orElseThrow(() -> ResourceNotFoundException.of("Item", line.itemId()));
+            if (!item.isActive()) {
+                throw new BusinessRuleException("Item " + item.getName() + " is inactive");
+            }
             if (!item.getSupplierId().equals(supplierId)) {
                 throw new BusinessRuleException("Item " + item.getName() + " is sold by another supplier");
             }
@@ -167,7 +177,7 @@ public class PurchaseOrderService {
         if (line.ingredientId() == null) {
             throw new BusinessRuleException("A line needs an item, or an ingredient");
         }
-        Ingredient ingredient = requireIngredient(line.ingredientId());
+        Ingredient ingredient = requireActive(requireIngredient(line.ingredientId()));
         Unit base = Unit.parse(ingredient.getBaseUnit());
         Unit unit = line.unit() == null || line.unit().isBlank() ? base : Unit.parse(line.unit());
         if (!unit.isCompatibleWith(base)) {
@@ -178,9 +188,19 @@ public class PurchaseOrderService {
                 Money.of(line.unitCost()));
     }
 
-    private void requireSupplier(UUID supplierId) {
-        supplierRepository.findById(supplierId)
+    private void requireActiveSupplier(UUID supplierId) {
+        Supplier supplier = supplierRepository.findById(supplierId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", supplierId));
+        if (!supplier.isActive()) {
+            throw new BusinessRuleException("Supplier " + supplier.getName() + " is inactive");
+        }
+    }
+
+    private static Ingredient requireActive(Ingredient ingredient) {
+        if (!ingredient.isActive()) {
+            throw new BusinessRuleException("Ingredient " + ingredient.getName() + " is inactive");
+        }
+        return ingredient;
     }
 
     private Ingredient requireIngredient(UUID ingredientId) {

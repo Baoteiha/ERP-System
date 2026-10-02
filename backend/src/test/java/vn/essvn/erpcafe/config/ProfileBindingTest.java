@@ -79,6 +79,15 @@ class ProfileBindingTest {
     }
 
     @Test
+    void theProdProfile_switchesSwaggerOff_andTheDevProfileLeavesItOn() throws IOException {
+        Binder prod = binder("prod", PROD_ENVIRONMENT);
+        assertThat(prod.bind("springdoc.api-docs.enabled", Boolean.class).get()).isFalse();
+        assertThat(prod.bind("springdoc.swagger-ui.enabled", Boolean.class).get()).isFalse();
+
+        assertThat(binder("dev", Map.of()).bind("springdoc.api-docs.enabled", Boolean.class).orElse(true)).isTrue();
+    }
+
+    @Test
     void theProdProfile_needsNoPublicUrl_whilePasswordResetIsOff() throws IOException {
         Map<String, Object> withoutPublicUrl = new HashMap<>(PROD_ENVIRONMENT);
         withoutPublicUrl.remove("APP_PUBLIC_URL");

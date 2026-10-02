@@ -57,4 +57,12 @@ class MoneyTest {
         assertThat(Money.of(new BigDecimal("1.0"))).isEqualTo(Money.of(new BigDecimal("1.0000")));
         assertThat(Money.of(BigDecimal.ONE, "VND")).isNotEqualTo(Money.of(BigDecimal.ONE, "USD"));
     }
+
+    @Test
+    void of_rejectsACurrencyThatIsNotIso4217() {
+        assertThatThrownBy(() -> Money.of(BigDecimal.ONE, "XYZ"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("XYZ");
+        assertThat(Money.of(BigDecimal.ONE, "USD").getCurrency()).isEqualTo("USD");
+    }
 }

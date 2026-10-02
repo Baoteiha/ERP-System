@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
@@ -60,6 +61,9 @@ public class StockService {
     }
 
     public StockItem adjust(UUID ingredientId, BigDecimal quantityDelta, String unit, String note) {
+        if (quantityDelta.signum() == 0) {
+            throw new BadRequestException("An adjustment must change the quantity");
+        }
         requireIngredient(ingredientId);
         return ledger.adjust(BranchContext.require(), ingredientId, quantityDelta, unit, note);
     }

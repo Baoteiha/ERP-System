@@ -11,6 +11,13 @@ spring:
   jpa:
     show-sql: false
 
+springdoc:
+  # the API description and Swagger UI are for dev and test only
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 server:
   error:
     include-stacktrace: never

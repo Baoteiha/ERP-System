@@ -40,6 +40,9 @@ public class StockLedgerService {
 
     private static final Logger log = LoggerFactory.getLogger(StockLedgerService.class);
     private static final int CALC_SCALE = 10;
+    // The scale of the NUMERIC(19,4) quantity columns: a converted quantity is rounded to it here, once,
+    // rather than by the database on insert.
+    private static final int QUANTITY_SCALE = 4;
 
     private final StockItemRepository stockItemRepository;
     private final StockMovementRepository movementRepository;
@@ -260,7 +263,7 @@ public class StockLedgerService {
         if (unit == null || unit.isBlank()) {
             return quantity;
         }
-        return Unit.convert(quantity, Unit.parse(unit), base);
+        return Unit.convert(quantity, Unit.parse(unit), base).setScale(QUANTITY_SCALE, RoundingMode.HALF_EVEN);
     }
 
     // Only ingredients of the company that owns the branch: a foreign ingredient id is treated

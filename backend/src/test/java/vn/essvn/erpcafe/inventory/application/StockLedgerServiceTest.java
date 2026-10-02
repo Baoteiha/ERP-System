@@ -117,4 +117,16 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
         assertThat(first.getAmount()).isEqualByComparingTo("15");
         assertThat(repeat.getAmount()).isEqualByComparingTo(first.getAmount());
     }
+
+    @Test
+    void toBase_roundsAConversionToTheLedgersFourDecimalsHalfEven() throws Exception {
+        UUID ingredientId = seedGramIngredient();
+
+        // 0.25 mg is 0.00025 g: a tie at four decimals, which HALF_EVEN settles on the even 0.0002.
+        BigDecimal tie = asCompany(() -> ledger.toBase(branchId, ingredientId, new BigDecimal("0.25"), "mg"));
+        BigDecimal above = asCompany(() -> ledger.toBase(branchId, ingredientId, new BigDecimal("0.35"), "mg"));
+
+        assertThat(tie).isEqualTo(new BigDecimal("0.0002"));
+        assertThat(above).isEqualTo(new BigDecimal("0.0004"));
+    }
 }
