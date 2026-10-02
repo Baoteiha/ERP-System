@@ -9,7 +9,7 @@ let modalSeq = 0;
   standalone: true,
   imports: [IconComponent],
   template: `
-    <div class="modal-backdrop" (click)="onBackdrop()">
+    <div class="modal-backdrop" [class.is-drawer]="variant === 'drawer'" (click)="onBackdrop()">
       <div class="modal" #dialog [style.max-width.px]="width" tabindex="-1"
            role="dialog" aria-modal="true" [attr.aria-labelledby]="titleId"
            (click)="$event.stopPropagation()">
@@ -31,33 +31,30 @@ let modalSeq = 0;
     </div>
   `,
   styles: [`
-    .modal-backdrop {
-      position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start;
-      justify-content: center; padding: 7vh 1rem 2rem; overflow-y: auto;
-      overscroll-behavior: contain;
-      background: var(--scrim); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-      animation: fade var(--dur-2) var(--ease-out);
-    }
-    .modal {
-      width: 100%; max-width: 520px; background: var(--surface);
-      border: 1px solid var(--hairline); border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-pop); animation: sheet var(--dur-3) var(--ease-spring);
-    }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center;
+      padding: 8vh 1rem 2rem; overflow-y: auto; overscroll-behavior: contain; background: var(--scrim); animation: fade var(--dur-2) var(--ease-out); }
+    .modal { width: 100%; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-pop), 0 0 60px -20px var(--glow); animation: rise var(--dur-3) var(--ease-out); }
     .modal:focus { outline: none; }
-    .modal-head { display: flex; align-items: center; justify-content: space-between;
-      padding: 1.15rem 1.35rem 1.15rem 1.5rem; border-bottom: 1px solid var(--hairline); }
-    .modal-head h3 { font-size: 18px; letter-spacing: -.02em; }
-    .modal-body { padding: 1.4rem 1.5rem; }
-    .modal-foot { display: flex; justify-content: flex-end; gap: .6rem;
-      padding: 1.1rem 1.5rem; border-top: 1px solid var(--hairline); background: var(--surface-2);
-      border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.2rem 1rem 1.4rem; border-bottom: 1px solid var(--border); }
+    .modal-head h3 { font-size: 17px; }
+    .modal-body { padding: 1.3rem 1.4rem; }
+    .modal-foot { display: flex; justify-content: flex-end; gap: .6rem; padding: 1rem 1.4rem; border-top: 1px solid var(--border);
+      background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .is-drawer.modal-backdrop { justify-content: flex-end; align-items: stretch; padding: 0; overflow: hidden; }
+    .is-drawer .modal { height: 100%; border-radius: 0; border-width: 0 0 0 1px; display: flex; flex-direction: column; animation: slide-in var(--dur-3) var(--ease-out); }
+    .is-drawer .modal-body { flex: 1; overflow-y: auto; }
+    .is-drawer .modal-foot { border-radius: 0; }
     @keyframes fade { from { opacity: 0; } }
-    @keyframes sheet { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+    @keyframes slide-in { from { transform: translateX(32px); opacity: 0; } }
   `],
 })
 export class ModalComponent implements AfterViewInit, OnDestroy {
   @Input() title = '';
   @Input() width = 520;
+  /** `drawer` slides in from the right at full height; `dialog` is centred. */
+  @Input() variant: 'dialog' | 'drawer' = 'dialog';
   @Input() hasFooter = true;
   @Input() closeOnBackdrop = true;
   @Output() close = new EventEmitter<void>();
