@@ -134,8 +134,6 @@ export function pct(cur: number, prev: number): number | null {
     .kpi-error { margin: -.6rem 0 1rem; padding: .8rem 1rem; }
     .towers-slot { margin-bottom: 1.4rem; }
     .towers-slot:empty { display: none; }
-    .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem;
-      padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
     @media (max-width: 980px) { .dash-grid { grid-template-columns: 1fr; } }
   `],
 })

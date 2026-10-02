@@ -217,7 +217,6 @@ function barPath(x: number, y: number, w: number, h: number): string {
     .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
     .sw.s1 { background: var(--chart-1); }
     .sw.s2 { background: var(--chart-2); }
-    .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem; padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
     .asof { font-size: 12px; }
   `],
 })

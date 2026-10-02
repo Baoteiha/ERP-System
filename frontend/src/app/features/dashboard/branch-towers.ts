@@ -19,7 +19,8 @@ import { reportPeriod } from '../reports/reports';
 type Three = typeof import('three');
 type Period = 1 | 7 | 30;
 type Mode = '3d' | 'table' | 'loading' | 'error' | 'empty';
-interface Point { x: number; y: number; depth: number; }
+/** A tower top on the canvas: CSS pixels, plus a z-index rank that grows as the tower gets nearer the camera. */
+interface Point { x: number; y: number; z: number; }
 
 const ORBIT_RAD_PER_MS = 0.00012;
 const DRAG_RAD_PER_PX = 0.01;
@@ -33,7 +34,6 @@ const TARGET_Y = 2;
 const VIEW: readonly [number, number, number] = [10, 7, 12];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** A soft round alpha falloff, white so the material colour shows through: the glow pool under each tower. */
 function poolTexture(three: Three): Texture {
@@ -69,7 +69,9 @@ class TowerScene {
     ring: MeshBasicMaterial; glow: MeshBasicMaterial; glowTop: MeshBasicMaterial;
   };
   private readonly point: Vector3;
-  private list: readonly TowerSpec[] = [];
+  /** One reusable screen point per tower, so projecting every frame allocates nothing. */
+  private slots: { t: TowerSpec; p: Point }[] = [];
+  private readonly points = new Map<string, Point>();
   /** How far the outermost tower reaches from the turntable's centre, base included. */
   private radius = 0;
   private fitted = { aspect: 0, radius: -1 };
@@ -132,7 +134,9 @@ class TowerScene {
   /** Replaces the towers; geometries and materials are shared, so only the meshes change. */
   setTowers(list: readonly TowerSpec[]): void {
     const T = this.three;
-    this.list = list;
+    this.slots = list.map((t) => ({ t, p: { x: 0, y: 0, z: 0 } }));
+    this.points.clear();
+    for (const { t, p } of this.slots) this.points.set(t.branchId, p);
     this.radius = Math.max(0, ...list.map((t) => Math.hypot(t.x, t.z))) + 0.8;
     this.towers.clear();
     for (const t of list) {
@@ -158,15 +162,18 @@ class TowerScene {
     camera.updateMatrixWorld();
   }
 
-  /** Where each tower's top lands on a w × h canvas, in CSS pixels, by branch id; depth runs -1 (near) to 1 (far). */
-  screenPoints(w: number, h: number): Map<string, Point> {
+  /** Where each tower's top lands on a w × h canvas, by branch id. The map and its points are reused every call. */
+  screenPoints(w: number, h: number): ReadonlyMap<string, Point> {
     this.world.updateMatrixWorld();
-    const out = new Map<string, Point>();
-    for (const t of this.list) {
-      const p = this.point.set(t.x, t.height, t.z).applyMatrix4(this.towers.matrixWorld).project(this.stage.camera);
-      out.set(t.branchId, { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, depth: p.z });
+    const camera = this.stage.camera;
+    for (const { t, p } of this.slots) {
+      const v = this.point.set(t.x, t.height, t.z).applyMatrix4(this.towers.matrixWorld);
+      p.z = Math.max(0, 4000 - Math.round(v.distanceTo(camera.position) * 100)); // 1/100 unit steps: rows 2.2 apart never tie
+      v.project(camera);
+      p.x = ((v.x + 1) / 2) * w;
+      p.y = ((1 - v.y) / 2) * h;
     }
-    return out;
+    return this.points;
   }
 
   /** A flat disc (glow pool or loss ring) lying on the floor under a tower. */
@@ -189,7 +196,10 @@ class TowerScene {
       <div class="card-head">
         <h2>Branch performance</h2>
         @if (can3d() && (mode() === '3d' || mode() === 'table')) {
-          <button type="button" class="btn btn-ghost btn-sm" (click)="asTable.set(!asTable())">{{ asTable() ? 'View in 3D' : 'View as table' }}</button>
+          <div class="segmented" role="group" aria-label="Branch performance view">
+            <button type="button" [class.active]="!asTable()" [attr.aria-pressed]="!asTable()" (click)="asTable.set(false)">3D</button>
+            <button type="button" [class.active]="asTable()" [attr.aria-pressed]="asTable()" (click)="asTable.set(true)">Table</button>
+          </div>
         }
         <div class="segmented" role="group" aria-label="Branch performance period">
           @for (p of periods; track p.days) {
@@ -238,13 +248,13 @@ class TowerScene {
           <div class="scene" [class.dim]="busy()">
             <div #stage class="stage" aria-hidden="true" (pointerdown)="onPointerDown($event)" (pointermove)="onPointerMove($event)"
               (pointerup)="onPointerUp($event)" (pointercancel)="onPointerUp($event)"></div>
-            @if (!ready()) { <div class="wait"><span class="spinner"></span></div> }
+            @if (!ready()) { <div class="wait" role="status"><span class="spinner"></span> Loading 3D view…</div> }
             <div class="labels">
               @for (t of model().towers; track t.branchId) {
                 <div #anchor class="tower-anchor" [attr.data-id]="t.branchId" [class.on]="focused()?.branchId === t.branchId"
                   (mouseenter)="show(t)" (mouseleave)="leave(anchor)" (focusin)="show(t)" (focusout)="blur(anchor, $event)">
-                  <button type="button" class="tower-label glass" [class.top]="t.top" [attr.aria-label]="labelFor(t)"
-                    (keydown.escape)="focused.set(null)">{{ t.code }}</button>
+                  <button #label type="button" class="tower-label glass" [class.top]="t.top" [attr.aria-label]="labelFor(t)"
+                    (pointerdown)="pressed(t)" (click)="toggle(t, $event)" (keydown.escape)="focused.set(null)">{{ t.code }}</button>
                   @if (focused()?.branchId === t.branchId) {
                     <div class="tower-tip">
                       <b>{{ t.name }}</b>
@@ -253,7 +263,7 @@ class TowerScene {
                         <dt>Orders</dt><dd class="num">{{ t.orderCount }}</dd>
                         <dt>Net margin</dt><dd class="num" [class.neg]="t.loss">{{ t.netMargin | money }}</dd>
                       </dl>
-                      <a routerLink="/reports" (keydown.escape)="focused.set(null)">View report</a>
+                      <a routerLink="/reports" (keydown.escape)="closeTo(label)">View report</a>
                     </div>
                   }
                 </div>
@@ -272,19 +282,19 @@ class TowerScene {
     .card-head { flex-wrap: wrap; justify-content: flex-start; gap: .6rem .5rem; }
     .card-head h2 { margin-right: auto; }
     .hold { min-height: 360px; }
-    .load-error { display: flex; align-items: center; justify-content: center; gap: .8rem; padding: 2rem 1rem; color: var(--text-soft); font-size: 14px; }
     .neg { color: var(--red); }
     .note { margin: 0; padding: .7rem 1.35rem .9rem; font-size: 12.5px; border-top: 1px solid var(--border); }
-    .scene { position: relative; height: 360px; overflow: hidden; border-radius: 0 0 var(--radius) var(--radius); transition: opacity var(--dur-2); }
+    .scene { position: relative; isolation: isolate; height: 360px; overflow: hidden; border-radius: 0 0 var(--radius) var(--radius); transition: opacity var(--dur-2); }
     .scene.dim { opacity: .55; }
     .stage { position: absolute; inset: 0; line-height: 0; cursor: grab; touch-action: pan-y;
       mask-image: radial-gradient(ellipse 60% 80% at 50% 45%, currentColor 50%, transparent); }
     .stage:active { cursor: grabbing; }
-    .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); pointer-events: none; }
+    .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: .6rem;
+      color: var(--text-muted); font-size: 13px; pointer-events: none; }
     .labels { position: absolute; inset: 0; pointer-events: none; }
     .tower-anchor { position: absolute; left: 0; top: 0; z-index: var(--z, 0); }
     .tower-anchor:not(.placed) { visibility: hidden; }
-    .tower-anchor.on { z-index: 1001; }
+    .tower-anchor.on { z-index: 5000; }
     .tower-label { pointer-events: auto; position: absolute; left: 0; bottom: 8px; transform: translateX(-50%);
       padding: .22rem .5rem; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text);
       font: 600 11.5px/1.2 var(--font-mono); letter-spacing: .02em; white-space: nowrap; cursor: pointer;
@@ -345,6 +355,12 @@ export class BranchTowersComponent implements OnDestroy {
   /** Bumped on every mount and unmount, so a three import that resolves late knows it is stale. */
   private generation = 0;
   private orbiting = false;
+  private readonly motion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  private readonly onMotion = (e: { matches: boolean }) => { if (e.matches) this.stopOrbit(); };
+  /** Whether the label's tip was already open when the current pointer press began. */
+  private openAtPress = false;
+  /** What each label's style was last set to, so an unmoved label is not written again. */
+  private readonly labelAt = new WeakMap<HTMLElement, Point>();
   /** The user has touched the scene; the orbit stays off from then on, even if the scene is rebuilt. */
   private interacted = false;
   private drag: { id: number; x: number; angle: number } | null = null;
@@ -376,17 +392,40 @@ export class BranchTowersComponent implements OnDestroy {
     });
     // new labels are placed on the next frame
     afterRenderEffect(() => { this.anchors(); untracked(() => this.stage?.invalidate()); });
+    this.motion?.addEventListener('change', this.onMotion);
   }
 
   retry(): void { this.load(); }
 
+  /** The label's accessible name: the visible code plus every figure the tip shows, so none is visual only. */
   labelFor(t: TowerSpec): string {
-    return `${t.name}: net sales ${formatMoney(t.netSales)}, ${t.orderCount} ${t.orderCount === 1 ? 'order' : 'orders'}`;
+    const orders = `${t.orderCount} ${t.orderCount === 1 ? 'order' : 'orders'}`;
+    return `${t.name} (${t.code}): net sales ${formatMoney(t.netSales)}, ${orders}, net margin ${formatMoney(t.netMargin)}${t.loss ? ' (loss)' : ''}`;
   }
 
   show(t: TowerSpec): void {
     this.stopOrbit();
     this.focused.set(t);
+  }
+
+  pressed(t: TowerSpec): void {
+    this.openAtPress = this.focused()?.branchId === t.branchId;
+  }
+
+  /**
+   * Click, Enter or Space on a label opens or closes its tip. A keyboard click (detail 0) flips it; a pointer
+   * press flips the state it had before the press, because hover and focus may have opened it on the way in.
+   */
+  toggle(t: TowerSpec, e: MouseEvent): void {
+    const open = e.detail === 0 ? this.focused()?.branchId !== t.branchId : !this.openAtPress;
+    if (open) this.show(t);
+    else this.focused.set(null);
+  }
+
+  /** Escape inside a tip: focus goes back to its label first (that refocus would reopen it), then the tip closes. */
+  closeTo(label: HTMLElement): void {
+    label.focus();
+    this.focused.set(null);
   }
 
   /** The pointer left a label: close its tip unless the keyboard focus is still there. */
@@ -418,7 +457,10 @@ export class BranchTowersComponent implements OnDestroy {
     if (this.drag?.id === e.pointerId) this.drag = null;
   }
 
-  ngOnDestroy(): void { this.unmount(); }
+  ngOnDestroy(): void {
+    this.motion?.removeEventListener('change', this.onMotion);
+    this.unmount();
+  }
 
   private load(): void {
     if (this.failed()) { this.failed.set(false); this.outlets.set(null); }
@@ -459,7 +501,7 @@ export class BranchTowersComponent implements OnDestroy {
       return;
     }
     this.scene.setTowers(this.model().towers);
-    this.orbiting = !this.interacted && !reducedMotion();
+    this.orbiting = !this.interacted && !this.motion?.matches;
     this.stage.setAnimator((dt) => this.frame(dt));
     this.ready.set(true);
   }
@@ -483,7 +525,11 @@ export class BranchTowersComponent implements OnDestroy {
     return this.orbiting;
   }
 
-  private placeLabels(): void {
+  /**
+   * Moves each label to its tower's top. A label is only written when it moved by more than half a pixel or
+   * changed depth rank; its tip offsets are skipped while orbiting (no tip can be open then) unless `force`.
+   */
+  private placeLabels(force = false): void {
     const host = this.host;
     if (!host || !this.scene) return;
     const w = host.clientWidth;
@@ -491,21 +537,36 @@ export class BranchTowersComponent implements OnDestroy {
     for (const { nativeElement: a } of this.anchors()) {
       const p = points.get(a.dataset['id'] ?? '');
       if (!p) continue;
-      a.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-      a.style.setProperty('--dx', `${(clamp(p.x - TIP_W / 2, 8, w - TIP_W - 8) - p.x).toFixed(1)}px`);
-      a.style.setProperty('--z', String(Math.round((1 - p.depth) * 500))); // nearer labels on top
-      a.classList.toggle('below', p.y < TIP_FLIP_Y);
-      a.classList.add('placed');
+      let last = this.labelAt.get(a);
+      const fresh = !last;
+      if (!last) this.labelAt.set(a, (last = { x: NaN, y: NaN, z: NaN }));
+      const moved = !(Math.abs(p.x - last.x) <= 0.5 && Math.abs(p.y - last.y) <= 0.5);
+      if (moved) {
+        last.x = p.x;
+        last.y = p.y;
+        a.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+      }
+      if (p.z !== last.z) {
+        last.z = p.z;
+        a.style.setProperty('--z', String(p.z));
+      }
+      if (fresh || force || (moved && !this.orbiting)) {
+        a.style.setProperty('--dx', `${(clamp(p.x - TIP_W / 2, 8, w - TIP_W - 8) - p.x).toFixed(1)}px`);
+        a.classList.toggle('below', p.y < TIP_FLIP_Y);
+      }
+      if (fresh) a.classList.add('placed');
     }
   }
 
   /** Any interaction stops the orbit for good; the angle is wrapped back into ±π for the drag's bounds. */
   private stopOrbit(): void {
-    if (this.orbiting && this.scene) {
-      const a = this.scene.world.rotation.y;
-      this.scene.world.rotation.y = Math.atan2(Math.sin(a), Math.cos(a));
-    }
+    const wasOrbiting = this.orbiting;
     this.orbiting = false;
     this.interacted = true;
+    if (wasOrbiting && this.scene) {
+      const a = this.scene.world.rotation.y;
+      this.scene.world.rotation.y = Math.atan2(Math.sin(a), Math.cos(a));
+      this.placeLabels(true); // the tip offsets were left stale while the scene turned
+    }
   }
 }
