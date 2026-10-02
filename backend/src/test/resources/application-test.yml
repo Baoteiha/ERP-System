@@ -22,7 +22,13 @@ app:
     jwt:
       access-token-ttl: 15m
       refresh-token-ttl: 30d
-      secret: test-erp-cafe-jwt-secret-key-for-tests-0123456789
+      keys:
+        - kid: test-2
+          secret: test-erp-cafe-jwt-secret-key-for-tests-0123456789
+          active: true
+        # retired: verifies the tokens it signed, signs none (AuthGapsIntegrationTest)
+        - kid: test-1
+          secret: test-erp-cafe-retired-jwt-key-for-tests-0123456789
     login:
       # MockMvc requests all come from one address; keep the per-address limit out of other tests' way
       max-failures-per-address: 100000

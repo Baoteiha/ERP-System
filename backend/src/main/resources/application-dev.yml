@@ -22,7 +22,10 @@ server:
 app:
   security:
     jwt:
-      secret: dev-erp-cafe-jwt-secret-change-me-in-production-0123456789
+      keys:
+        - kid: dev-1
+          secret: dev-erp-cafe-jwt-secret-change-me-in-production-0123456789
+          active: true
     bootstrap:
       admin-email: admin@esscafe.vn
       admin-password: admin1234

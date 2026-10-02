@@ -211,6 +211,7 @@ fresh volume; on an existing volume migration V22 creates it.
 | `DB_URL` | JDBC URL for both connections |
 | `DB_APP_PASSWORD` | password of `erp_app`, the role every request runs as (NOSUPERUSER, NOBYPASSRLS) |
 | `DB_OWNER_USER` / `DB_OWNER_PASSWORD` | the schema owner: runs Flyway and the system work |
+| `JWT_SECRET` / `JWT_KEY_ID` | the active access-token signing key and its `kid` (default `primary`); to rotate, set the whole `app.security.jwt.keys` list instead (see `application-prod.yml`) |
 
 The owner must own the schema and its tables and hold `BYPASSRLS` (or be a superuser), and needs
 `CREATEROLE` unless `erp_app` already exists; V22 checks this before it does anything else. `erp_app`

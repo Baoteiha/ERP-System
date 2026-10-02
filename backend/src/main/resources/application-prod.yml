@@ -18,7 +18,13 @@ server:
 app:
   security:
     jwt:
-      secret: ${JWT_SECRET}
+      # To rotate, give the whole list in the environment (APP_SECURITY_JWT_KEYS_0_KID, _0_SECRET,
+      # _0_ACTIVE, then _1_...), which replaces this one: the new key active, the old one inactive until
+      # the access-token TTL has passed, then removed.
+      keys:
+        - kid: ${JWT_KEY_ID:primary}
+          secret: ${JWT_SECRET}
+          active: true
     bootstrap:
       admin-email: ${ADMIN_EMAIL}
       admin-password: ${ADMIN_PASSWORD:}

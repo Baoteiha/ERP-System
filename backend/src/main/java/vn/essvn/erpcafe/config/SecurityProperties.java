@@ -1,6 +1,9 @@
 package vn.essvn.erpcafe.config;
 
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
@@ -25,10 +28,50 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
         }
     }
 
+    /**
+     * {@code keys}: every key a token may be signed with. New tokens are signed with the one marked
+     * active; the others still verify the tokens they signed, so a key is rotated without signing anyone
+     * out: add the new key as active, mark the old one inactive, and remove it once the access token TTL
+     * has passed.
+     */
     public record Jwt(
-            @NotBlank @Size(min = 32) String secret,
+            List<@Valid Key> keys,
             Duration accessTokenTtl,
             Duration refreshTokenTtl) {
+
+        public Jwt {
+            if (keys == null || keys.isEmpty()) {
+                throw new IllegalArgumentException("app.security.jwt.keys must name at least one key");
+            }
+            if (keys.stream().filter(Key::active).count() != 1) {
+                throw new IllegalArgumentException("app.security.jwt.keys must mark exactly one active key");
+            }
+            Set<String> kids = new HashSet<>();
+            for (Key key : keys) {
+                if (!kids.add(key.kid())) {
+                    throw new IllegalArgumentException("app.security.jwt.keys names kid " + key.kid() + " twice");
+                }
+            }
+            keys = List.copyOf(keys);
+        }
+
+        /** The key new tokens are signed with. */
+        public Key activeKey() {
+            return keys.stream().filter(Key::active).findFirst().orElseThrow();
+        }
+    }
+
+    /** One HS256 signing key; {@code kid} goes in the header of every token it signs. */
+    public record Key(
+            @NotBlank String kid,
+            @NotBlank @Size(min = 32) String secret,
+            boolean active) {
+
+        // a key set printed in a log or a startup failure must not carry the secrets
+        @Override
+        public String toString() {
+            return "Key[kid=" + kid + ", active=" + active + "]";
+        }
     }
 
     /** Failed-login throttle: per email-and-address pair, per address alone, and the memory bound. */

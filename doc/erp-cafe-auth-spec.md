@@ -40,7 +40,7 @@ origin of most defects in §9.
 | Company scoping below the service layer | ⚠️ convention, applied in every module today |
 | MFA / passwordless / SSO federation | ⬜ none |
 | Forgotten-password self-service (email flow) | ⬜ none |
-| Key rotation | ⬜ single static shared secret |
+| Key rotation | ✅ a key set with key ids; any configured key verifies, the active one signs |
 | Login/session audit trail | ⬜ none beyond application logs |
 
 ## 3. Domain model
@@ -136,19 +136,25 @@ are in-memory and per-instance.
 
 ### AUTH-102 — Token pair
 
-**Access token** — HS256 JWT, 15-minute TTL, claims:
+**Access token** — HS256 JWT, 15-minute TTL. The header's `kid` names the key
+that signed it, claims:
 
 | Claim | Contents |
 |---|---|
+| `iss` | `erp-cafe` |
+| `aud` | `erp-cafe-api` |
 | `sub` | user id |
 | `email` | login email |
 | `companyId` | the user's company |
-| `perms` | flat array of permission strings, unioned across all branch grants |
-| `roles` | role names |
-| `branches` | every branch id the user holds a grant at |
+| `branchRoles` | branch id → the role id the user holds there (ADR-0007) |
 
-Everything needed to authorize a request is inside the token, so no database
-read happens per request.
+**Signing keys** (AUTH-G09). `app.security.jwt.keys` lists every key a token may
+be signed with, each with a `kid`; exactly one is `active` and signs new tokens.
+Verification picks the key the token's `kid` names, and refuses a token naming
+no configured key, another issuer, or another audience. A key is rotated without
+signing anyone out: add the new key as active and mark the old one inactive, then
+remove the old one once the access-token TTL has passed. A token from before the
+key set carries no `kid` and is refused; the client refreshes once.
 
 **Refresh token** — 48 random bytes, hex-encoded, returned to the client once.
 Only its SHA-256 hash is persisted, so a database leak yields nothing usable.
@@ -233,7 +239,10 @@ until the app connects as a non-superuser database role.
 app:
   security:
     jwt:
-      secret: <shared HS256 key>
+      keys:
+        - kid: <key id>
+          secret: <HS256 key, 32+ bytes>
+          active: true
       access-token-ttl: 15m
       refresh-token-ttl: 30d
     bootstrap:
@@ -268,6 +277,7 @@ from one that was never real.
 | AUTH-G15 | Organization module was unscoped: company and branch list, get, update and delete resolved with no tenant check, and CASHIER holds `branch:read`. Branch company also came from the request body, so a branch could be created in, or moved to, another tenant | Scoped lookups and principal-derived company; `OrganizationTenantIsolationTest` |
 | AUTH-G16 | No account lifecycle: `UserStatus.DISABLED` and the password setter existed but were never called, so an account could not be disabled and a password never changed | `AccountLifecycleIntegrationTest` |
 | AUTH-G17 | No role lifecycle: roles could be created but never renamed or deleted | `RoleLifecycleIntegrationTest` |
+| AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
 exists; the reconciliation is `syncDefaultRolePermissions` and covers OWNER,
@@ -279,7 +289,6 @@ MANAGER and CASHIER.
 |---|---|---|
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
 | AUTH-G08 | **Revocation lag.** Permissions live in the access token, so a *role or grant* change stays ineffective for up to 15 minutes. Narrowed: status and password changes now revoke refresh tokens, so they cannot be extended past the current access token | 🟡 low |
-| AUTH-G09 | **Single static HS256 secret.** Symmetric, shared, with no rotation mechanism and no key id in the header. Anyone holding the secret can mint tokens for any user | 🟡 low |
 | AUTH-G12 | **No forgotten-password self-service.** Change and administrative reset now exist (AUTH-106), but a user locked out with no admin available has no email-based recovery. No password complexity policy beyond an 8-character floor | 🟡 low |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies | 🟡 low |
 | AUTH-G14 | **No authentication audit trail.** Logins, refreshes, grants, and revocations are not recorded as durable events | 🟡 low |

@@ -496,14 +496,18 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
 
     @Test
     void tokenFromBeforePerBranchPermissions_isUnauthorized() throws Exception {
+        // signed, named and addressed as tokens are now, so only the missing branch roles refuse it
         String legacy = Jwts.builder()
+                .header().keyId(security.jwt().activeKey().kid()).and()
+                .issuer("erp-cafe")
+                .audience().add("erp-cafe-api").and()
                 .subject(userAccount.id())
                 .claim("email", userAccount.email())
                 .claim("companyId", branch(branchA).getCompanyId().toString())
                 .claim("perms", List.of("sales:refund"))
                 .claim("branches", List.of(branchA))
                 .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
-                .signWith(Keys.hmacShaKeyFor(security.jwt().secret().getBytes(StandardCharsets.UTF_8)))
+                .signWith(Keys.hmacShaKeyFor(security.jwt().activeKey().secret().getBytes(StandardCharsets.UTF_8)))
                 .compact();
 
         send(get("/api/v1/auth/me"), legacy, null, null)
