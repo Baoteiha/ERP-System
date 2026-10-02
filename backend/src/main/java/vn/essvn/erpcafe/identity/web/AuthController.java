@@ -11,11 +11,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.identity.application.AuthService;
+import vn.essvn.erpcafe.identity.application.PasswordResetService;
 import vn.essvn.erpcafe.identity.application.TokenPair;
 import vn.essvn.erpcafe.identity.security.AuthPrincipal;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 import vn.essvn.erpcafe.identity.web.AuthDtos.LoginRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.MeResponse;
+import vn.essvn.erpcafe.identity.web.AuthDtos.PasswordResetConfirmRequest;
+import vn.essvn.erpcafe.identity.web.AuthDtos.PasswordResetRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.RefreshRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.TokenResponse;
 
@@ -24,10 +27,13 @@ import vn.essvn.erpcafe.identity.web.AuthDtos.TokenResponse;
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
     private final CurrentUser currentUser;
 
-    public AuthController(AuthService authService, CurrentUser currentUser) {
+    public AuthController(AuthService authService, PasswordResetService passwordResetService,
+            CurrentUser currentUser) {
         this.authService = authService;
+        this.passwordResetService = passwordResetService;
         this.currentUser = currentUser;
     }
 
@@ -46,6 +52,19 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
         authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Always 202, whether or not the email has an account, so the answer reveals none. */
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+        passwordResetService.request(request.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordResetService.confirm(request.token(), request.newPassword());
         return ResponseEntity.noContent().build();
     }
 

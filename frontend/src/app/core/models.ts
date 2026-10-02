@@ -49,6 +49,8 @@ export interface UpdateUserRequest { email: string; fullName?: string; }
 export interface UpdateStatusRequest { status: UserStatus; }
 export interface ChangePasswordRequest { currentPassword: string; newPassword: string; }
 export interface ResetPasswordRequest { newPassword: string; }
+/** the token comes from the link mailed by POST /auth/password-reset/request */
+export interface PasswordResetConfirmRequest { token: string; newPassword: string; }
 export interface BranchAccessResponse { branchId: UUID; roleId: UUID; }
 export interface GrantAccessRequest { branchId: UUID; roleId: UUID; }
 

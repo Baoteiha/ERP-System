@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { LoginComponent } from './login';
 
 describe('LoginComponent', () => {
@@ -48,5 +48,29 @@ describe('LoginComponent', () => {
     login.submit();
     ctrl.expectOne('/api/v1/auth/login').error(new ProgressEvent('error'));
     expect(login.error()).toBe('Cannot reach the server. Check your connection and try again.');
+  });
+});
+
+describe('LoginComponent after a password reset', () => {
+  const open = (query: Record<string, string>) => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
+      ],
+    });
+    return TestBed.createComponent(LoginComponent).componentInstance;
+  };
+
+  it('says the password was changed', () => {
+    expect(open({ reset: 'done' }).resetDone).toBe(true);
+  });
+
+  it('says nothing on an ordinary visit', () => {
+    expect(open({}).resetDone).toBe(false);
   });
 });

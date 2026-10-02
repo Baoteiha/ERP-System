@@ -29,7 +29,7 @@ class JwtServiceTest {
 
     private static SecurityProperties props(Duration accessTtl, Key... keys) {
         return new SecurityProperties(new SecurityProperties.Jwt(List.of(keys), accessTtl, Duration.ofDays(30)),
-                new SecurityProperties.Bootstrap("admin@test", "pw"), null);
+                new SecurityProperties.Bootstrap("admin@test", "pw"), null, null);
     }
 
     private JwtService jwtService(Duration accessTtl) {

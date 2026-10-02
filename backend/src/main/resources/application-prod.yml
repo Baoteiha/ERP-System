@@ -25,6 +25,9 @@ app:
         - kid: ${JWT_KEY_ID:primary}
           secret: ${JWT_SECRET}
           active: true
+    password-reset:
+      # the frontend's reset page, which the mailed link opens with ?token=...
+      link: ${APP_PUBLIC_URL}/reset-password
     bootstrap:
       admin-email: ${ADMIN_EMAIL}
       admin-password: ${ADMIN_PASSWORD:}

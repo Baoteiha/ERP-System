@@ -16,15 +16,20 @@ import jakarta.validation.constraints.Size;
 
 /**
  * Binds {@code app.security.*} configuration: JWT signing/expiry and the
- * bootstrap admin credentials used to seed the first login, and the login throttle.
+ * bootstrap admin credentials used to seed the first login, the login throttle,
+ * and password reset by email.
  */
 @Validated
 @ConfigurationProperties(prefix = "app.security")
-public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @Valid Login login) {
+public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @Valid Login login,
+        @Valid PasswordReset passwordReset) {
 
     public SecurityProperties {
         if (login == null) {
             login = new Login(10, Duration.ofMinutes(15), 20);
+        }
+        if (passwordReset == null) {
+            passwordReset = new PasswordReset(Duration.ofMinutes(30), "http://localhost:4200/reset-password");
         }
     }
 
@@ -79,6 +84,12 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
             @Min(1) int maxFailures,
             @NotNull Duration window,
             @Min(1) int maxFailuresPerAddress) {
+    }
+
+    /** How long a mailed reset link works, and the page it opens; the link adds {@code ?token=...}. */
+    public record PasswordReset(
+            @NotNull Duration ttl,
+            @NotBlank String link) {
     }
 
     public record Bootstrap(

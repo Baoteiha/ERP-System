@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import vn.essvn.erpcafe.common.web.MaxUtf8Bytes;
 import vn.essvn.erpcafe.identity.domain.AuthEvent;
 import vn.essvn.erpcafe.identity.domain.AuthEventType;
 
@@ -20,6 +22,15 @@ public final class AuthDtos {
 
     public record RefreshRequest(
             @NotBlank String refreshToken) {
+    }
+
+    public record PasswordResetRequest(
+            @NotBlank @Email String email) {
+    }
+
+    public record PasswordResetConfirmRequest(
+            @NotBlank String token,
+            @NotBlank @Size(min = 8, max = 100) @MaxUtf8Bytes(72) String newPassword) {
     }
 
     public record TokenResponse(

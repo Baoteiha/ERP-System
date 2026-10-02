@@ -17,7 +17,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import vn.essvn.erpcafe.config.SecurityProperties;
 
 /**
- * Stateless JWT security. Public: auth login/refresh and API docs. Everything
+ * Stateless JWT security. Public: auth login/refresh/logout, password reset and API docs. Everything
  * else requires a valid access token. Method-level {@code @PreAuthorize} checks
  * fine-grained permissions.
  */
@@ -49,6 +49,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout",
+                                "/api/v1/auth/password-reset/request",
+                                "/api/v1/auth/password-reset/confirm",
                                 "/error",
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",

@@ -49,6 +49,15 @@ export class IdentityService {
   changeUserStatus(id: string, body: M.UpdateStatusRequest) { return this.http.put<M.UserResponse>(`${V1}/users/${id}/status`, body); }
   changeOwnPassword(body: M.ChangePasswordRequest) { return this.http.post<void>(`${V1}/users/me/password`, body); }
   resetUserPassword(id: string, body: M.ResetPasswordRequest) { return this.http.put<void>(`${V1}/users/${id}/password`, body); }
+  /** Signed out; answers 202 whether or not the email has an account. The page reports errors itself. */
+  requestPasswordReset(email: string) {
+    return this.http.post<void>(`${V1}/auth/password-reset/request`, { email },
+      { context: new HttpContext().set(SUPPRESS_ERROR_TOAST, true) });
+  }
+  confirmPasswordReset(body: M.PasswordResetConfirmRequest) {
+    return this.http.post<void>(`${V1}/auth/password-reset/confirm`, body,
+      { context: new HttpContext().set(SUPPRESS_ERROR_TOAST, true) });
+  }
   userAccess(id: string) { return this.http.get<M.BranchAccessResponse[]>(`${V1}/users/${id}/access`); }
   grantAccess(id: string, body: M.GrantAccessRequest) { return this.http.post<M.BranchAccessResponse>(`${V1}/users/${id}/access`, body); }
   revokeAccess(id: string, branchId: string) { return this.http.delete<void>(`${V1}/users/${id}/access/${branchId}`); }

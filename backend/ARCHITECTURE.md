@@ -211,6 +211,7 @@ fresh volume; on an existing volume migration V22 creates it.
 | `DB_URL` | JDBC URL for both connections |
 | `DB_APP_PASSWORD` | password of `erp_app`, the role every request runs as (NOSUPERUSER, NOBYPASSRLS) |
 | `DB_OWNER_USER` / `DB_OWNER_PASSWORD` | the schema owner: runs Flyway and the system work |
+| `APP_PUBLIC_URL` | the frontend's base URL; password-reset mails link to `<APP_PUBLIC_URL>/reset-password` |
 | `JWT_SECRET` / `JWT_KEY_ID` | the active access-token signing key and its `kid` (default `primary`); to rotate, set the whole `app.security.jwt.keys` list instead (see `application-prod.yml`) |
 
 The owner must own the schema and its tables and hold `BYPASSRLS` (or be a superuser), and needs
@@ -237,6 +238,7 @@ curl http://localhost:8090/api/v1/branches \
   -H "Authorization: Bearer <accessToken>" -H "X-Branch-Id: <branchId>"
 ```
 
-- Public endpoints: `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, Swagger. Everything else needs a valid access token.
+- Public endpoints: `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset/request` and `/confirm`, Swagger. Everything else needs a valid access token.
+- Mail goes through the `MailSender` port; the only adapter, `LoggingMailSender`, writes each mail to the log. A reset link there is a credential: plug in a real adapter before offering self-service reset to real users.
 - Access tokens are short-lived JWTs (15 min); use `/auth/refresh` (rotates) for new ones; `/auth/logout` revokes a refresh token.
 - Bootstrap admin credentials come from `app.security.bootstrap.*` (dev defaults in `application-dev.yml`; `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars in prod).

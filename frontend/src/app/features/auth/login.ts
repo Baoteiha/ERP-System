@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { IconComponent } from '../../shared/icon';
 
@@ -16,7 +16,7 @@ function loginErrorMessage(status: number | undefined): string {
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, RouterLink],
   template: `
     <div class="auth-wrap">
       <div class="auth-art">
@@ -39,6 +39,10 @@ function loginErrorMessage(status: number | undefined): string {
           <h1>Welcome back</h1>
           <p class="soft">Sign in to your workspace</p>
 
+          @if (resetDone && !error()) {
+            <div class="auth-ok" role="status">Your password was changed. Sign in with the new one.</div>
+          }
+
           <div class="field">
             <label for="email">Email</label>
             <input id="email" class="input" type="email" name="email" autocomplete="username"
@@ -55,6 +59,7 @@ function loginErrorMessage(status: number | undefined): string {
                 <app-icon [name]="showPw() ? 'eye-off' : 'eye'" [size]="17" />
               </button>
             </div>
+            <a class="auth-forgot" routerLink="/forgot-password">Forgot password?</a>
           </div>
 
           @if (error()) { <div class="auth-error" role="alert">{{ error() }}</div> }
@@ -72,6 +77,8 @@ function loginErrorMessage(status: number | undefined): string {
 export class LoginComponent {
   private auth = inject(AuthService);
   private router = inject(Router);
+  /** arrived from a completed password reset */
+  readonly resetDone = inject(ActivatedRoute).snapshot.queryParamMap.get('reset') === 'done';
 
   email = '';
   password = '';

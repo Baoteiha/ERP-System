@@ -64,6 +64,8 @@ class ArchitectureTest {
             "AuthController.refresh", "authenticated by the refresh token in the body",
             "AuthController.logout", "authenticated by the refresh token in the body",
             "AuthController.me", "any authenticated user reads their own identity",
+            "AuthController.requestPasswordReset", "signed out by nature; answers alike for every email",
+            "AuthController.confirmPasswordReset", "authenticated by the single-use token mailed to the account",
             "UserController.changeOwnPassword", "any authenticated user changes their own password",
             "CompanyController.create", "denyAll(): companies are created by provisioning, never over HTTP");
 

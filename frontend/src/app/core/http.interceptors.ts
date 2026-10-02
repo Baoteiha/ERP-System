@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';
 import { ProblemDetail } from './models';
 
-const AUTH_FREE = ['/auth/login', '/auth/refresh', '/auth/logout'];
+const AUTH_FREE = ['/auth/login', '/auth/refresh', '/auth/logout', '/auth/password-reset'];
 const isAuthFree = (url: string) => AUTH_FREE.some((p) => url.includes(p));
 
 export const SUPPRESS_ERROR_TOAST = new HttpContextToken<boolean>(() => false);

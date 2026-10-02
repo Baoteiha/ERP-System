@@ -55,7 +55,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
             + " JOIN branch b ON b.id = o.branch_id WHERE o.id = t.order_id)";
 
     /** Tables only the schema owner reads or writes: no company owns their rows, and the app role holds nothing. */
-    private static final List<String> OWNER_ONLY = List.of("login_attempt");
+    private static final List<String> OWNER_ONLY = List.of("login_attempt", "password_reset_token");
 
     /** Every table a company owns, and the company each row belongs to: independent of the policies it checks. */
     private static final Map<String, String> COMPANY_OF = new LinkedHashMap<>();

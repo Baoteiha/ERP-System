@@ -7,6 +7,9 @@ import { LoginComponent } from './features/auth/login';
 // each feature is a lazy chunk; canMatch permissions mirror the shell menu (layout/shell.ts)
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
+  { path: 'forgot-password', loadComponent: () => import('./features/auth/forgot-password').then((m) => m.ForgotPasswordComponent), canActivate: [guestGuard] },
+  // unguarded: a reset link may be opened in a browser still signed in, which it then signs out
+  { path: 'reset-password', loadComponent: () => import('./features/auth/reset-password').then((m) => m.ResetPasswordComponent) },
   {
     path: '',
     component: ShellComponent,

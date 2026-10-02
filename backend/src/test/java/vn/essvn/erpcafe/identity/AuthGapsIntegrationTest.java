@@ -18,12 +18,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,6 +58,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  * Class: AuthGapsIntegrationTest
  * Purpose: Pins the closed authentication gaps: key rotation, stale tokens, audit trail, shared throttle, password reset.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class AuthGapsIntegrationTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -156,6 +162,28 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
                 "$.content[*].type");
     }
 
+    private ResultActions requestReset(String email) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/password-reset/request").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\"}".formatted(email)));
+    }
+
+    private ResultActions confirmReset(String token, String newPassword) throws Exception {
+        return mockMvc.perform(post("/api/v1/auth/password-reset/confirm").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"%s\",\"newPassword\":\"%s\"}".formatted(token, newPassword)));
+    }
+
+    /** The token of the last reset link mailed to the address, as the logging mail adapter wrote it. */
+    private static String mailedToken(CapturedOutput output, String email) {
+        Matcher mail = Pattern.compile("Mail to " + Pattern.quote(email) + ".*?token=([0-9a-f]{64})", Pattern.DOTALL)
+                .matcher(output.getOut());
+        String token = null;
+        while (mail.find()) {
+            token = mail.group(1);
+        }
+        assertThat(token).as("a reset link mailed to " + email).isNotNull();
+        return token;
+    }
+
     private void expectStale(ResultActions result) throws Exception {
         result.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -177,7 +205,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         Key retired = key(false);
         JwtService beforeRotation = new JwtService(new SecurityProperties(
                 new SecurityProperties.Jwt(List.of(new Key(retired.kid(), retired.secret(), true)),
-                        Duration.ofMinutes(15), Duration.ofDays(30)), null, null));
+                        Duration.ofMinutes(15), Duration.ofDays(30)), null, null, null));
 
         me(beforeRotation.generateAccessToken(admin), 200);
     }
@@ -446,5 +474,57 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         assertThatThrownBy(() -> another.checkNotBlocked(email, address)).isInstanceOf(TooManyRequestsException.class);
         another.reset(email, address);
         assertThatCode(() -> one.checkNotBlocked(email, address)).doesNotThrowAnyException();
+    }
+
+    // --- G12: password reset by email ---
+
+    @Test
+    void aPasswordResetByEmail_setsThePassword_andItsLinkWorksOnce(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        String old = accessToken(user.email(), PASSWORD);
+
+        requestReset(user.email().toUpperCase()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+        confirmReset(token, "reset-pass-1").andExpect(status().isNoContent());
+
+        assertThat(login(user.email(), "reset-pass-1", uniqueAddress())).isEqualTo(200);
+        assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(401);
+        expectStale(send(get("/api/v1/auth/me"), old, null, null));
+        confirmReset(token, "reset-pass-2")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+        assertThat(login(user.email(), "reset-pass-1", uniqueAddress())).isEqualTo(200);
+        // stored hashed, for 30 minutes
+        Map<String, Object> stored = owner().queryForMap("SELECT token_hash, extract(epoch FROM expires_at - created_at)"
+                + " AS ttl FROM password_reset_token WHERE user_id = ?", UUID.fromString(user.id()));
+        assertThat(stored.get("token_hash")).isNotEqualTo(token);
+        assertThat(((Number) stored.get("ttl")).longValue()).isEqualTo(Duration.ofMinutes(30).toSeconds());
+        assertThat(eventTypes(admin, user.id())).contains("PASSWORD_RESET");
+    }
+
+    @Test
+    void aResetRequestForAnUnknownEmail_isAnsweredAlike_andMailsNothing(CapturedOutput output) throws Exception {
+        String email = "gaps-nobody%d@t.test".formatted(SEQ.incrementAndGet());
+
+        requestReset(email).andExpect(status().isAccepted());
+
+        assertThat(output.getOut()).doesNotContain("Mail to " + email);
+    }
+
+    @Test
+    void anExpiredResetLink_isRefused_andChangesNothing(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+        owner().update("UPDATE password_reset_token SET expires_at = now() - interval '1 second' WHERE user_id = ?",
+                UUID.fromString(user.id()));
+
+        confirmReset(token, "reset-pass-3")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
+
+        assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(200);
     }
 }

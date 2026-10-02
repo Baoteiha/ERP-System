@@ -1,0 +1,163 @@
+package vn.essvn.erpcafe.identity.application;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
+import vn.essvn.erpcafe.common.mail.MailMessage;
+import vn.essvn.erpcafe.common.mail.MailSender;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
+import vn.essvn.erpcafe.config.SecurityProperties;
+import vn.essvn.erpcafe.identity.domain.AuthEventType;
+import vn.essvn.erpcafe.identity.domain.RefreshToken;
+import vn.essvn.erpcafe.identity.domain.User;
+import vn.essvn.erpcafe.identity.persistence.RefreshTokenRepository;
+import vn.essvn.erpcafe.identity.persistence.UserRepository;
+
+/**
+ * Class: PasswordResetService
+ * Purpose: Lets a signed-out user set a new password through a single-use link mailed to their account's email.
+ *
+ * <p>Runs as the system, on the schema owner's connection: the user is signed out, so no company is in force
+ * until the email or the token is looked up. Only a token's SHA-256 is stored.
+ */
+@Service
+public class PasswordResetService {
+
+    /** Open links one account may have; past it a request mails nothing, so a flood fills no table or inbox. */
+    static final int MAX_OPEN_LINKS = 3;
+    private static final String INVALID_LINK = "This password reset link is invalid, already used or expired";
+    private static final Logger log = LoggerFactory.getLogger(PasswordResetService.class);
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbc;
+    private final MailSender mailSender;
+    private final AuthVersions authVersions;
+    private final AuthEventLog events;
+    private final SystemTransactions system;
+    private final Duration ttl;
+    private final String link;
+
+    PasswordResetService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder, JdbcTemplate jdbc, MailSender mailSender, AuthVersions authVersions,
+            AuthEventLog events, SystemTransactions system, SecurityProperties properties) {
+        this.userRepository = userRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jdbc = jdbc;
+        this.mailSender = mailSender;
+        this.authVersions = authVersions;
+        this.events = events;
+        this.system = system;
+        this.ttl = properties.passwordReset().ttl();
+        this.link = properties.passwordReset().link();
+    }
+
+    /**
+     * Mails a reset link when the email is an active account's. Says nothing either way, and a mail that
+     * fails to send is only logged, so the answer never reveals which emails have an account.
+     */
+    public void request(String rawEmail) {
+        String email = User.normalizeEmail(rawEmail);
+        Optional<String> token = system.run(() -> userRepository.findByEmail(email)
+                .filter(User::isActive)
+                .filter(user -> openLinks(user.getId()) < MAX_OPEN_LINKS)
+                .map(this::issue));
+        token.ifPresent(raw -> {
+            try {
+                mailSender.send(resetMail(email, raw));
+            } catch (RuntimeException ex) {
+                log.error("Could not mail a password reset link", ex);
+            }
+        });
+    }
+
+    /**
+     * Sets the password of the account the token was mailed for. The token works once, before it expires;
+     * the account's other links close with it, and its sessions and access tokens end.
+     */
+    public void confirm(String rawToken, String newPassword) {
+        // hashed before the transaction, which then holds an owner connection only for the writes
+        String passwordHash = passwordEncoder.encode(newPassword);
+        system.run(() -> {
+            // one statement claims the token: of two confirmations at once, the second finds it used
+            UUID userId = jdbc.query("UPDATE password_reset_token SET used_at = now()"
+                    + " WHERE token_hash = ? AND used_at IS NULL AND expires_at > now() RETURNING user_id",
+                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, sha256(rawToken));
+            if (userId == null) {
+                throw new BusinessRuleException(INVALID_LINK);
+            }
+            User user = userRepository.findById(userId).orElseThrow(() -> new BusinessRuleException(INVALID_LINK));
+            if (!user.isActive()) {
+                throw new BusinessRuleException("Account is disabled");
+            }
+            user.setPasswordHash(passwordHash);
+            jdbc.update("UPDATE password_reset_token SET used_at = now() WHERE user_id = ? AND used_at IS NULL",
+                    userId);
+            refreshTokenRepository.findByUserIdAndRevokedFalse(userId).forEach(RefreshToken::revoke);
+            authVersions.bump(user.getCompanyId(), List.of(userId));
+            events.record(AuthEventType.PASSWORD_RESET, user.getCompanyId(), userId, Map.of("via", "EMAIL"));
+        });
+    }
+
+    // every company's tokens, and no request to name one
+    @Scheduled(cron = "0 45 3 * * *")
+    public void purgeExpired() {
+        int deleted = system.run(() -> jdbc.update(
+                "DELETE FROM password_reset_token WHERE expires_at < now() - interval '1 day'"));
+        log.info("Purged {} password reset tokens expired over a day ago", deleted);
+    }
+
+    private int openLinks(UUID userId) {
+        return jdbc.queryForObject("SELECT count(*) FROM password_reset_token"
+                + " WHERE user_id = ? AND used_at IS NULL AND expires_at > now()", Integer.class, userId);
+    }
+
+    private String issue(User user) {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        String raw = HexFormat.of().formatHex(bytes);
+        jdbc.update("INSERT INTO password_reset_token (id, user_id, token_hash, created_at, expires_at)"
+                + " VALUES (?, ?, ?, now(), now() + ?::interval)",
+                UUID.randomUUID(), user.getId(), sha256(raw), ttl.toSeconds() + " seconds");
+        return raw;
+    }
+
+    private MailMessage resetMail(String email, String token) {
+        return new MailMessage(email, "Reset your ERP-Cafe password", """
+                Someone asked to reset the password of your ERP-Cafe account. Open this link within %d minutes \
+                to choose a new one; it works once:
+
+                %s?token=%s
+
+                If it was not you, ignore this email: your password stays as it is.
+                """.formatted(ttl.toMinutes(), link, token));
+    }
+
+    private static String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
+    }
+}

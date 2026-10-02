@@ -39,7 +39,7 @@ origin of most defects in §9.
 | Failed-login throttling | ✅ shared by every instance (`login_attempt`) |
 | Company scoping below the service layer | ⚠️ convention, applied in every module today |
 | MFA / passwordless / SSO federation | ⬜ none |
-| Forgotten-password self-service (email flow) | ⬜ none |
+| Forgotten-password self-service (email flow) | ✅ single-use emailed link; mail is only logged until a real adapter exists |
 | Key rotation | ✅ a key set with key ids; any configured key verifies, the active one signs |
 | Login/session audit trail | ✅ `auth_event`, read at `GET /api/v1/auth-events` |
 
@@ -240,6 +240,34 @@ trail, newest first; `userId` narrows it to one user. Row-level security keeps
 each company to its own rows, and the app role may add rows but never change or
 delete one. Nothing purges the table yet.
 
+### AUTH-108 — Password reset by email
+
+`POST /api/v1/auth/password-reset/request` with `{email}` always answers
+**202**, whether or not the email has an account. For an active account it
+stores a token — 32 random bytes, of which only the SHA-256 is kept — and mails
+a link to `app.security.password-reset.link` with `?token=…` through the
+`MailSender` port. The token expires after 30 minutes
+(`app.security.password-reset.ttl`). An account with three open links gets no
+more until one closes, so a flood of requests fills neither the table nor an
+inbox. A mail that fails to send is logged, never reported to the caller.
+
+`POST /api/v1/auth/password-reset/confirm` with `{token, newPassword}` claims
+the token in one statement, so it works once even when confirmed twice at once,
+and sets the password (8–100 characters, at most 72 bytes). It closes the
+account's other open links, revokes its refresh tokens, moves its auth version
+(so its access tokens end, AUTH-G08), and records `PASSWORD_RESET` with
+`via: EMAIL`. A used, expired or unknown token answers **422**; a disabled
+account's too. Both endpoints are public and run as the schema owner, which
+alone may touch `password_reset_token`.
+
+The frontend's sign-in page links to *Forgot password*, which asks for the
+email; the mailed link opens *Choose a new password*, which signs the browser
+out and returns to sign-in.
+
+The only mail adapter, `LoggingMailSender`, writes each mail to the
+application log. A reset link there is a credential: a real adapter must
+replace it before self-service reset is offered to real users.
+
 ## 7. Request authorization pipeline
 
 For every request, in order:
@@ -288,6 +316,9 @@ app:
     bootstrap:
       admin-email: <seed admin>
       admin-password: <seed password>
+    password-reset:
+      ttl: 30m             # optional, default 30 minutes
+      link: <frontend base URL>/reset-password
     login:
       max-failures: 10     # optional, default 10
       window: PT15M        # optional, default 15 minutes
@@ -321,6 +352,7 @@ from one that was never real.
 | AUTH-G08 | Revocation lag: a role, grant, status or password change stayed ineffective for up to 15 minutes | Grants, revokes and role edits reach issued tokens through the grant and role caches (ADR-0007); a status change, a password change or reset, and a branch closing move the user's `auth_version`, which ends every token carrying the old `av`. `AuthGapsIntegrationTest`. Other instances follow within the caches' lifetimes (30 s and 60 s) |
 | AUTH-G14 | No authentication audit trail: logins, refreshes, grants and revocations were not recorded as durable events | `auth_event` and `GET /api/v1/auth-events` (AUTH-107); `AuthGapsIntegrationTest`, `RlsEverywhereTest` |
 | AUTH-G18 | The login throttle was per instance and in memory: it reset on restart and was not shared across replicas | Counters in the `login_attempt` table; `AuthGapsIntegrationTest`, `LoginAttemptServiceTest` |
+| AUTH-G12 | No forgotten-password self-service: a user locked out with no admin available had no email-based recovery | Single-use emailed reset link (AUTH-108); `AuthGapsIntegrationTest`, `forgot-password.spec.ts`, `reset-password.spec.ts` |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
@@ -332,8 +364,8 @@ MANAGER and CASHIER.
 | ID | Gap | Severity |
 |---|---|---|
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
-| AUTH-G12 | **No forgotten-password self-service.** Change and administrative reset now exist (AUTH-106), but a user locked out with no admin available has no email-based recovery. No password complexity policy beyond an 8-character floor | 🟡 low |
-| AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies | 🟡 low |
+| AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies. **Deferred (ruling, Task 36):** one email across companies needs a company choice at sign-in, and conflicts with the planned move to an identity provider (§10), where an account is the IdP's subject rather than a company's row; it is settled there | 🟡 low |
+| AUTH-G12 (rest) | No password complexity policy beyond an 8-character floor. The emailed reset (AUTH-108) closed the recovery half; its mail is only logged until a real adapter exists | 🟡 low |
 | AUTH-G19 | **A new branch has no one who can reach it.** All access is per branch, so creating a branch grants nobody access to it, including the owner who created it. Harmless today because permissions are unioned, but it is a hard blocker for AUTH-G07 | 🟠 medium |
 
 ## 10. Migration notes
