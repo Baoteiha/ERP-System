@@ -87,6 +87,24 @@ describe('BranchTowersComponent', () => {
     expect(el(f).querySelector('.empty')?.textContent).toContain('No branch sales in this period');
   });
 
+  it('shows the empty state when every branch sold nothing, keeping the period switch to look further back', () => {
+    const f = start(true);
+    ctrl.expectOne(isOutlets).flush([outlet('Q1', '0'), outlet('HN', '0')]);
+    settle(f);
+    expect(f.componentInstance.mode()).toBe('empty');
+    expect(el(f).querySelector('.empty')?.textContent).toContain('No branch sales in this period');
+    expect(el(f).querySelector('.stage')).toBeNull();
+    expect(loader).not.toHaveBeenCalled();
+
+    const periods = el(f).querySelector('[role="group"][aria-label="Branch performance period"]')!;
+    const sevenDays = [...periods.querySelectorAll('button')].find((b) => b.textContent?.trim() === '7 days')!;
+    sevenDays.click();
+    settle(f);
+    ctrl.expectOne(isOutlets).flush([outlet('Q1', '100'), outlet('HN', '0')]);
+    settle(f);
+    expect(f.componentInstance.mode()).toBe('3d');
+  });
+
   it('shows an alert with Retry when the call fails, and Retry asks again', () => {
     const f = start(false);
     ctrl.expectOne(isOutlets).flush('x', { status: 500, statusText: 'err' });
@@ -278,10 +296,10 @@ describe('BranchTowersComponent', () => {
       expect(meshes().length).toBe(5); // Q1 body + glow, HN body + glow + loss ring
       f.componentInstance.period.set(7);
       settle(f);
-      ctrl.expectOne(isOutlets).flush([outlet('DN', '0')]);
+      ctrl.expectOne(isOutlets).flush([outlet('DN', '100'), outlet('PMH', '0')]);
       settle(f);
       frames.flush(16);
-      expect(meshes().length).toBe(1); // a zero-sales slab: body only
+      expect(meshes().length).toBe(3); // DN body + glow, and PMH's zero-sales slab: body only
       expect(renderers.length).toBe(1);
       expect(renderers[0].dispose).not.toHaveBeenCalled();
       f.destroy();

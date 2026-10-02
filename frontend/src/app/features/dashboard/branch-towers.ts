@@ -342,7 +342,7 @@ export class BranchTowersComponent implements OnDestroy {
   readonly mode = computed<Mode>(() => {
     if (this.failed()) return 'error';
     if (this.outlets() === null) return 'loading';
-    if (!this.model().towers.length) return 'empty';
+    if (!this.model().towers.some((t) => t.netSales > 0)) return 'empty'; // no branches, or none sold anything
     return this.can3d() && !this.asTable() ? '3d' : 'table';
   });
 
