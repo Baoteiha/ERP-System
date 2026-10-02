@@ -114,7 +114,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             catchError((e: HttpErrorResponse) => settle(e)),
           );
         }
-        if (auth.refreshToken()) {
+        if (auth.canRefresh()) {
           // only the refresh itself may log out; the retried request's errors propagate normally
           return coordinator.refreshed().pipe(
             switchMap((token) => next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))),

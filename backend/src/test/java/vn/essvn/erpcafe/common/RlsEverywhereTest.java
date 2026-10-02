@@ -436,16 +436,10 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
 
     @Test
     void login_refresh_andLogout_stillWork() throws Exception {
-        String refresh = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
+        String refresh = refreshTokenOf("admin@esscafe.vn", "admin1234");
 
-        String rotated = JsonPath.read(mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(refresh)))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString(), "$.refreshToken");
-        mockMvc.perform(post("/api/v1/auth/logout")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(rotated)))
+        String rotated = rotate(refresh);
+        mockMvc.perform(logoutRequest(rotated))
                 .andExpect(status().isNoContent());
 
         assertThat(owner().queryForObject("SELECT bool_and(revoked) FROM refresh_token WHERE family_id ="

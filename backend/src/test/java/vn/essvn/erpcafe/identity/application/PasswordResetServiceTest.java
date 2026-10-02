@@ -44,7 +44,7 @@ class PasswordResetServiceTest {
         return new SecurityProperties(new SecurityProperties.Jwt(
                 List.of(new SecurityProperties.Key("k1", "a-signing-key-of-at-least-32-bytes-long", true)),
                 Duration.ofMinutes(15), Duration.ofDays(30)), null, null,
-                new SecurityProperties.PasswordReset(enabled, Duration.ofMinutes(30), link));
+                new SecurityProperties.PasswordReset(enabled, Duration.ofMinutes(30), link), null);
     }
 
     private static ObjectProvider<MailSender> senders(MailSender... senders) {

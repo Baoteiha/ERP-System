@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.identity.web;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +20,6 @@ import vn.essvn.erpcafe.identity.web.AuthDtos.LoginRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.MeResponse;
 import vn.essvn.erpcafe.identity.web.AuthDtos.PasswordResetConfirmRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.PasswordResetRequest;
-import vn.essvn.erpcafe.identity.web.AuthDtos.RefreshRequest;
 import vn.essvn.erpcafe.identity.web.AuthDtos.TokenResponse;
 
 @RestController
@@ -29,30 +29,44 @@ public class AuthController {
     private final AuthService authService;
     private final PasswordResetService passwordResetService;
     private final CurrentUser currentUser;
+    private final RefreshCookies refreshCookies;
 
     public AuthController(AuthService authService, PasswordResetService passwordResetService,
-            CurrentUser currentUser) {
+            CurrentUser currentUser, RefreshCookies refreshCookies) {
+        this.refreshCookies = refreshCookies;
         this.authService = authService;
         this.passwordResetService = passwordResetService;
         this.currentUser = currentUser;
     }
 
     @PostMapping("/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
         TokenPair tokens = authService.login(request.email(), request.password(), http.getRemoteAddr());
-        return TokenResponse.bearer(tokens.accessToken(), tokens.refreshToken());
+        return withRefreshCookie(tokens);
     }
 
+    /** The refresh token comes from the cookie alone; a body, if sent, is ignored. */
     @PostMapping("/refresh")
-    public TokenResponse refresh(@Valid @RequestBody RefreshRequest request) {
-        TokenPair tokens = authService.refresh(request.refreshToken());
-        return TokenResponse.bearer(tokens.accessToken(), tokens.refreshToken());
+    public ResponseEntity<TokenResponse> refresh(HttpServletRequest http) {
+        refreshCookies.requireHeader(http);
+        return withRefreshCookie(authService.refresh(refreshCookies.require(http)));
     }
 
+    /** Clears the cookie whether or not the token behind it is still live. */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
-        authService.logout(request.refreshToken());
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<Void> logout(HttpServletRequest http) {
+        refreshCookies.requireHeader(http);
+        String token = refreshCookies.token(http);
+        if (token != null) {
+            authService.logout(token);
+        }
+        return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, refreshCookies.clear()).build();
+    }
+
+    private ResponseEntity<TokenResponse> withRefreshCookie(TokenPair tokens) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookies.issue(tokens.refreshToken()))
+                .body(TokenResponse.bearer(tokens.accessToken()));
     }
 
     /** Always 202, whether or not the email has an account, so the answer reveals none. */

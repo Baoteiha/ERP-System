@@ -38,6 +38,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -151,8 +152,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     }
 
     private ResultActions refresh(String refreshToken) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"refreshToken\":\"%s\"}".formatted(refreshToken)));
+        return mockMvc.perform(refreshRequest(refreshToken));
     }
 
     /** A user of a company of its own, with no grants; the password is password123. */
@@ -214,7 +214,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         Key retired = key(false);
         JwtService beforeRotation = new JwtService(new SecurityProperties(
                 new SecurityProperties.Jwt(List.of(new Key(retired.kid(), retired.secret(), true)),
-                        Duration.ofMinutes(15), Duration.ofDays(30)), null, null, null));
+                        Duration.ofMinutes(15), Duration.ofDays(30)), null, null, null, null));
 
         me(beforeRotation.generateAccessToken(admin), 200);
     }
@@ -387,9 +387,9 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         String admin = adminToken();
         String branch = firstBranch(admin);
         NewUser user = userWithRole(admin, "CASHIER", branch);
-        String session = loginBody(user.email(), PASSWORD);
-        String token = JsonPath.read(session, "$.accessToken");
-        String refresh = JsonPath.read(session, "$.refreshToken");
+        MvcResult session = loginResult(user.email(), PASSWORD);
+        String token = JsonPath.read(session.getResponse().getContentAsString(), "$.accessToken");
+        String refresh = refreshCookieOf(session);
 
         send(delete("/api/v1/users/" + user.id() + "/access/" + branch), admin, null, null)
                 .andExpect(status().isNoContent());
@@ -397,9 +397,9 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         send(get("/api/v1/auth/me"), token, branch, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.branchIds").isEmpty());
-        String rotated = JsonPath.read(json(send(post("/api/v1/auth/refresh"), token, branch,
-                "{\"refreshToken\":\"%s\"}".formatted(refresh))), "$.refreshToken");
-        send(post("/api/v1/auth/logout"), token, branch, "{\"refreshToken\":\"%s\"}".formatted(rotated))
+        String rotated = refreshCookieOf(send(refreshRequest(refresh), token, branch, null)
+                .andExpect(status().isOk()).andReturn());
+        send(logoutRequest(rotated), token, branch, null)
                 .andExpect(status().isNoContent());
     }
 
@@ -437,15 +437,14 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         String admin = adminToken();
         String branch = firstBranch(admin);
         NewUser user = userWithRole(admin, "CASHIER", branch);
-        String first = JsonPath.read(loginBody(user.email(), PASSWORD), "$.refreshToken");
+        String first = refreshTokenOf(user.email(), PASSWORD);
         refresh(first).andExpect(status().isOk());
         refresh(first).andExpect(status().isUnprocessableEntity());
-        String session = loginBody(user.email(), PASSWORD);
-        mockMvc.perform(post("/api/v1/auth/logout").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(
-                                JsonPath.<String>read(session, "$.refreshToken"))))
+        MvcResult session = loginResult(user.email(), PASSWORD);
+        mockMvc.perform(logoutRequest(refreshCookieOf(session)))
                 .andExpect(status().isNoContent());
-        send(post("/api/v1/users/me/password"), JsonPath.read(session, "$.accessToken"), null,
+        send(post("/api/v1/users/me/password"),
+                JsonPath.read(session.getResponse().getContentAsString(), "$.accessToken"), null,
                 "{\"currentPassword\":\"%s\",\"newPassword\":\"another-pass-3\"}".formatted(PASSWORD))
                 .andExpect(status().isNoContent());
         send(put("/api/v1/users/" + user.id() + "/password"), admin, null, "{\"newPassword\":\"another-pass-4\"}")
@@ -566,8 +565,8 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     void aPasswordResetByEmail_setsThePassword_andItsLinkWorksOnce(CapturedOutput output) throws Exception {
         String admin = adminToken();
         NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
-        String session = loginBody(user.email(), PASSWORD);
-        String old = JsonPath.read(session, "$.accessToken");
+        MvcResult session = loginResult(user.email(), PASSWORD);
+        String old = JsonPath.read(session.getResponse().getContentAsString(), "$.accessToken");
 
         requestReset(user.email().toUpperCase()).andExpect(status().isAccepted());
         String token = mailedToken(output, user.email());
@@ -576,7 +575,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         assertThat(login(user.email(), "reset-pass-1", uniqueAddress())).isEqualTo(200);
         assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(401);
         expectStale(send(get("/api/v1/auth/me"), old, null, null));
-        refresh(JsonPath.read(session, "$.refreshToken")).andExpect(status().isUnprocessableEntity());
+        refresh(refreshCookieOf(session)).andExpect(status().isUnprocessableEntity());
         confirmReset(token, "reset-pass-2")
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));

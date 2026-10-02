@@ -1,7 +1,6 @@
 package vn.essvn.erpcafe.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.sql.Connection;
@@ -22,10 +21,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-
-import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.config.OwnerPoolProperties;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -46,33 +42,19 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
     private DataSource ownerDataSource;
 
     private int refreshStatus(String token) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(token)))
-                .andReturn().getResponse().getStatus();
-    }
-
-    private String refreshOk(String token) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(token)))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+        return mockMvc.perform(refreshRequest(token)).andReturn().getResponse().getStatus();
     }
 
     private void refreshRejected(String token) throws Exception {
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(token)))
-                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(refreshRequest(token)).andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     void replayingARotatedToken_revokesTheWholeFamily() throws Exception {
-        String first = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
+        String first = refreshTokenOf("admin@esscafe.vn", "admin1234");
 
         // the legitimate client rotates once; `second` is now the live token
-        String second = JsonPath.read(refreshOk(first), "$.refreshToken");
+        String second = rotate(first);
 
         // an attacker replays the stolen, already-rotated token
         refreshRejected(first);
@@ -83,16 +65,16 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void anUnrelatedSession_survivesAnotherFamilysCompromise() throws Exception {
-        String sessionA = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
-        String sessionB = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
+        String sessionA = refreshTokenOf("admin@esscafe.vn", "admin1234");
+        String sessionB = refreshTokenOf("admin@esscafe.vn", "admin1234");
 
         // compromise and burn family A
-        String rotatedA = JsonPath.read(refreshOk(sessionA), "$.refreshToken");
+        String rotatedA = rotate(sessionA);
         refreshRejected(sessionA);
         refreshRejected(rotatedA);
 
         // a separate login is its own family and must be unaffected
-        refreshOk(sessionB);
+        rotate(sessionB);
     }
 
     @Test
@@ -100,8 +82,8 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
         int families = ownerPool.maximumPoolSize() + 2;
         List<String[]> stolen = new ArrayList<>();
         for (int i = 0; i < families; i++) {
-            String first = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
-            stolen.add(new String[] {first, JsonPath.read(refreshOk(first), "$.refreshToken")});
+            String first = refreshTokenOf("admin@esscafe.vn", "admin1234");
+            stolen.add(new String[] {first, rotate(first)});
         }
 
         // every family's rotated-away token replayed twice, all at once
@@ -134,8 +116,8 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void aRotationInFlightWhenTheFamilyIsRevoked_leavesNoLiveTokenInIt() throws Exception {
-        String first = JsonPath.read(loginBody("admin@esscafe.vn", "admin1234"), "$.refreshToken");
-        String second = JsonPath.read(refreshOk(first), "$.refreshToken");
+        String first = refreshTokenOf("admin@esscafe.vn", "admin1234");
+        String second = rotate(first);
         JdbcTemplate owner = new JdbcTemplate(ownerDataSource);
         UUID family = owner.queryForObject("SELECT family_id FROM refresh_token"
                 + " WHERE token_hash = encode(sha256(?::bytea), 'hex')", UUID.class, second);
@@ -172,6 +154,48 @@ class RefreshTokenReuseIntegrationTest extends AbstractIntegrationTest {
         }
         assertThat(owner.queryForObject("SELECT count(*) FROM refresh_token WHERE family_id = ? AND revoked = false",
                 Long.class, family)).isZero();
+    }
+
+    /**
+     * Two tabs refreshing at the same instant send the same cookie. Both find it live; one rotation wins on
+     * the row's version, and the loser is either refused with 409 (it lost the version race) or, if it read
+     * the row after the winner committed, treated as a replay: 422 and the family revoked. Either way never a
+     * 500 and never two replacements.
+     */
+    @Test
+    void twoSimultaneousRefreshesOfOneToken_oneWins_andTheLoserFailsCleanly() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String token = refreshTokenOf("admin@esscafe.vn", "admin1234");
+            JdbcTemplate owner = new JdbcTemplate(ownerDataSource);
+            UUID family = owner.queryForObject("SELECT family_id FROM refresh_token"
+                    + " WHERE token_hash = encode(sha256(?::bytea), 'hex')", UUID.class, token);
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            CountDownLatch start = new CountDownLatch(1);
+            List<Integer> statuses = new ArrayList<>();
+            try {
+                List<Future<Integer>> both = new ArrayList<>();
+                for (int k = 0; k < 2; k++) {
+                    both.add(pool.submit(() -> {
+                        start.await(10, TimeUnit.SECONDS);
+                        return refreshStatus(token);
+                    }));
+                }
+                start.countDown();
+                for (Future<Integer> one : both) {
+                    statuses.add(one.get(30, TimeUnit.SECONDS));
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertThat(statuses).containsOnlyOnce(200).allMatch(code -> code == 200 || code == 409 || code == 422);
+            long live = owner.queryForObject("SELECT count(*) FROM refresh_token WHERE family_id = ?"
+                    + " AND revoked = false", Long.class, family);
+            // 409: the loser lost the version race and the winner's session lives on
+            // 422: the loser read the spent token and revoked the family, the winner's session with it
+            assertThat(live).isEqualTo(statuses.contains(409) ? 1 : 0);
+        }
     }
 
     /** Waits until a statement on refresh_token waits on a lock: the revocation, behind the rotation. */

@@ -12,8 +12,12 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.jayway.jsonpath.JsonPath;
+
+import jakarta.servlet.http.Cookie;
 
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
@@ -57,7 +61,6 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
                         .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(ADMIN_EMAIL, ADMIN_PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"));
     }
 
@@ -169,33 +172,87 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void refreshToken_rotatesAndLogoutRevokes() throws Exception {
-        String loginJson = login(ADMIN_EMAIL, ADMIN_PASSWORD);
-        String refresh = JsonPath.read(loginJson, "$.refreshToken");
+        String refresh = refreshTokenOf(ADMIN_EMAIL, ADMIN_PASSWORD);
 
-        // refresh -> new tokens
-        String refreshedJson = mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(refresh)))
+        // refresh -> a new access token and a rotated cookie
+        MvcResult refreshed = mockMvc.perform(refreshRequest(refresh))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        String newRefresh = JsonPath.read(refreshedJson, "$.refreshToken");
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn();
+        String newRefresh = refreshCookieOf(refreshed);
+        assertThat(newRefresh).isNotBlank().isNotEqualTo(refresh);
 
         // the old (rotated) token can no longer be used
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(refresh)))
-                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(refreshRequest(refresh)).andExpect(status().isUnprocessableEntity());
 
         // logout revokes the new token
-        mockMvc.perform(post("/api/v1/auth/logout")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(newRefresh)))
-                .andExpect(status().isNoContent());
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(newRefresh)))
-                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(logoutRequest(newRefresh)).andExpect(status().isNoContent());
+        mockMvc.perform(refreshRequest(newRefresh)).andExpect(status().isUnprocessableEntity());
+    }
 
-        assertThat(newRefresh).isNotEqualTo(refresh);
+    @Test
+    void login_setsAnHttpOnlyStrictRefreshCookie_andNoRefreshTokenInTheBody() throws Exception {
+        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(ADMIN_EMAIL, ADMIN_PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn();
+
+        String setCookie = login.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).startsWith("erpcafe_refresh=").contains("HttpOnly", "SameSite=Strict",
+                "Path=/api/v1/auth", "Max-Age=2592000");
+        // the test profile serves plain HTTP; prod's Secure is pinned in ProfileBindingTest
+        assertThat(setCookie).doesNotContain("Secure");
+    }
+
+    @Test
+    void refresh_withoutTheRequestedWithHeader_returns403() throws Exception {
+        String refresh = refreshTokenOf(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        mockMvc.perform(post("/api/v1/auth/refresh").cookie(new Cookie(REFRESH_COOKIE, refresh)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(post("/api/v1/auth/refresh").cookie(new Cookie(REFRESH_COOKIE, refresh))
+                        .header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isForbidden());
+
+        // refused before the token was touched
+        rotate(refresh);
+    }
+
+    @Test
+    void refresh_withoutTheCookie_returns401_andIgnoresARefreshTokenInTheBody() throws Exception {
+        String refresh = refreshTokenOf(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        mockMvc.perform(post("/api/v1/auth/refresh").header("X-Requested-With", "erpcafe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"%s\"}".formatted(refresh)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void logout_withoutTheRequestedWithHeader_returns403_andRevokesNothing() throws Exception {
+        String refresh = refreshTokenOf(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie(REFRESH_COOKIE, refresh)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        rotate(refresh);
+    }
+
+    @Test
+    void logout_clearsTheCookie_evenWhenTheTokenIsAlreadyRevokedOrMissing() throws Exception {
+        String refresh = refreshTokenOf(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        for (MockHttpServletRequestBuilder request : List.of(logoutRequest(refresh), logoutRequest(refresh),
+                post("/api/v1/auth/logout").header("X-Requested-With", "erpcafe"))) {
+            MvcResult out = mockMvc.perform(request).andExpect(status().isNoContent()).andReturn();
+            assertThat(out.getResponse().getHeader(HttpHeaders.SET_COOKIE)).startsWith("erpcafe_refresh=;")
+                    .contains("Max-Age=0", "Path=/api/v1/auth", "HttpOnly", "SameSite=Strict");
+        }
     }
 }

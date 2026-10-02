@@ -18,12 +18,12 @@ import jakarta.validation.constraints.Size;
 /**
  * Binds {@code app.security.*} configuration: JWT signing/expiry and the
  * bootstrap admin credentials used to seed the first login, the login throttle,
- * and password reset by email.
+ * password reset by email, and the refresh-token cookie.
  */
 @Validated
 @ConfigurationProperties(prefix = "app.security")
 public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @Valid Login login,
-        @Valid PasswordReset passwordReset) {
+        @Valid PasswordReset passwordReset, @Valid RefreshCookie refreshCookie) {
 
     public SecurityProperties {
         if (login == null) {
@@ -31,6 +31,9 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
         }
         if (passwordReset == null) {
             passwordReset = new PasswordReset(true, Duration.ofMinutes(30), "http://localhost:4200/reset-password");
+        }
+        if (refreshCookie == null) {
+            refreshCookie = new RefreshCookie(true);
         }
     }
 
@@ -95,6 +98,13 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
             @DefaultValue("true") boolean enabled,
             @DefaultValue("30m") @NotNull Duration ttl,
             @DefaultValue("http://localhost:4200/reset-password") @NotBlank String link) {
+    }
+
+    /**
+     * {@code secure}: whether the refresh-token cookie carries the Secure attribute, so a browser sends it
+     * over HTTPS only. On unless dev and test (plain HTTP on localhost) turn it off.
+     */
+    public record RefreshCookie(@DefaultValue("true") boolean secure) {
     }
 
     public record Bootstrap(

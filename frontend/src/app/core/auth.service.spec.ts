@@ -21,20 +21,116 @@ describe('AuthService', () => {
 
   beforeEach(() => stubLocalStorage());
 
-  it('logout clears both tokens and the stored branch', async () => {
+  it('logout clears the access token, the session flag and the stored branch, and clears the cookie server-side', async () => {
     localStorage.setItem('erpcafe.access', 'a');
-    localStorage.setItem('erpcafe.refresh', 'r');
+    localStorage.setItem('erpcafe.session', '1');
     localStorage.setItem('erpcafe.branch', 'b1');
     const auth = setup();
 
     const done = auth.logout();
-    ctrl.expectOne('/api/v1/auth/logout').flush({});
+    const req = ctrl.expectOne('/api/v1/auth/logout');
+    expect(req.request.withCredentials).toBe(true);
+    expect(req.request.headers.get('X-Requested-With')).toBe('erpcafe');
+    expect(req.request.body).toBeNull();
+    req.flush({});
     await done;
 
     expect(localStorage.getItem('erpcafe.access')).toBeNull();
-    expect(localStorage.getItem('erpcafe.refresh')).toBeNull();
+    expect(localStorage.getItem('erpcafe.session')).toBeNull();
     expect(localStorage.getItem('erpcafe.branch')).toBeNull();
     expect(auth.activeBranchId()).toBeNull();
+  });
+
+  describe('the refresh token', () => {
+    const written = () => vi.spyOn(localStorage, 'setItem');
+
+    it('is never written to localStorage, by login or by refresh', async () => {
+      const auth = setup();
+      const setItem = written();
+
+      auth.login({ email: 'a@b.c', password: 'pw' }).subscribe();
+      const login = ctrl.expectOne('/api/v1/auth/login');
+      expect(login.request.withCredentials).toBe(true);
+      // even a body that still carried one must not reach storage
+      login.flush({ accessToken: 'acc', refreshToken: 'SECRET', tokenType: 'Bearer' });
+      const done = firstValueFrom(auth.refresh());
+      ctrl.expectOne('/api/v1/auth/refresh')
+        .flush({ accessToken: 'acc2', refreshToken: 'SECRET2', tokenType: 'Bearer' });
+      await done;
+
+      expect(setItem.mock.calls.map(([k]) => k).sort()).toEqual(
+        ['erpcafe.access', 'erpcafe.access', 'erpcafe.session', 'erpcafe.session']);
+      expect(setItem.mock.calls.map(([, v]) => v).join()).not.toContain('SECRET');
+    });
+
+    it('is sent as a cookie: no body, credentials on, and the CSRF header', async () => {
+      const auth = setup();
+
+      const done = firstValueFrom(auth.refresh());
+      const req = ctrl.expectOne('/api/v1/auth/refresh');
+      expect(req.request.body).toBeNull();
+      expect(req.request.withCredentials).toBe(true);
+      expect(req.request.headers.get('X-Requested-With')).toBe('erpcafe');
+      req.flush({ accessToken: 'new', tokenType: 'Bearer' });
+      await done;
+    });
+
+    it('is removed from localStorage on start when an older build left it there', () => {
+      localStorage.setItem('erpcafe.refresh', 'legacy-secret');
+      localStorage.setItem('erpcafe.access', 'a');
+
+      const auth = setup();
+
+      expect(localStorage.getItem('erpcafe.refresh')).toBeNull();
+      expect(auth.accessToken()).toBe('a');
+    });
+  });
+
+  describe('restoring a session on start', () => {
+    it('uses a stored access token without calling the server', async () => {
+      localStorage.setItem('erpcafe.access', 'a');
+      localStorage.setItem('erpcafe.session', '1');
+      const auth = setup();
+
+      await auth.restoreSession();
+
+      ctrl.expectNone('/api/v1/auth/refresh');
+      expect(auth.accessToken()).toBe('a');
+    });
+
+    it('does not call refresh for a visitor who never signed in', async () => {
+      const auth = setup();
+
+      await auth.restoreSession();
+
+      ctrl.expectNone('/api/v1/auth/refresh');
+      expect(auth.isAuthenticated()).toBe(false);
+    });
+
+    it('refreshes from the cookie when the flag is set but no access token is stored', async () => {
+      localStorage.setItem('erpcafe.session', '1');
+      const auth = setup();
+
+      const done = auth.restoreSession();
+      ctrl.expectOne('/api/v1/auth/refresh').flush({ accessToken: 'fresh', tokenType: 'Bearer' });
+      await done;
+
+      expect(auth.accessToken()).toBe('fresh');
+      expect(localStorage.getItem('erpcafe.access')).toBe('fresh');
+    });
+
+    it('clears the flag and stays signed out when the cookie refresh fails', async () => {
+      localStorage.setItem('erpcafe.session', '1');
+      const auth = setup();
+
+      const done = auth.restoreSession();
+      ctrl.expectOne('/api/v1/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+      await done;
+
+      expect(auth.isAuthenticated()).toBe(false);
+      expect(localStorage.getItem('erpcafe.session')).toBeNull();
+      ctrl.expectNone('/api/v1/auth/logout');
+    });
   });
 
   it('replaces a stored branch that is not in the user branches', () => {
@@ -102,21 +198,17 @@ describe('AuthService', () => {
     const storageEvent = (key: string | null, newValue: string | null) =>
       window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
 
-    it('picks up tokens another tab stored', () => {
+    it('picks up the access token another tab stored', () => {
       localStorage.setItem('erpcafe.access', 'old');
-      localStorage.setItem('erpcafe.refresh', 'r1');
       const auth = setup();
 
       storageEvent('erpcafe.access', 'new');
-      storageEvent('erpcafe.refresh', 'r2');
 
       expect(auth.accessToken()).toBe('new');
-      expect(auth.refreshToken()).toBe('r2');
     });
 
     it('treats a token removed by another tab as a logout and leaves for /login', () => {
       localStorage.setItem('erpcafe.access', 'old');
-      localStorage.setItem('erpcafe.refresh', 'r1');
       localStorage.setItem('erpcafe.branch', 'b1');
       const auth = setup();
       const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -166,35 +258,31 @@ describe('AuthService', () => {
       it('refreshes inside the erpcafe-refresh lock', async () => {
         const request = stubLocks();
         localStorage.setItem('erpcafe.access', 'old');
-        localStorage.setItem('erpcafe.refresh', 'r1');
-        const auth = setup();
+          const auth = setup();
 
         const done = firstValueFrom(auth.refresh());
-        ctrl.expectOne('/api/v1/auth/refresh').flush({ accessToken: 'new', refreshToken: 'r2', tokenType: 'Bearer' });
+        ctrl.expectOne('/api/v1/auth/refresh').flush({ accessToken: 'new', tokenType: 'Bearer' });
         await done;
 
         expect(request.mock.calls[0][0]).toBe('erpcafe-refresh');
         expect(auth.accessToken()).toBe('new');
       });
 
-      it('reuses the tokens another tab stored while waiting for the lock', async () => {
+      it('reuses the access token another tab stored while waiting for the lock', async () => {
         const request = vi.fn(async (_name: string, cb: () => Promise<unknown>) => {
           // the other tab finished its refresh while we queued
           localStorage.setItem('erpcafe.access', 'other-new');
-          localStorage.setItem('erpcafe.refresh', 'other-r2');
           return cb();
         });
         vi.stubGlobal('navigator', { locks: { request } });
         localStorage.setItem('erpcafe.access', 'old');
-        localStorage.setItem('erpcafe.refresh', 'r1');
-        const auth = setup();
+          const auth = setup();
 
         const res = await firstValueFrom(auth.refresh());
 
         ctrl.expectNone('/api/v1/auth/refresh');
         expect(res.accessToken).toBe('other-new');
         expect(auth.accessToken()).toBe('other-new');
-        expect(auth.refreshToken()).toBe('other-r2');
       });
     });
   });

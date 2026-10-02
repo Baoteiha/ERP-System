@@ -20,10 +20,6 @@ public final class AuthDtos {
             @NotBlank String password) {
     }
 
-    public record RefreshRequest(
-            @NotBlank String refreshToken) {
-    }
-
     public record PasswordResetRequest(
             @NotBlank @Email String email) {
     }
@@ -34,13 +30,13 @@ public final class AuthDtos {
             @NotBlank @Size(min = 8, max = 100) @MaxUtf8Bytes(72) String newPassword) {
     }
 
+    /** The refresh token travels in an HttpOnly cookie, never in the body. */
     public record TokenResponse(
             String accessToken,
-            String refreshToken,
             String tokenType) {
 
-        public static TokenResponse bearer(String accessToken, String refreshToken) {
-            return new TokenResponse(accessToken, refreshToken, "Bearer");
+        public static TokenResponse bearer(String accessToken) {
+            return new TokenResponse(accessToken, "Bearer");
         }
     }
 

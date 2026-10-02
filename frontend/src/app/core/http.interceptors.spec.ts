@@ -17,7 +17,7 @@ describe('errorInterceptor', () => {
   beforeEach(() => {
     stubLocalStorage();
     localStorage.setItem('erpcafe.access', 'old');
-    localStorage.setItem('erpcafe.refresh', 'r1');
+    localStorage.setItem('erpcafe.session', '1');
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
@@ -34,7 +34,7 @@ describe('errorInterceptor', () => {
 
   afterEach(() => ctrl.verify());
 
-  const tokens = { accessToken: 'new', refreshToken: 'r2' };
+  const tokens = { accessToken: 'new', tokenType: 'Bearer' };
 
   it('propagates an error from the retried request without logging out', () => {
     const logout = vi.spyOn(auth, 'logout');
@@ -71,7 +71,6 @@ describe('errorInterceptor', () => {
     http.get('/api/v1/a').subscribe(() => (ok = true));
     const stale = ctrl.expectOne('/api/v1/a'); // sent with 'old'
     auth.accessToken.set('newer'); // a refresh completed while this request was in flight
-    auth.refreshToken.set('r9');
 
     stale.flush({}, { status: 401, statusText: 'Unauthorized' });
     const retry = ctrl.expectOne('/api/v1/a');

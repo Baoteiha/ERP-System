@@ -69,7 +69,7 @@ class AccountLifecycleIntegrationTest extends AbstractIntegrationTest {
         String id = createUser("workingpw123");
         String email = emailOf(id);
 
-        String refresh = JsonPath.read(loginBody(email, "workingpw123"), "$.refreshToken");
+        String refresh = refreshTokenOf(email, "workingpw123");
 
         mockMvc.perform(put("/api/v1/users/" + id + "/status")
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
@@ -84,9 +84,7 @@ class AccountLifecycleIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnprocessableEntity());
 
         // the session issued before disabling can no longer be extended
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"%s\"}".formatted(refresh)))
+        mockMvc.perform(refreshRequest(refresh))
                 .andExpect(status().isUnprocessableEntity());
     }
 

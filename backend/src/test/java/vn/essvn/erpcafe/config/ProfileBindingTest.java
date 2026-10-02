@@ -66,6 +66,8 @@ class ProfileBindingTest {
 
         SecurityProperties security = bind(prod, "app.security", SecurityProperties.class);
         assertThat(security.jwt().activeKey().kid()).isEqualTo("primary");
+        // the refresh cookie travels over HTTPS only
+        assertThat(security.refreshCookie().secure()).isTrue();
         // off until a real mail adapter exists (the logging one serves dev and test only)
         assertThat(security.passwordReset().enabled()).isFalse();
         assertThat(security.passwordReset().ttl()).isEqualTo(Duration.ofMinutes(30));
@@ -91,6 +93,7 @@ class ProfileBindingTest {
 
         SecurityProperties security = bind(dev, "app.security", SecurityProperties.class);
         assertThat(security.jwt().activeKey().kid()).isEqualTo("dev-1");
+        assertThat(security.refreshCookie().secure()).isFalse();
         assertThat(security.passwordReset().enabled()).isTrue();
         assertThat(security.passwordReset().ttl()).isEqualTo(Duration.ofMinutes(30));
         assertThat(bind(dev, "app.datasource.owner", OwnerPoolProperties.class).maximumPoolSize()).isEqualTo(10);

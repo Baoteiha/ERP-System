@@ -32,6 +32,9 @@ app:
     login:
       # MockMvc requests all come from one address; keep the per-address limit out of other tests' way
       max-failures-per-address: 100000
+    refresh-cookie:
+      # plain HTTP on localhost: a Secure cookie would never be sent
+      secure: false
     bootstrap:
       admin-email: admin@esscafe.vn
       admin-password: admin1234

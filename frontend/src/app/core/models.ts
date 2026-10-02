@@ -26,7 +26,7 @@ export interface ProblemDetail {
 
 /* ---- identity / auth -------------------------------------------------- */
 export interface LoginRequest { email: string; password: string; }
-export interface TokenResponse { accessToken: string; refreshToken: string; tokenType: string; }
+export interface TokenResponse { accessToken: string; tokenType: string; }
 export interface MeResponse {
   userId: UUID;
   email: string;

@@ -233,9 +233,7 @@ class TenantSeamTest extends AbstractIntegrationTest {
     void leakedScope_isClearedByAnAnonymousRequest(CapturedOutput output) throws Exception {
         TenantContext.startRequest(UUID.randomUUID());
 
-        mockMvc.perform(post("/api/v1/auth/logout")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"refreshToken\":\"never-issued\"}"))
+        mockMvc.perform(logoutRequest("never-issued"))
                 .andExpect(status().isNoContent());
 
         assertThat(TenantContext.current()).isEmpty();

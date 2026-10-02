@@ -48,7 +48,7 @@ describe('ResetPasswordComponent', () => {
     const page = open('abc123');
     const auth = TestBed.inject(AuthService);
     auth.accessToken.set('someone-else');
-    auth.refreshToken.set('their-refresh');
+    localStorage.setItem('erpcafe.session', '1');
     vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     page.password = 'new-pass-1';
     page.confirm = 'new-pass-1';
@@ -57,9 +57,11 @@ describe('ResetPasswordComponent', () => {
     ctrl.expectOne('/api/v1/auth/password-reset/confirm').flush(null, { status: 204, statusText: 'No Content' });
 
     const logout = ctrl.expectOne('/api/v1/auth/logout');
-    expect(logout.request.body).toEqual({ refreshToken: 'their-refresh' });
+    // the refresh token is in the cookie the browser attaches, so the call carries no body
+    expect(logout.request.body).toBeNull();
+    expect(logout.request.withCredentials).toBe(true);
     logout.flush(null, { status: 204, statusText: 'No Content' });
-    expect(auth.refreshToken()).toBeNull();
+    expect(localStorage.getItem('erpcafe.session')).toBeNull();
   });
 
   it('refuses a short or repeated-wrong password without calling the server', () => {

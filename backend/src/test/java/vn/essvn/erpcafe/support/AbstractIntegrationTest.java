@@ -11,10 +11,14 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import com.jayway.jsonpath.JsonPath;
+
+import jakarta.servlet.http.Cookie;
 
 /**
  * Base class for integration tests. Boots the full application context against
@@ -56,6 +60,8 @@ public abstract class AbstractIntegrationTest {
         return POSTGRES.getLogs();
     }
 
+    protected static final String REFRESH_COOKIE = "erpcafe_refresh";
+
     @Autowired
     protected MockMvc mockMvc;
 
@@ -63,11 +69,43 @@ public abstract class AbstractIntegrationTest {
 
     /** Logs in and returns the raw token response body (for tests needing the refresh token too). */
     protected String loginBody(String email, String password) throws Exception {
+        return loginResult(email, password).getResponse().getContentAsString();
+    }
+
+    /** Logs in and returns the whole result, for tests that need the refresh cookie as well. */
+    protected MvcResult loginResult(String email, String password) throws Exception {
         return mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn();
+    }
+
+    /** The refresh token a login or refresh response set in its cookie. */
+    protected static String refreshCookieOf(MvcResult result) {
+        Cookie cookie = result.getResponse().getCookie(REFRESH_COOKIE);
+        return cookie == null ? null : cookie.getValue();
+    }
+
+    /** Logs in and returns the refresh token from the cookie. */
+    protected String refreshTokenOf(String email, String password) throws Exception {
+        return refreshCookieOf(loginResult(email, password));
+    }
+
+    /** A refresh call as the browser makes it: the cookie plus the header that guards it. */
+    protected static MockHttpServletRequestBuilder refreshRequest(String refreshToken) {
+        return post("/api/v1/auth/refresh").cookie(new Cookie(REFRESH_COOKIE, refreshToken))
+                .header("X-Requested-With", "erpcafe");
+    }
+
+    protected static MockHttpServletRequestBuilder logoutRequest(String refreshToken) {
+        return post("/api/v1/auth/logout").cookie(new Cookie(REFRESH_COOKIE, refreshToken))
+                .header("X-Requested-With", "erpcafe");
+    }
+
+    /** Refreshes with the token, expects success, and returns the rotated refresh token. */
+    protected String rotate(String refreshToken) throws Exception {
+        return refreshCookieOf(mockMvc.perform(refreshRequest(refreshToken)).andExpect(status().isOk()).andReturn());
     }
 
     protected String accessToken(String email, String password) throws Exception {

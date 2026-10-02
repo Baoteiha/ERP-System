@@ -469,7 +469,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         NewUser actor = newUser();
         grant(actor, branchA, backOffice);
         grant(actor, branchB, roleId("CASHIER"));
-        String refreshToken = JsonPath.read(loginBody(actor.email(), "password123"), "$.refreshToken");
+        String refreshToken = refreshTokenOf(actor.email(), "password123");
         String first = accessToken(actor.email(), "password123");
 
         // 1. a role with a cashier's permissions, 2. granted to themselves at B in place of CASHIER
@@ -481,8 +481,8 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         json(send(post("/api/v1/users/" + actor.id() + "/access"), first, branchA,
                 "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchB, till)));
         // 3. a token naming that role at B
-        String old = JsonPath.read(json(send(post("/api/v1/auth/refresh"), first, null,
-                "{\"refreshToken\":\"%s\"}".formatted(refreshToken))), "$.accessToken");
+        String old = JsonPath.read(json(send(refreshRequest(refreshToken), first, null, null)),
+                "$.accessToken");
         // 4. the grant revoked, so 5. widening the role sees nobody holding it
         send(delete("/api/v1/users/" + actor.id() + "/access/" + branchB), old, branchA, null)
                 .andExpect(status().isNoContent());

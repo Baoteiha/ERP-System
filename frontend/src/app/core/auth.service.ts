@@ -6,10 +6,14 @@ import { LoginRequest, MeResponse, TokenResponse } from './models';
 import { COMPANY_LEVEL_PERMISSIONS } from './permissions';
 
 const ACCESS_KEY = 'erpcafe.access';
-const REFRESH_KEY = 'erpcafe.refresh';
+/** The refresh token now lives in an HttpOnly cookie; an old build left it here, readable by any script. */
+const LEGACY_REFRESH_KEY = 'erpcafe.refresh';
+/** Non-secret marker that a cookie session may exist, so a signed-out visitor triggers no refresh call. */
+const SESSION_KEY = 'erpcafe.session';
 const BRANCH_KEY = 'erpcafe.branch';
 const LOGOUT_TIMEOUT_MS = 3000;
 const REFRESH_LOCK = 'erpcafe-refresh';
+const CSRF_HEADERS = { 'X-Requested-With': 'erpcafe' };
 
 /** Holds tokens + the current identity. Backbone of auth + branch scoping. */
 @Injectable({ providedIn: 'root' })
@@ -19,7 +23,6 @@ export class AuthService {
   private base = '/api/v1/auth';
 
   readonly accessToken = signal<string | null>(localStorage.getItem(ACCESS_KEY));
-  readonly refreshToken = signal<string | null>(localStorage.getItem(REFRESH_KEY));
   readonly me = signal<MeResponse | null>(null);
 
   /** active branch id — sent as X-Branch-Id on scoped requests */
@@ -37,6 +40,7 @@ export class AuthService {
   });
 
   constructor() {
+    localStorage.removeItem(LEGACY_REFRESH_KEY);
     // another tab refreshed or logged out: follow its tokens instead of using (and burning) stale ones
     // signals only, never storage writes, so tabs cannot echo each other
     const onStorage = (e: StorageEvent) => {
@@ -45,8 +49,6 @@ export class AuthService {
         this.activeBranchId.set(localStorage.getItem(BRANCH_KEY));
       } else if (e.key === ACCESS_KEY) {
         this.accessToken.set(e.newValue);
-      } else if (e.key === REFRESH_KEY) {
-        this.refreshToken.set(e.newValue);
       } else if (e.key === BRANCH_KEY) {
         this.activeBranchId.set(e.newValue);
       }
@@ -69,8 +71,26 @@ export class AuthService {
     return permissions.some((p) => set.has(p));
   }
 
+  /** Whether a refresh cookie may be waiting; the cookie itself is HttpOnly and cannot be read. */
+  canRefresh(): boolean {
+    return localStorage.getItem(SESSION_KEY) === '1';
+  }
+
+  /**
+   * On app start: keep a stored access token, else try the cookie once, but only if this browser signed in
+   * before. Never rejects; a failed refresh leaves the visitor signed out.
+   */
+  async restoreSession(): Promise<void> {
+    if (this.accessToken() || !this.canRefresh()) return;
+    try {
+      await firstValueFrom(this.refresh());
+    } catch {
+      await this.logout(false);
+    }
+  }
+
   login(body: LoginRequest): Observable<TokenResponse> {
-    return this.http.post<TokenResponse>(`${this.base}/login`, body).pipe(
+    return this.http.post<TokenResponse>(`${this.base}/login`, body, { withCredentials: true }).pipe(
       tap((res) => this.storeTokens(res)),
     );
   }
@@ -91,36 +111,38 @@ export class AuthService {
     );
   }
 
-  /** Rotates the tokens; tabs queue on one lock so a rotated refresh token is never replayed. */
+  /** Rotates the tokens; tabs queue on one lock so a rotated refresh cookie is never replayed. */
   refresh(): Observable<TokenResponse> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
     if (!locks) return this.callRefresh();
-    const before = this.refreshToken();
+    const before = this.accessToken();
     return defer(() =>
       from(locks.request(REFRESH_LOCK, () => firstValueFrom(this.refreshUnlessRotated(before)))),
     );
   }
 
-  /** Inside the lock: if another tab already rotated the token, adopt its result instead of calling the server. */
+  /**
+   * Inside the lock: a different access token in storage than the one this call began with means another
+   * tab already refreshed (the cookie is shared, so replaying it would look like theft); adopt that result.
+   */
   private refreshUnlessRotated(before: string | null): Observable<TokenResponse> {
-    const storedRefresh = localStorage.getItem(REFRESH_KEY);
     const storedAccess = localStorage.getItem(ACCESS_KEY);
-    if (storedRefresh && storedAccess && storedRefresh !== before) {
+    if (storedAccess && storedAccess !== before) {
       this.syncTokensFromStorage();
-      return of({ accessToken: storedAccess, refreshToken: storedRefresh, tokenType: 'Bearer' });
+      return of({ accessToken: storedAccess, tokenType: 'Bearer' });
     }
     return this.callRefresh();
   }
 
+  /** The refresh token rides in the cookie, so there is no body; the header is the CSRF guard the server demands. */
   private callRefresh(): Observable<TokenResponse> {
     return this.http
-      .post<TokenResponse>(`${this.base}/refresh`, { refreshToken: this.refreshToken() })
+      .post<TokenResponse>(`${this.base}/refresh`, null, { withCredentials: true, headers: CSRF_HEADERS })
       .pipe(tap((res) => this.storeTokens(res)));
   }
 
   private syncTokensFromStorage() {
     this.accessToken.set(localStorage.getItem(ACCESS_KEY));
-    this.refreshToken.set(localStorage.getItem(REFRESH_KEY));
     if (!this.accessToken()) this.dropIdentity();
   }
 
@@ -139,17 +161,16 @@ export class AuthService {
 
   /** Clears local state at once; resolves after the server logout (bounded) so callers can navigate safely. */
   async logout(callServer = true): Promise<void> {
-    const token = this.refreshToken();
+    const hadSession = this.canRefresh();
     this.accessToken.set(null);
-    this.refreshToken.set(null);
     this.me.set(null);
     this.activeBranchId.set(null);
     localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(BRANCH_KEY);
-    if (callServer && token) {
+    if (callServer && hadSession) {
       await firstValueFrom(
-        this.http.post(`${this.base}/logout`, { refreshToken: token }).pipe(
+        this.http.post(`${this.base}/logout`, null, { withCredentials: true, headers: CSRF_HEADERS }).pipe(
           timeout(LOGOUT_TIMEOUT_MS),
           catchError(() => of(null)),
         ),
@@ -159,8 +180,7 @@ export class AuthService {
 
   private storeTokens(res: TokenResponse) {
     this.accessToken.set(res.accessToken);
-    this.refreshToken.set(res.refreshToken);
     localStorage.setItem(ACCESS_KEY, res.accessToken);
-    localStorage.setItem(REFRESH_KEY, res.refreshToken);
+    localStorage.setItem(SESSION_KEY, '1');
   }
 }

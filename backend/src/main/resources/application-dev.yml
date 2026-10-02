@@ -26,6 +26,9 @@ app:
         - kid: dev-1
           secret: dev-erp-cafe-jwt-secret-change-me-in-production-0123456789
           active: true
+    refresh-cookie:
+      # plain HTTP on localhost: a Secure cookie would never be sent
+      secure: false
     bootstrap:
       admin-email: admin@esscafe.vn
       admin-password: admin1234
