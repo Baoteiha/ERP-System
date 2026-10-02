@@ -12,7 +12,7 @@ import { unitsFor } from '../../core/units';
 import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
-import { WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, WEBGL_SUPPORTED } from '../../three/webgl';
 import { StockShelvesComponent } from './stock-shelves';
 
 type StockMode = 'adjust' | 'waste' | 'reorder';
@@ -75,7 +75,7 @@ const VIEWS: readonly StockView[] = ['table', '3d'];
                 <tbody>
                   @for (s of filtered(); track s.ingredientId + s.branchId) {
                     <tr (click)="selectIngredient(s.ingredientId)" [class.row-selected]="selectedIngredientId() === s.ingredientId">
-                      <td><button type="button" class="row-open" (click)="selectIngredient(s.ingredientId)">{{ ingredientName(s.ingredientId) }}</button><div class="soft">{{ s.ingredientId | shortId }}</div></td>
+                      <td><button type="button" class="row-open" (click)="selectIngredient(s.ingredientId); $event.stopPropagation()">{{ ingredientName(s.ingredientId) }}</button><div class="soft">{{ s.ingredientId | shortId }}</div></td>
                       <td class="num">{{ s.quantityOnHand | qty }} {{ baseUnitOf(s.ingredientId) }}</td>
                       <td class="num">{{ s.reorderLevel | qty }} {{ baseUnitOf(s.ingredientId) }}</td>
                       <td class="num">{{ s.avgUnitCost | money }}</td>
@@ -86,7 +86,10 @@ const VIEWS: readonly StockView[] = ['table', '3d'];
               </table>
             </div>
           }
-          @if (!can3d()) { <p class="muted view-note">3D view isn't available on this device.</p> }
+          @if (!webgl) { <p class="muted view-note">3D view isn't available on this device.</p> }
+          @else if (shelvesFailed()) {
+            <p class="muted view-note retry-note">3D view couldn't load. <button type="button" class="btn btn-sm btn-outline" (click)="reloadPage()">Retry</button></p>
+          }
         </div>
 
         <div class="card">
@@ -200,13 +203,15 @@ export class StockComponent {
   private canWrite = computed(() => this.auth.can('inventory:write'));
 
   /** Whether this device can draw WebGL; without it there is no 3D button and the page stays on the table. */
-  private readonly webgl = inject(WEBGL_SUPPORTED)();
+  protected readonly webgl = inject(WEBGL_SUPPORTED)();
   /** The 3D view failed to start this visit (three did not load, or the renderer would not start). */
-  private readonly shelvesFailed = signal(false);
+  protected readonly shelvesFailed = signal(false);
   readonly can3d = computed(() => this.webgl && !this.shelvesFailed());
   /** Table or 3D shelves, remembered per browser; a device without WebGL always gets the table. */
   readonly stockView = signal<StockView>(this.webgl ? readPref(VIEW_KEY, VIEWS, 'table') : 'table');
   private readonly tableButton = viewChild<ElementRef<HTMLButtonElement>>('tableButton');
+  /** Retry after the 3D view failed: a fresh page, since this one keeps the failed import of three. */
+  protected readonly reloadPage = inject(RELOAD_PAGE);
 
   constructor() {
     // a link's intent is one-shot: act on it once identity is known, then drop it, permitted or not

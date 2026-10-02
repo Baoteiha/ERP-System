@@ -50,7 +50,7 @@ import { BranchRequest, BranchResponse } from '../../core/models';
                     <td>
                       <div class="row-actions">
                         @if (canActOn(b)) {
-                          <button class="btn btn-sm btn-ghost" (click)="openEdit(b)">Edit</button>
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="openEdit(b)" [attr.aria-label]="'Edit ' + b.name"><app-icon name="edit" [size]="15" /></button>
                           <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(b)" [attr.aria-label]="'Delete ' + b.name"><app-icon name="trash" [size]="16" /></button>
                         }
                       </div>

@@ -66,7 +66,7 @@ import { UNIT_GROUPS } from '../../core/units';
 
     @if (editing()) {
       <app-modal variant="drawer" [title]="form.id ? 'Edit ingredient' : 'New ingredient'" (close)="editing.set(null)">
-        <div class="field"><label for="ing-name">Name <span class="req" aria-hidden="true">*</span></label><input id="ing-name" class="input" [(ngModel)]="form.name" placeholder="Whole milk" required /></div>
+        <div class="field"><label for="ing-name">Name <span class="req" aria-hidden="true">*</span></label><input id="ing-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Milk" required /></div>
         <div class="two-col">
           <div class="field">
             <label for="ing-base-unit">Base unit <span class="req" aria-hidden="true">*</span></label>

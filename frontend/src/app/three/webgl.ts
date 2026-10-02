@@ -27,6 +27,15 @@ export const WEBGL_SUPPORTED = new InjectionToken<() => boolean>('WEBGL_SUPPORTE
   factory: () => hasWebGL,
 });
 
+/**
+ * Reloads the page: the Retry after a 3D view failed to start. The browser keeps a failed dynamic import in its module
+ * map, so importing `three` again in the same page fails at once; a reload fetches it afresh (and any new chunk names).
+ */
+export const RELOAD_PAGE = new InjectionToken<() => void>('RELOAD_PAGE', {
+  providedIn: 'root',
+  factory: () => () => location.reload(),
+});
+
 /** Loads `three` on demand; the dynamic import keeps it in a lazy chunk, and a spec can swap in its own loader. */
 export const THREE_LOADER = new InjectionToken<() => Promise<typeof import('three')>>('THREE_LOADER', {
   providedIn: 'root',

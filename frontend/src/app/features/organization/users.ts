@@ -57,7 +57,7 @@ import { BranchAccessResponse, BranchResponse, RoleResponse, UserResponse } from
 
     @if (creating()) {
       <app-modal variant="drawer" [width]="440" title="New user" (close)="creating.set(false)">
-        <div class="field"><label for="user-email">Email <span class="req" aria-hidden="true">*</span></label><input id="user-email" class="input" type="email" [(ngModel)]="nu.email" placeholder="barista@esscafe.vn" required /></div>
+        <div class="field"><label for="user-email">Email <span class="req" aria-hidden="true">*</span></label><input id="user-email" class="input" type="email" [(ngModel)]="nu.email" placeholder="name@company.com" required /></div>
         <div class="field">
           <label for="user-password">Password <span class="req" aria-hidden="true">*</span></label>
           <div class="flex gap-1">

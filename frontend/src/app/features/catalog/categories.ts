@@ -64,7 +64,7 @@ import { CategoryRequest, CategoryResponse } from '../../core/models';
 
     @if (editing()) {
       <app-modal variant="drawer" [title]="form.id ? 'Edit category' : 'New category'" (close)="editing.set(null)">
-        <div class="field"><label for="cat-name">Name <span class="req" aria-hidden="true">*</span></label><input id="cat-name" class="input" [(ngModel)]="form.name" placeholder="Espresso Drinks" required /></div>
+        <div class="field"><label for="cat-name">Name <span class="req" aria-hidden="true">*</span></label><input id="cat-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Beverages" required /></div>
         <div class="field"><label for="cat-order">Display order</label><input id="cat-order" class="input" type="number" [(ngModel)]="form.displayOrder" /></div>
         <label class="checkbox"><input type="checkbox" [(ngModel)]="form.active" /> Active</label>
         <div footer>

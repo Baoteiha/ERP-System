@@ -24,34 +24,34 @@ function loginErrorMessage(status: number | undefined): string {
         <h1>Sign in to ERP-Cafe</h1>
         <p class="soft">Use your work account to continue</p>
 
-          @if (resetDone && !error()) {
-            <div class="auth-ok" role="status">Your password was changed. Sign in with the new one.</div>
-          }
+        @if (resetDone && !error()) {
+          <div class="auth-ok" role="status">Your password was changed. Sign in with the new one.</div>
+        }
 
-          <div class="field">
-            <label for="email">Email</label>
-            <input id="email" class="input" type="email" name="email" autocomplete="username"
-                   [(ngModel)]="email" placeholder="you@company.com" required />
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" class="input" type="email" name="email" autocomplete="username"
+                 [(ngModel)]="email" placeholder="you@company.com" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="pw-wrap">
+            <input id="password" class="input" [type]="showPw() ? 'text' : 'password'" name="password"
+                   autocomplete="current-password" [(ngModel)]="password" placeholder="••••••••" required />
+            <button type="button" class="btn btn-sm btn-ghost btn-icon pw-toggle"
+                    (click)="showPw.set(!showPw())" [attr.aria-pressed]="showPw()"
+                    [attr.aria-label]="showPw() ? 'Hide password' : 'Show password'">
+              <app-icon [name]="showPw() ? 'eye-off' : 'eye'" [size]="17" />
+            </button>
           </div>
-          <div class="field">
-            <label for="password">Password</label>
-            <div class="pw-wrap">
-              <input id="password" class="input" [type]="showPw() ? 'text' : 'password'" name="password"
-                     autocomplete="current-password" [(ngModel)]="password" placeholder="••••••••" required />
-              <button type="button" class="btn btn-sm btn-ghost btn-icon pw-toggle"
-                      (click)="showPw.set(!showPw())" [attr.aria-pressed]="showPw()"
-                      [attr.aria-label]="showPw() ? 'Hide password' : 'Show password'">
-                <app-icon [name]="showPw() ? 'eye-off' : 'eye'" [size]="17" />
-              </button>
-            </div>
-            <a class="auth-forgot" routerLink="/forgot-password">Forgot password?</a>
-          </div>
+          <a class="auth-forgot" routerLink="/forgot-password">Forgot password?</a>
+        </div>
 
-          @if (error()) { <div class="auth-error" role="alert">{{ error() }}</div> }
+        @if (error()) { <div class="auth-error" role="alert">{{ error() }}</div> }
 
-          <button class="btn btn-primary btn-lg btn-block" type="submit" [disabled]="loading()">
-            @if (loading()) { <span class="spinner"></span> Signing in… } @else { Sign in }
-          </button>
+        <button class="btn btn-primary btn-lg btn-block" type="submit" [disabled]="loading()">
+          @if (loading()) { <span class="spinner"></span> Signing in… } @else { Sign in }
+        </button>
       </form>
     </div>
   `,

@@ -6,7 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { By } from '@angular/platform-browser';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
-import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
 import { StockComponent } from './stock';
 import { StockShelvesComponent } from './stock-shelves';
 
@@ -116,6 +116,7 @@ describe('StockComponent route intent', () => {
 
 describe('StockComponent 3D view', () => {
   let ctrl: HttpTestingController;
+  let reload: ReturnType<typeof vi.fn>;
   const ingredient = { id: 'i1', companyId: 'co', name: 'Sữa tươi', baseUnit: 'ml', category: 'Dairy', active: true, version: 0 };
   const row = (branchId: string, qty = '5000') =>
     ({ ingredientId: 'i1', branchId, quantityOnHand: qty, reorderLevel: '1000', avgUnitCost: { amount: '1', currency: 'VND' }, belowReorderLevel: false });
@@ -140,6 +141,7 @@ describe('StockComponent 3D view', () => {
         provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(),
         { provide: WEBGL_SUPPORTED, useValue: () => opts.webgl ?? true },
         { provide: THREE_LOADER, useValue: () => new Promise(() => undefined) },
+        { provide: RELOAD_PAGE, useValue: (reload = vi.fn()) },
       ],
     });
     ctrl = TestBed.inject(HttpTestingController);
@@ -161,6 +163,14 @@ describe('StockComponent 3D view', () => {
     [...el(f).querySelectorAll<HTMLButtonElement>('.view-switch[role="group"][aria-label="Stock view"] button')];
   const shelves = (f: ComponentFixture<StockComponent>) => f.debugElement.query(By.directive(StockShelvesComponent));
   afterEach(() => ctrl.verify());
+
+  it('sends one movements request for a click on a row\'s open button', () => {
+    const f = setup();
+    el(f).querySelector<HTMLButtonElement>('table.data tbody .row-open')!.click();
+    const sent = ctrl.match((r) => r.url === '/api/v1/stock/movements' && r.params.get('ingredientId') === 'i1');
+    expect(sent.length).toBe(1);
+    sent[0].flush(empty);
+  });
 
   it('switches to 3D with a pressed-state button, shows the shelves, and remembers the choice', () => {
     const f = setup();
@@ -257,15 +267,27 @@ describe('StockComponent 3D view', () => {
     expect(after.shelves()[0].containers[0].onHand).toBe(42);
   });
 
-  it('falls back to the table with the note when the 3D view cannot start, keeping the remembered choice', () => {
+  it('falls back to the table, saying the 3D view could not load, when it cannot start, keeping the remembered choice', () => {
     const f = setup({ remembered: '3d' });
     (shelves(f).componentInstance as StockShelvesComponent).unavailable.emit();
     f.detectChanges();
     expect(f.componentInstance.stockView()).toBe('table');
     expect(viewButtons(f).map((b) => b.textContent?.trim())).toEqual(['Table']);
     expect(el(f).querySelector('table.data')).not.toBeNull();
-    expect(el(f).querySelector('p.view-note')?.textContent).toContain("3D view isn't available on this device.");
+    const note = el(f).querySelector('p.view-note');
+    expect(note?.textContent).toContain("3D view couldn't load.");
+    expect(note?.textContent).not.toContain("isn't available");
+    expect(note?.querySelector('button')?.textContent?.trim()).toBe('Retry');
     expect(localStorage.getItem('erpcafe.stockView')).toBe('3d');
+  });
+
+  it('reloads the page on Retry, since the failed import of three stays failed in this one', () => {
+    const f = setup({ remembered: '3d' });
+    (shelves(f).componentInstance as StockShelvesComponent).unavailable.emit();
+    f.detectChanges();
+    expect(reload).not.toHaveBeenCalled();
+    el(f).querySelector<HTMLButtonElement>('p.view-note button')!.click();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 

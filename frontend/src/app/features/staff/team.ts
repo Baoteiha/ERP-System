@@ -81,7 +81,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     @if (modalOpen()) {
       <app-modal variant="drawer" [title]="editing() ? 'Edit employee' : 'New employee'" (close)="modalOpen.set(false)">
         <div class="field"><label for="emp-fullname">Full name <span class="req" aria-hidden="true">*</span></label><input id="emp-fullname" class="input" [(ngModel)]="form.fullName" required /></div>
-        <div class="field"><label for="emp-position">Position</label><input id="emp-position" class="input" [(ngModel)]="form.position" placeholder="Barista" /></div>
+        <div class="field"><label for="emp-position">Position</label><input id="emp-position" class="input" [(ngModel)]="form.position" placeholder="e.g. Cashier" /></div>
         <div class="field">
           <label for="emp-rate">Hourly rate</label>
           <input id="emp-rate" class="input" type="number" min="0" [(ngModel)]="form.hourlyRate" />

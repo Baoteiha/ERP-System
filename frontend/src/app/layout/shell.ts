@@ -4,6 +4,7 @@ import { filter } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { OrganizationService } from '../core/api.services';
 import { IconComponent } from '../shared/icon';
+import { initialsOf } from '../shared/avatar';
 import { DensityService } from '../core/density.service';
 import { ThemeService } from '../core/theme.service';
 import { readPref, writePref } from '../core/prefs';
@@ -140,10 +141,7 @@ export class ShellComponent {
 
   visibleSections = computed(() => visibleNav(this.auth));
 
-  initials = computed(() => {
-    const email = this.auth.me()?.email ?? '';
-    return email.slice(0, 2).toUpperCase() || 'U';
-  });
+  initials = computed(() => initialsOf(this.auth.me()?.email ?? ''));
 
   constructor() {
     // the palette sits over everything: close the other popups so one Esc closes one layer

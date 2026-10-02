@@ -27,7 +27,7 @@ import {
 
       @if (loading()) { <div class="card"><div class="loading-block"><span class="spinner"></span> Loading…</div></div> }
       @else if (!items().length) {
-        <div class="card"><div class="empty"><div class="big"><app-icon name="bean" [size]="30" /></div>No products yet.</div></div>
+        <div class="card"><div class="empty"><div class="big"><app-icon name="package" [size]="30" /></div>No products yet.</div></div>
       }
       @else {
         <div class="pill-row filter-row" role="group" aria-label="Filter by category">
@@ -84,9 +84,9 @@ import {
             @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
           </select>
         </div>
-        <div class="field"><label for="prod-name">Name <span class="req" aria-hidden="true">*</span></label><input id="prod-name" class="input" name="name" [(ngModel)]="nf.name" placeholder="Cappuccino" required /></div>
+        <div class="field"><label for="prod-name">Name <span class="req" aria-hidden="true">*</span></label><input id="prod-name" class="input" name="name" [(ngModel)]="nf.name" placeholder="e.g. House blend 250g" required /></div>
         <div class="two-col">
-          <div class="field"><label for="prod-sku">SKU <span class="req" aria-hidden="true">*</span></label><input id="prod-sku" class="input" name="sku" [(ngModel)]="nf.sku" placeholder="CAP-01" required /></div>
+          <div class="field"><label for="prod-sku">SKU <span class="req" aria-hidden="true">*</span></label><input id="prod-sku" class="input" name="sku" [(ngModel)]="nf.sku" placeholder="e.g. HB-250" required /></div>
           <div class="field"><label for="prod-price">Base price</label><input id="prod-price" class="input" type="number" min="0" name="basePrice" [(ngModel)]="nf.basePrice" /></div>
         </div>
         <div class="field"><label for="prod-desc">Description</label><textarea id="prod-desc" class="input" name="description" [(ngModel)]="nf.description"></textarea></div>

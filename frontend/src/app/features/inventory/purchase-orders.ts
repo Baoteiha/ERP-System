@@ -40,7 +40,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
                 <tbody>
                   @for (po of items(); track po.id) {
                     <tr (click)="select(po)" [class.row-selected]="selected()?.id === po.id">
-                      <td><button type="button" class="row-open" (click)="select(po)">{{ po.id | shortId }}</button></td>
+                      <td><button type="button" class="row-open" (click)="select(po); $event.stopPropagation()">{{ po.id | shortId }}</button></td>
                       <td class="supplier-col">{{ supplierName(po.supplierId) }}</td>
                       <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span></td>
                       <td class="num">{{ po.lines.length }}</td>

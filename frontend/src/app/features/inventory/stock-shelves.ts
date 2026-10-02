@@ -11,7 +11,7 @@ import { LabelPlacer, LabelTips, ScreenPoint } from '../../three/label-overlay';
 import { LazyStage } from '../../three/lazy-stage';
 import { ContainerSpec, Level, ShelfSpec, shelfModel } from '../../three/shelf-model';
 import { ThreeStage } from '../../three/three-stage';
-import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
 
 type Three = typeof import('three');
 /** One instanced mesh, and the container each of its drawn instances stands for. */
@@ -372,6 +372,8 @@ class ShelfScene {
           }
         </div>
       </div>
+    } @else if (webgl) {
+      <p class="muted retry-note">3D view couldn't load. <button type="button" class="btn btn-sm btn-outline" (click)="reloadPage()">Retry</button></p>
     } @else {
       <p class="muted">3D view isn't available on this device.</p>
     }
@@ -423,7 +425,9 @@ export class StockShelvesComponent implements OnDestroy {
 
   private theme = inject(ThemeService);
   /** Whether this device can draw WebGL at all; without it the component is only a note. */
-  private readonly webgl = inject(WEBGL_SUPPORTED)();
+  protected readonly webgl = inject(WEBGL_SUPPORTED)();
+  /** Retry after a failed start: a fresh page, since this one keeps the failed import of three. */
+  protected readonly reloadPage = inject(RELOAD_PAGE);
   private readonly qty = new QtyPipe();
 
   readonly shelves = computed(() => shelfModel(this.stock(), this.ingredients()));
@@ -435,7 +439,7 @@ export class StockShelvesComponent implements OnDestroy {
   readonly focused = this.tips.open;
   /** three has loaded and the rack is built. */
   readonly ready = signal(false);
-  /** three failed to load or the renderer could not start: the same fallback as no WebGL. */
+  /** three failed to load or the renderer could not start: a note with Retry instead of the stage. */
   private readonly broken = signal(false);
   readonly can3d = computed(() => this.webgl && !this.broken());
   /** The chosen category while it is on these shelves; after a reload without it, every shelf is lit again. */

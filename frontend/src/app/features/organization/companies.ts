@@ -42,7 +42,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
                     <td>
                       <div class="row-actions">
                         @if (auth.can('company:write')) {
-                          <button class="btn btn-sm btn-ghost" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name">Edit</button>
+                          <button class="btn btn-sm btn-ghost btn-icon" (click)="openEdit(c)" [attr.aria-label]="'Edit ' + c.name"><app-icon name="edit" [size]="15" /></button>
                           <button class="btn btn-sm btn-ghost btn-icon" (click)="remove(c)" [attr.aria-label]="'Delete ' + c.name"><app-icon name="trash" [size]="16" /></button>
                         }
                       </div>
@@ -60,7 +60,7 @@ import { CompanyRequest, CompanyResponse } from '../../core/models';
       <app-modal variant="drawer" [width]="440" title="Edit company" (close)="editing.set(null)">
         <div class="field">
           <label for="co-name">Name <span class="req" aria-hidden="true">*</span></label>
-          <input id="co-name" class="input" [(ngModel)]="form.name" placeholder="Ess Coffee Co." required />
+          <input id="co-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Acme Trading Co." required />
         </div>
         <div class="field">
           <label for="co-code">Code <span class="req" aria-hidden="true">*</span></label>

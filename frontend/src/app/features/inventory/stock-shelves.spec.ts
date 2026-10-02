@@ -6,7 +6,7 @@ import { IngredientResponse, StockItemResponse } from '../../core/models';
 import { stubLocalStorage } from '../../core/test-storage';
 import { ThemeService } from '../../core/theme.service';
 import { FakeRenderer, stubStageGlobals, threeWithFakeRenderer } from '../../three/test-three';
-import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
 import { StockShelvesComponent } from './stock-shelves';
 
 const ing = (id: string, name: string, category?: string, baseUnit = 'ml'): IngredientResponse =>
@@ -21,6 +21,7 @@ const STOCK = [row('milk', 5000, 2000), row('cream', 500, 1000, true), row('bean
 
 describe('StockShelvesComponent', () => {
   let loader: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
   let picks: string[];
   let unavailable: number;
 
@@ -33,6 +34,7 @@ describe('StockShelvesComponent', () => {
         provideZonelessChangeDetection(),
         { provide: WEBGL_SUPPORTED, useValue: () => webgl },
         { provide: THREE_LOADER, useValue: loader },
+        { provide: RELOAD_PAGE, useValue: (reload = vi.fn()) },
       ],
     });
     const f = TestBed.createComponent(StockShelvesComponent);
@@ -589,14 +591,18 @@ describe('StockShelvesComponent', () => {
       expect(renderers[0].dispose).toHaveBeenCalled();
     });
 
-    it('shows the note and tells the page when three fails to load', async () => {
+    it('says the 3D view could not load, and tells the page, when three fails to load; Retry reloads the page', async () => {
       const f = await mount(STOCK, INGREDIENTS, () => Promise.reject(new Error('offline')));
       await vi.waitFor(() => {
         settle(f);
-        expect(el(f).querySelector('p.muted')?.textContent).toContain("3D view isn't available on this device.");
+        expect(el(f).querySelector('p.muted')?.textContent).toContain("3D view couldn't load.");
       });
+      expect(el(f).querySelector('p.muted')?.textContent).not.toContain("isn't available");
       expect(unavailable).toBe(1);
       expect(el(f).querySelector('.stage')).toBeNull();
+      expect(reload).not.toHaveBeenCalled();
+      el(f).querySelector<HTMLButtonElement>('p.muted button')!.click();
+      expect(reload).toHaveBeenCalledTimes(1);
       f.destroy();
     });
   });

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubLocalStorage } from '../../core/test-storage';
 import { ThemeService } from '../../core/theme.service';
 import { FakeRenderer, stubStageGlobals, threeWithFakeRenderer } from '../../three/test-three';
-import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
 import { BranchTowersComponent } from './branch-towers';
 
 describe('BranchTowersComponent', () => {
@@ -22,6 +22,7 @@ describe('BranchTowersComponent', () => {
   const isOutlets = (r: HttpRequest<unknown>) => r.url === '/api/v1/reports/outlets';
   let ctrl: HttpTestingController;
   let loader: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
 
   /** Renders the panel on a device with or without WebGL; `three` loads through the given loader. */
   function start(webgl: boolean, load: () => Promise<unknown> = () => new Promise(() => undefined)) {
@@ -31,6 +32,7 @@ describe('BranchTowersComponent', () => {
         provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
         { provide: WEBGL_SUPPORTED, useValue: () => webgl },
         { provide: THREE_LOADER, useValue: loader },
+        { provide: RELOAD_PAGE, useValue: (reload = vi.fn()) },
       ],
     });
     ctrl = TestBed.inject(HttpTestingController);
@@ -349,14 +351,29 @@ describe('BranchTowersComponent', () => {
       expect(renderers[1].dispose).toHaveBeenCalled();
     });
 
-    it('falls back to the table with the note when three fails to load', async () => {
+    it('falls back to the table, saying the 3D view could not load, when three fails to load', async () => {
       const f = await mount([outlet('Q1', '1887000')], () => Promise.reject(new Error('offline')));
       await vi.waitFor(() => {
         settle(f);
         expect(f.componentInstance.mode()).toBe('table');
       });
-      expect(el(f).querySelector('p.muted')?.textContent).toContain("3D view isn't available on this device.");
+      const note = el(f).querySelector('p.muted');
+      expect(note?.textContent).toContain("3D view couldn't load.");
+      expect(note?.textContent).not.toContain("isn't available");
+      expect(note?.querySelector('button')?.textContent?.trim()).toBe('Retry');
       expect(viewSwitch(f)).toBeNull();
+      f.destroy();
+    });
+
+    it('reloads the page on Retry, since the failed import of three stays failed in this one', async () => {
+      const f = await mount([outlet('Q1', '1887000')], () => Promise.reject(new Error('offline')));
+      await vi.waitFor(() => {
+        settle(f);
+        expect(f.componentInstance.mode()).toBe('table');
+      });
+      expect(reload).not.toHaveBeenCalled();
+      el(f).querySelector<HTMLButtonElement>('p.muted button')!.click();
+      expect(reload).toHaveBeenCalledTimes(1);
       f.destroy();
     });
 

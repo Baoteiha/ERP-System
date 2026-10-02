@@ -15,7 +15,7 @@ import { LabelPlacer, LabelTips, ScreenPoint } from '../../three/label-overlay';
 import { LazyStage } from '../../three/lazy-stage';
 import { ThreeStage } from '../../three/three-stage';
 import { TowerModel, TowerSpec, towerModel } from '../../three/tower-model';
-import { THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
+import { RELOAD_PAGE, THREE_LOADER, WEBGL_SUPPORTED } from '../../three/webgl';
 import { reportPeriod } from '../reports/period';
 
 type Three = typeof import('three');
@@ -242,7 +242,10 @@ class TowerScene {
               </tbody>
             </table>
           </div>
-          @if (!can3d()) { <p class="muted note">3D view isn't available on this device.</p> }
+          @if (!webgl) { <p class="muted note">3D view isn't available on this device.</p> }
+          @else if (broken()) {
+            <p class="muted note retry-note">3D view couldn't load. <button type="button" class="btn btn-sm btn-outline" (click)="reloadPage()">Retry</button></p>
+          }
         }
         @case ('3d') {
           <div class="scene" [class.dim]="busy()">
@@ -302,7 +305,9 @@ export class BranchTowersComponent implements OnDestroy {
   private reporting = inject(ReportingService);
   private theme = inject(ThemeService);
   /** Whether this device can draw WebGL at all; without it the panel is always a table. */
-  private readonly webgl = inject(WEBGL_SUPPORTED)();
+  protected readonly webgl = inject(WEBGL_SUPPORTED)();
+  /** Retry after a failed start: a fresh page, since this one keeps the failed import of three. */
+  protected readonly reloadPage = inject(RELOAD_PAGE);
 
   readonly periods: readonly { days: Period; label: string }[] = [
     { days: 1, label: 'Today' }, { days: 7, label: '7 days' }, { days: 30, label: '30 days' },
@@ -312,8 +317,8 @@ export class BranchTowersComponent implements OnDestroy {
   /** The tower whose label is hovered or focused; its tip is open. */
   readonly focused = this.tips.open;
   readonly asTable = signal(false);
-  /** three failed to load or the renderer could not start: the same fallback as no WebGL. */
-  private readonly broken = signal(false);
+  /** three failed to load or the renderer could not start: the table, with a note and Retry. */
+  protected readonly broken = signal(false);
   /** The first frame of the scene is on its way (three has loaded and the towers are built). */
   readonly ready = signal(false);
   /** A new period is loading while the previous figures stay on screen. */

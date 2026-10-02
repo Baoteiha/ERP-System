@@ -91,14 +91,15 @@ html, body { height: 100%; }
 body {
   margin: 0;
   font-family: var(--font);
-  background: var(--bg-glow), var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   color: var(--text);
   font-size: 14.5px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
 }
+/* the corner glow stays put while the page scrolls: a fixed layer behind everything, not background-attachment: fixed */
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--bg-glow); }
 a { color: var(--accent-text); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 600; letter-spacing: -.015em; line-height: 1.2; }
@@ -127,7 +128,7 @@ h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 600; 
     transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root, :root[data-theme="light"], :root:not([data-theme]) { --glass: var(--surface-1); --blur: none; }
+  :root, :root[data-theme="light"], :root:not([data-theme]) { --glass: var(--surface-1); }
 }
 @media (prefers-contrast: more) {
   :root, :root[data-theme="light"], :root:not([data-theme]) { --border: var(--border-input); --border-strong: var(--border-input); --text-muted: var(--text-soft); }
@@ -219,7 +220,7 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.data th {
   text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--text-muted); padding: .7rem 1rem; border-bottom: 1px solid var(--border);
-  background: var(--surface-2); position: sticky; top: 0; z-index: 1;
+  background: var(--surface-2);
 }
 table.data td { padding: .8rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 table.data tbody tr { transition: background var(--dur-1); }
@@ -356,6 +357,8 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: .1rem .4rem; bord
 .label-tip dl { display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; margin: .45rem 0 .5rem; }
 .label-tip dt { color: var(--text-muted); }
 .label-tip dd { margin: 0; }
+/* three failed to load: the note and its Retry button on one line */
+.retry-note { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; }
 /* three is still loading: a status line over the empty stage */
 .scene-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: .6rem;
   color: var(--text-muted); font-size: 13px; pointer-events: none; }
