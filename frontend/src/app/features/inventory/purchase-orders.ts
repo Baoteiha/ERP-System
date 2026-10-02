@@ -40,17 +40,17 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
                 <tbody>
                   @for (po of items(); track po.id) {
                     <tr (click)="select(po)" [class.row-selected]="selected()?.id === po.id">
-                      <td><button type="button" class="row-open" (click)="select(po)">{{ po.id | shortId }}</button><div class="soft">{{ po.branchId | shortId }}</div></td>
-                      <td>{{ supplierName(po.supplierId) }}</td>
+                      <td><button type="button" class="row-open" (click)="select(po)">{{ po.id | shortId }}</button></td>
+                      <td class="supplier-col">{{ supplierName(po.supplierId) }}</td>
                       <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span></td>
                       <td class="num">{{ po.lines.length }}</td>
                       <td class="num">{{ total(po) | money }}</td>
-                      <td>
+                      <td class="actions-col">
                         <div class="row-actions">
                         @if (auth.can('purchasing:write')) {
-                          @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" (click)="send(po); $event.stopPropagation()" [disabled]="saving()">Send</button> }
-                          @if (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="openReceive(po); $event.stopPropagation()">Receive</button> }
-                          @if (po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
+                          @if (po.status === 'DRAFT') { <button class="btn btn-sm btn-ghost" [attr.aria-label]="'Send ' + (po.id | shortId)" (click)="send(po); $event.stopPropagation()" [disabled]="saving()">Send</button> }
+                          @if (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" [attr.aria-label]="'Receive ' + (po.id | shortId)" (click)="openReceive(po); $event.stopPropagation()">Receive</button> }
+                          @if (po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED') { <button class="btn btn-sm btn-ghost" [attr.aria-label]="'Cancel ' + (po.id | shortId)" (click)="cancel(po); $event.stopPropagation()">Cancel</button> }
                         }
                         </div>
                       </td>
@@ -172,10 +172,12 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     }
   `,
   styles: [`
-    .split { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 1.15rem; align-items: start; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.15rem; align-items: start; }
     table.data tbody tr { cursor: pointer; }
     .detail .empty { min-height: 320px; }
     .row-selected, .row-selected:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    .supplier-col { min-width: 160px; }
+    .actions-col { white-space: nowrap; }
     .detail { position: sticky; top: 0; }
     .po-id { margin: 0; font-size: 1.15rem; font-family: var(--font-mono); letter-spacing: -.03em; }
     .po-total { display: flex; justify-content: flex-end; align-items: baseline; gap: .8rem; border-top: 1px solid var(--border); }

@@ -142,12 +142,6 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     .w-filter { max-width: 240px; }
     .count { font-size: 12px; }
 
-    /* A unit is a token, not prose — monospace keeps "kg" and "ml" scannable down a column. */
-    .unit-chip {
-      font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: 5px; padding: 1px .35rem;
-    }
     .unit-chip.ghost { background: transparent; }
     .conv { display: flex; align-items: center; gap: .3rem; margin-top: .15rem; font-size: 11.5px; }
     .mono { font-family: var(--font-mono); font-size: 11.5px; }

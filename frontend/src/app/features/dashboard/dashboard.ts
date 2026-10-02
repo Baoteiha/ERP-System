@@ -4,7 +4,7 @@ import { Subject, catchError, forkJoin, of, switchMap } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
-import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe } from '../../core/util';
 import { IngredientResponse, OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
 import { KpiTileComponent } from '../../shared/kpi-tile';
@@ -20,7 +20,7 @@ export function pct(cur: number, prev: number): number | null {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, MoneyPipe, ShortIdPipe, LabelPipe, IconComponent, KpiTileComponent],
+  imports: [RouterLink, MoneyPipe, QtyPipe, ShortIdPipe, LabelPipe, IconComponent, KpiTileComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -107,7 +107,7 @@ export function pct(cur: number, prev: number): number | null {
                   <div class="low-row">
                     <span>{{ ingredientNames().get(s.ingredientId) ?? (s.ingredientId | shortId) }}</span>
                     <span class="spacer"></span>
-                    <span class="num soft">{{ s.quantityOnHand }}{{ unitOf(s.ingredientId) }} on hand</span>
+                    <span class="num soft">{{ s.quantityOnHand | qty }}{{ unitOf(s.ingredientId) }} on hand</span>
                     <span class="badge dot badge-red"><app-icon name="boxes" [size]="12" aria-hidden="true" /> reorder {{ s.reorderLevel }}</span>
                   </div>
                 } @empty {

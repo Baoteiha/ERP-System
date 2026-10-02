@@ -25,6 +25,17 @@ export class MoneyPipe implements PipeTransform {
   }
 }
 
+/** Formats a quantity with Vietnamese separators (28.240, 1,5); a dash when missing or not a number. */
+@Pipe({ name: 'qty' })
+export class QtyPipe implements PipeTransform {
+  private static readonly fmt = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 });
+  transform(value: number | string | null | undefined): string {
+    if (value === null || value === undefined || value === '') return '—';
+    const n = Number(value);
+    return Number.isNaN(n) ? '—' : QtyPipe.fmt.format(n);
+  }
+}
+
 /** Short id for display, e.g. #a1b2c3 */
 @Pipe({ name: 'shortId' })
 export class ShortIdPipe implements PipeTransform {

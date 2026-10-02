@@ -90,11 +90,6 @@ import { UNIT_GROUPS } from '../../core/units';
       </app-modal>
     }
   `,
-  styles: [`
-    /* A unit is a token, not prose: monospace keeps "kg" and "ml" scannable down a column. */
-    .unit-chip { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
-      background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px .35rem; }
-  `],
 })
 export class IngredientsComponent {
   auth = inject(AuthService);

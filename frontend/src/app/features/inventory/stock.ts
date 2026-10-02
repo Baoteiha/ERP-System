@@ -8,7 +8,7 @@ import { IngredientResponse, MovementResponse, MovementType, StockItemResponse }
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
 import { unitsFor } from '../../core/units';
-import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -17,7 +17,7 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
 @Component({
   selector: 'app-stock',
   standalone: true,
-  imports: [FormsModule, DatePipe, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, DatePipe, LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -58,8 +58,8 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
                   @for (s of filtered(); track s.ingredientId + s.branchId) {
                     <tr (click)="selectIngredient(s.ingredientId)" [class.row-selected]="selectedIngredientId() === s.ingredientId">
                       <td><button type="button" class="row-open" (click)="selectIngredient(s.ingredientId)">{{ ingredientName(s.ingredientId) }}</button><div class="soft">{{ s.ingredientId | shortId }}</div></td>
-                      <td class="num">{{ s.quantityOnHand }}</td>
-                      <td class="num">{{ s.reorderLevel }}</td>
+                      <td class="num">{{ s.quantityOnHand | qty }} {{ baseUnitOf(s.ingredientId) }}</td>
+                      <td class="num">{{ s.reorderLevel | qty }} {{ baseUnitOf(s.ingredientId) }}</td>
                       <td class="num">{{ s.avgUnitCost | money }}</td>
                       <td><span class="badge dot" [class]="s.belowReorderLevel ? 'badge-red' : 'badge-green'">@if (s.belowReorderLevel) { <app-icon name="boxes" [size]="13" aria-hidden="true" /> }{{ s.belowReorderLevel ? 'Below reorder' : 'Healthy' }}</span></td>
                     </tr>
@@ -84,7 +84,7 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
                     <span class="badge" [class]="typeClass(m.type)"><app-icon [name]="pinIcon(m.type)" [size]="12" aria-hidden="true" />{{ m.type | label }}</span>
                     <span class="mv-ing">{{ ingredientName(m.ingredientId) }}</span>
                     <span class="spacer"></span>
-                    <span class="num">{{ m.quantity }}</span>
+                    <span class="num">{{ m.quantity | qty }} {{ baseUnitOf(m.ingredientId) }}</span>
                   </div>
                   <div class="soft mv-sub">
                     <span>{{ m.occurredAt | date:'medium' }}</span>
@@ -135,15 +135,18 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
     }
   `,
   styles: [`
-    .split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(340px, .85fr); gap: 1rem; align-items: start; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(380px, .75fr); gap: 1rem; align-items: start; }
     .head-left { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
     .card-head .actions { display: flex; gap: .4rem; flex-wrap: wrap; }
     .mini { font-size: .8rem; margin-top: .15rem; }
     table.data tbody tr { cursor: pointer; }
+    table.data td { white-space: nowrap; }
+    table.data td:first-child { white-space: normal; }
     .row-selected, .row-selected:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
     .movements { list-style: none; margin: 0; padding: 0; }
     .movement { padding: .8rem 1.35rem; border-bottom: 1px solid var(--border); display: grid; gap: .3rem; }
     .movement:last-child { border-bottom: none; }
+    .mv-main .badge, .mv-main .num { white-space: nowrap; }
     .mv-main { display: flex; align-items: center; gap: .6rem; min-width: 0; }
     .mv-ing { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mv-sub { display: flex; justify-content: space-between; gap: .6rem; font-size: 12px; }
@@ -252,7 +255,7 @@ export class StockComponent {
   /** Only units of the ingredient's own dimension; the base unit is the default. */
   unitOptions() { return unitsFor(this.baseUnitOf(this.form.ingredientId)); }
   onIngredientChange() { this.form.unit = this.baseUnitOf(this.form.ingredientId) ?? ''; }
-  private baseUnitOf(id: string) { return this.ingredients().find((i) => i.id === id)?.baseUnit; }
+  baseUnitOf(id: string) { return this.ingredients().find((i) => i.id === id)?.baseUnit; }
 
   modalTitle() {
     if (this.mode() === 'adjust') return 'Adjust stock';
