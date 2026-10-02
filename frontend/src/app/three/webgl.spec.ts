@@ -23,4 +23,19 @@ describe('hasWebGL', () => {
     expect(hasWebGL()).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  it('falls back to webgl when webgl2 is unavailable', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((id: string) =>
+      id === 'webgl' ? {} : null) as never);
+    expect(hasWebGL()).toBe(true);
+  });
+
+  it('releases the probe context after a successful check', () => {
+    const loseContext = vi.fn();
+    const ctx = { getExtension: vi.fn().mockReturnValue({ loseContext }) };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
+    expect(hasWebGL()).toBe(true);
+    expect(ctx.getExtension).toHaveBeenCalledWith('WEBGL_lose_context');
+    expect(loseContext).toHaveBeenCalledTimes(1);
+  });
 });

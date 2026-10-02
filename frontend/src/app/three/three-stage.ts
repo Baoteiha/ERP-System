@@ -41,6 +41,7 @@ export class ThreeStage {
     });
     this.intersectionObserver.observe(host);
     document.addEventListener('visibilitychange', this.onVisibility);
+    this.invalidate();
   }
 
   /** Ask for one more frame (render-on-demand). */
@@ -68,8 +69,14 @@ export class ThreeStage {
       const o = obj as { geometry?: Disposable; material?: Disposable | Disposable[] };
       o.geometry?.dispose?.();
       const materials = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-      materials.forEach(m => m.dispose?.());
+      materials.forEach(m => {
+        for (const value of Object.values(m)) {
+          if ((value as { isTexture?: boolean } | null)?.isTexture) (value as Disposable).dispose?.();
+        }
+        m.dispose?.();
+      });
     });
+    this.renderer.forceContextLoss?.();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

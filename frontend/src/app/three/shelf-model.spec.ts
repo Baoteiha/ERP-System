@@ -31,7 +31,7 @@ describe('shelfModel', () => {
     expect(c.noReorderLevel).toBe(true);
     expect(c.fill).toBe(1);
   });
-  it('has no fill and no flag-less full when empty without a reorder level', () => {
+  it('is empty with no fill when there is no stock and no reorder level', () => {
     const c = one(0, 0);
     expect(c.fill).toBe(0);
     expect(c.level).toBe('empty');
