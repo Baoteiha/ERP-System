@@ -26,7 +26,7 @@ import { IconComponent } from '../../shared/icon';
         <section class="card open-panel" aria-label="Open shifts">
           <h2 class="day-head">Open shifts</h2>
           @for (s of openShifts(); track s.id) {
-            <div class="shift-row">
+            <div class="shift-row live">
               <div class="shift-main">
                 <b>{{ s.employeeName }}</b>
                 <span class="badge dot badge-amber">In progress</span>
@@ -62,7 +62,7 @@ import { IconComponent } from '../../shared/icon';
             @else {
               <div class="card">
                 @for (s of day.shifts; track s.id) {
-                  <div class="shift-row">
+                  <div class="shift-row" [class.live]="s.status === 'IN_PROGRESS'">
                     <div class="shift-main">
                       <b>{{ s.employeeName }}</b>
                       <span class="soft time">{{ s.scheduledStart | date:'HH:mm' }}–{{ s.scheduledEnd | date:'HH:mm' }}</span>
@@ -79,7 +79,7 @@ import { IconComponent } from '../../shared/icon';
                     </div>
                     <div class="shift-actions">
                       @if (s.status === 'SCHEDULED') {
-                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-tinted" (click)="askPin(s, 'in')" [disabled]="saving()">Clock in</button> }
+                        @if (auth.can('staff:clock')) { <button class="btn btn-sm btn-outline" (click)="askPin(s, 'in')" [disabled]="saving()">Clock in</button> }
                         @if (auth.can('staff:write')) {
                           <button class="btn btn-sm btn-ghost" (click)="openReschedule(s)" [disabled]="saving()">Edit</button>
                           <button class="btn btn-sm btn-ghost" (click)="cancel(s)" [disabled]="saving()">Cancel</button>
@@ -102,7 +102,7 @@ import { IconComponent } from '../../shared/icon';
     </div>
 
     @if (modalOpen()) {
-      <app-modal [title]="editing() ? 'Reschedule shift' : 'Schedule shift'" (close)="modalOpen.set(false)">
+      <app-modal variant="drawer" [title]="editing() ? 'Reschedule shift' : 'Schedule shift'" (close)="modalOpen.set(false)">
         @if (!editing()) {
           <div class="field">
             <label for="shift-employee">Employee <span class="req" aria-hidden="true">*</span></label>
@@ -158,19 +158,23 @@ import { IconComponent } from '../../shared/icon';
     }
   `,
   styles: [`
-    .open-panel { margin-bottom: 1rem; padding: .75rem 1rem; }
+    .open-panel { margin-bottom: 1rem; padding: .5rem .5rem .6rem; }
+    .open-panel .day-head { margin: .4rem .9rem .1rem; }
+    .shift-actions { flex-wrap: wrap; justify-content: flex-end; }
     .week-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
     .week-nav { display: flex; gap: .4rem; }
     .week-label { font-weight: 600; color: var(--text-soft); }
     .day { margin-bottom: 1rem; }
     .day-head { font-size: .95rem; margin: 0 0 .5rem; }
     .no-shifts { font-size: .85rem; padding: .15rem 0 .35rem; }
-    .shift-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem 0; border-bottom: 1px solid var(--hairline); }
-    .shift-row:last-child { border-bottom: none; }
+    .shift-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem .85rem; margin: .4rem; border-radius: var(--radius-sm);
+      background: var(--accent-soft); border-left: 3px solid var(--accent); }
+    .shift-row.live { background: var(--green-soft); border-left-color: var(--green); }
     .shift-main { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; min-width: 0; }
     .time { font-variant-numeric: tabular-nums; }
     .note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shift-actions { display: flex; gap: .4rem; flex-shrink: 0; }
+    @media (max-width: 640px) { .shift-row { flex-direction: column; align-items: stretch; } .shift-actions { justify-content: flex-start; } }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
   `],
 })

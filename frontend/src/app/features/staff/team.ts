@@ -8,12 +8,13 @@ import { afterSave } from '../../core/save-handler';
 import { MoneyPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { AvatarComponent } from '../../shared/avatar';
 import { StatusBadgeComponent } from '../../shared/status-badge';
 
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ModalComponent, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, MoneyPipe, ModalComponent, IconComponent, StatusBadgeComponent, AvatarComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -30,8 +31,14 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
               <thead><tr><th scope="col">Name</th><th scope="col">Position</th>@if (showPay()) { <th scope="col" class="right">Hourly rate</th><th scope="col">Contact</th> }<th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 @for (e of items(); track e.id) {
-                  <tr>
-                    <td><span class="name-cell"><span class="mini-coin" [class.dusty]="!e.active" aria-hidden="true">{{ e.fullName.slice(0, 2).toUpperCase() }}</span><b>{{ e.fullName }}</b></span></td>
+                  <tr [class.muted]="!e.active">
+                    <td>
+                      <span class="name-with-avatar">
+                        <app-avatar [name]="e.fullName" />
+                        @if (auth.can('staff:write')) { <button type="button" class="row-open" (click)="openEdit(e)">{{ e.fullName }}</button> }
+                        @else { <b>{{ e.fullName }}</b> }
+                      </span>
+                    </td>
                     <td class="soft">{{ e.position || '—' }}</td>
                     @if (showPay()) {
                       <td class="num">{{ e.hourlyRate | money }} <span class="muted">/h</span></td>
@@ -41,10 +48,9 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
                       </td>
                     }
                     <td><app-status-badge [active]="e.active" /></td>
-                    <td class="row-actions">
-                      @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openEdit(e)">Edit</button> }
-                      @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openPin(e)">Set PIN</button> }
-                    </td>
+                    <td class="right"><div class="row-actions">
+                      @if (auth.can('staff:write')) { <button class="btn btn-sm btn-ghost" (click)="openPin(e)" [attr.aria-label]="'Set PIN for ' + e.fullName">Set PIN</button> }
+                    </div></td>
                   </tr>
                 } @empty { <tr><td [attr.colspan]="showPay() ? 6 : 4"><div class="empty"><div class="big"><app-icon name="users" [size]="30" /></div>No employees yet — add your team.</div></td></tr> }
               </tbody>
@@ -72,7 +78,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     }
 
     @if (modalOpen()) {
-      <app-modal [title]="editing() ? 'Edit employee' : 'New employee'" (close)="modalOpen.set(false)">
+      <app-modal variant="drawer" [title]="editing() ? 'Edit employee' : 'New employee'" (close)="modalOpen.set(false)">
         <div class="field"><label for="emp-fullname">Full name <span class="req" aria-hidden="true">*</span></label><input id="emp-fullname" class="input" [(ngModel)]="form.fullName" required /></div>
         <div class="field"><label for="emp-position">Position</label><input id="emp-position" class="input" [(ngModel)]="form.position" placeholder="Barista" /></div>
         <div class="field">
@@ -99,6 +105,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     }
   `,
   styles: [`
+    .name-with-avatar { white-space: nowrap; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
     .check-label { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
   `],
