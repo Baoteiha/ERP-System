@@ -5,9 +5,9 @@ import java.util.UUID;
 
 /**
  * Class: AccessClaims
- * Purpose: What an access token asserts: who the user is and which role they hold at each live branch.
+ * Purpose: What an access token asserts: who the user is, their role at each live branch, and their auth version.
  */
-public record AccessClaims(UUID userId, String email, UUID companyId, Map<UUID, UUID> roleByBranch) {
+public record AccessClaims(UUID userId, String email, UUID companyId, Map<UUID, UUID> roleByBranch, int authVersion) {
 
     public AccessClaims {
         roleByBranch = Map.copyOf(roleByBranch);

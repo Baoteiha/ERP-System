@@ -98,12 +98,14 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         user = accessToken(userAccount.email(), "password123");
     }
 
-    /** Soft-deleting the branches lets the lifecycle listener drop every grant on them, the owner's included. */
+    /**
+     * Soft-deleting the branches lets the lifecycle listener drop every grant on them, the owner's included.
+     * Each deletion ends the owner's token, since they held the branch, so each takes a fresh one.
+     */
     @AfterEach
     void cleanUp() throws Exception {
-        String owner = adminToken();
         for (String id : createdBranches) {
-            send(delete("/api/v1/branches/" + id), owner, null, null).andExpect(status().isNoContent());
+            send(delete("/api/v1/branches/" + id), adminToken(), null, null).andExpect(status().isNoContent());
         }
         createdRoles.forEach(roles::deleteById);
     }

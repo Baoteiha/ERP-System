@@ -29,6 +29,7 @@ import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.domain.Permissions;
 import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
+import vn.essvn.erpcafe.identity.security.UserGrantCache.Grants;
 
 /**
  * Authenticates each request from its Bearer access token and establishes the
@@ -36,6 +37,9 @@ import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
  *
  * <ul>
  *   <li>Invalid/expired token → 401.</li>
+ *   <li>A token whose auth version is no longer the user's (their status or password changed, or a
+ *       branch they held closed since it was issued) → 401, as is one naming another role at the
+ *       {@code X-Branch-Id} branch than the user now holds there: a refresh brings either up to date.</li>
  *   <li>Valid token but {@code X-Branch-Id} not among the token's branches still granted → 403.</li>
  *   <li>No token → request continues unauthenticated (protected routes then 401).</li>
  * </ul>
@@ -103,8 +107,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
+            Optional<Grants> grants = grantCache.current(claims.userId(), claims.companyId());
+            // only another instance can have moved the version past this one's copy: read it afresh
+            if (grants.isPresent() && claims.authVersion() > grants.get().authVersion()) {
+                grants = grantCache.reload(claims.userId(), claims.companyId());
+            }
+            if (grants.isEmpty() || grants.get().authVersion() != claims.authVersion()) {
+                writeError(response, HttpStatus.UNAUTHORIZED, "Access has changed since this token was issued");
+                return;
+            }
+
             // the token's branch roles count only while still granted: a revoke or a closed branch ends them at once
-            Map<UUID, UUID> current = grantCache.current(claims.userId(), claims.companyId());
+            Map<UUID, UUID> current = grants.get().roleByBranch();
             Map<UUID, UUID> roleByBranch = new HashMap<>();
             claims.roleByBranch().forEach((branchId, roleId) -> {
                 if (roleId.equals(current.get(branchId))) {
@@ -120,6 +134,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     activeBranch = UUID.fromString(branchHeader.trim());
                 } catch (IllegalArgumentException ex) {
                     writeError(response, HttpStatus.BAD_REQUEST, "Malformed " + BRANCH_HEADER);
+                    return;
+                }
+                UUID named = claims.roleByBranch().get(activeBranch);
+                if (named != null && current.containsKey(activeBranch) && !named.equals(current.get(activeBranch))) {
+                    writeError(response, HttpStatus.UNAUTHORIZED, "Your role at branch " + activeBranch + " changed");
                     return;
                 }
                 if (!roleByBranch.containsKey(activeBranch)) {

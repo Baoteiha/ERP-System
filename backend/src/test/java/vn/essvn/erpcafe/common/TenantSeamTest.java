@@ -259,7 +259,7 @@ class TenantSeamTest extends AbstractIntegrationTest {
     void tokenNamingASentinelCompany_isUnauthorized() throws Exception {
         for (UUID sentinel : List.of(TenantContext.NO_TENANT_ID, TenantContext.SYSTEM_TENANT_ID)) {
             String token = jwtService.generateAccessToken(
-                    new AccessClaims(UUID.randomUUID(), "sentinel@test.local", sentinel, Map.of()));
+                    new AccessClaims(UUID.randomUUID(), "sentinel@test.local", sentinel, Map.of(), 0));
 
             mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(token)))
                     .andExpect(status().isUnauthorized())

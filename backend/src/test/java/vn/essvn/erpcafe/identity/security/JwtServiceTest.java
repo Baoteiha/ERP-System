@@ -38,12 +38,12 @@ class JwtServiceTest {
 
     private AccessClaims sampleClaims() {
         return new AccessClaims(UUID.randomUUID(), "user@esscafe.vn", UUID.randomUUID(),
-                Map.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+                Map.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), 3);
     }
 
     /** A token as this service would issue it, with one header or claim changed. */
     private static String handMade(String kid, String secret, String issuer, String audience) {
-        AccessClaims claims = new AccessClaims(UUID.randomUUID(), "user@esscafe.vn", UUID.randomUUID(), Map.of());
+        AccessClaims claims = new AccessClaims(UUID.randomUUID(), "user@esscafe.vn", UUID.randomUUID(), Map.of(), 0);
         return Jwts.builder()
                 .header().keyId(kid).and()
                 .issuer(issuer)
@@ -52,6 +52,7 @@ class JwtServiceTest {
                 .claim("email", claims.email())
                 .claim("companyId", claims.companyId().toString())
                 .claim("branchRoles", Map.of())
+                .claim("av", claims.authVersion())
                 .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
                 .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)))
                 .compact();
@@ -70,7 +71,7 @@ class JwtServiceTest {
     @Test
     void generateThenParse_keepsAUserWithNoBranches() {
         JwtService jwt = jwtService(Duration.ofMinutes(15));
-        AccessClaims none = new AccessClaims(UUID.randomUUID(), "new@esscafe.vn", UUID.randomUUID(), Map.of());
+        AccessClaims none = new AccessClaims(UUID.randomUUID(), "new@esscafe.vn", UUID.randomUUID(), Map.of(), 0);
 
         assertThat(jwt.parseAccessToken(jwt.generateAccessToken(none))).isEqualTo(none);
     }
@@ -92,6 +93,25 @@ class JwtServiceTest {
         assertThatThrownBy(() -> jwtService(Duration.ofMinutes(15)).parseAccessToken(legacy))
                 .isInstanceOf(MalformedJwtException.class)
                 .hasMessageContaining("branch roles");
+    }
+
+    @Test
+    void parse_rejectsATokenWithoutAnAuthVersion() {
+        String unversioned = Jwts.builder()
+                .header().keyId(CURRENT.kid()).and()
+                .issuer(JwtService.ISSUER)
+                .audience().add(JwtService.AUDIENCE).and()
+                .subject(UUID.randomUUID().toString())
+                .claim("email", "old@esscafe.vn")
+                .claim("companyId", UUID.randomUUID().toString())
+                .claim("branchRoles", Map.of())
+                .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(5))))
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+
+        assertThatThrownBy(() -> jwtService(Duration.ofMinutes(15)).parseAccessToken(unversioned))
+                .isInstanceOf(MalformedJwtException.class)
+                .hasMessageContaining("auth version");
     }
 
     @Test

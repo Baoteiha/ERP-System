@@ -33,13 +33,15 @@ public class BranchAccessListener {
     private final RoleRepository roleRepository;
     private final OrganizationApi organizationApi;
     private final UserGrantCache grantCache;
+    private final AuthVersions authVersions;
 
-    public BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository,
-            OrganizationApi organizationApi, UserGrantCache grantCache) {
+    BranchAccessListener(UserBranchAccessRepository accessRepository, RoleRepository roleRepository,
+            OrganizationApi organizationApi, UserGrantCache grantCache, AuthVersions authVersions) {
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
         this.organizationApi = organizationApi;
         this.grantCache = grantCache;
+        this.authVersions = authVersions;
     }
 
     /**
@@ -75,17 +77,19 @@ public class BranchAccessListener {
 
     @EventListener
     public void onBranchDeleted(BranchDeleted event) {
-        revokeAll(event.branchId());
+        revokeAll(event.branchId(), event.companyId());
     }
 
     @EventListener
     public void onBranchDeactivated(BranchDeactivated event) {
-        revokeAll(event.branchId());
+        revokeAll(event.branchId(), event.companyId());
     }
 
-    private void revokeAll(UUID branchId) {
+    // The grant cache alone would drop the branch from tokens already issued; ending those tokens
+    // makes each holder's next request refresh into one that no longer names it (R26).
+    private void revokeAll(UUID branchId, UUID companyId) {
         List<UserBranchAccess> grants = accessRepository.findByBranchId(branchId);
-        grants.forEach(g -> grantCache.evictAfterCommit(g.getUserId()));
         accessRepository.deleteAll(grants);
+        authVersions.bump(companyId, grants.stream().map(UserBranchAccess::getUserId).distinct().toList());
     }
 }

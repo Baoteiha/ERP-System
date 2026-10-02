@@ -9,9 +9,11 @@ The access token carries the user's identity and **branch → role id** for each
 live branch, never permission strings. `JwtAuthenticationFilter` honours a
 branch → role pair only while the user still holds that grant
 (`UserGrantCache`: the user's current grants on live branches, one read per
-user per minute, dropped after a grant or revoke commits and when a branch is
-deleted or deactivated); a pair no longer granted gives nothing, and its branch
-is refused as `X-Branch-Id` (403). Otherwise a token could keep a revoked grant
+user every 30 seconds, dropped after a grant or revoke commits and when a branch
+is deleted or deactivated); a pair no longer granted gives nothing, and its
+branch is refused as `X-Branch-Id` (403). A branch the header names that the
+user still holds, but under another role than the token says, answers 401
+instead: a refresh brings the token up to date. Otherwise a token could keep a revoked grant
 for its lifetime — and with it whatever a role it names is later given. The
 filter resolves each remaining role through `RolePermissionCache` (one read per
 role per minute, dropped after a role edit commits) and sets the authorities in
@@ -93,14 +95,21 @@ made just before it, and a grant sees the permissions just added.
 
 ## Consequences
 
-- A role edit, grant or revoke reaches tokens already issued within a minute —
-  at once on the instance that made it. Logging in or refreshing re-reads the
-  user's grants, so a new token and the check always agree. A status or
-  password change still waits for the access token to expire (up to 15
-  minutes); the `auth_version` claim (Task 36) closes that, and its
-  invalidation belongs beside the two caches.
+- A role edit, grant or revoke reaches tokens already issued within the
+  caches' lifetimes (30 seconds for grants, a minute for a role's permissions)
+  — at once on the instance that made it — and leaves the token valid.
+  Logging in or refreshing re-reads the user's grants, so a new token and the
+  check always agree.
+- What the caches cannot follow ends the token instead (AUTH-G08): a status
+  change, a password change or reset, and a branch closing (whose grants go
+  with it) move the user's `auth_version`, which every token carries as `av`,
+  and a token whose `av` is no longer the user's answers 401. The version is
+  read with the grants, in the same per-user cache entry. A token newer than an
+  instance's copy (issued on another instance after the change) makes that
+  instance read the version afresh, so a fresh token is never refused; an old
+  one may still pass on another instance for up to 30 seconds.
 - Every authenticated request reads two caches; a miss costs one query per
-  role or two per user, at most once a minute each.
+  role or three per user, at most once a minute and every 30 seconds.
 - Access tokens issued before this change carry no branch roles and are
   refused with 401, so clients refresh once.
 - Switching branch in the frontend can close the page in view: the shell

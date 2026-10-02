@@ -52,12 +52,13 @@ public class UserService {
     private final OrganizationApi organizationApi;
     private final CurrentUser currentUser;
     private final UserGrantCache grantCache;
+    private final AuthVersions authVersions;
     private final SystemTransactions system;
 
-    public UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
+    UserService(UserRepository userRepository, UserBranchAccessRepository accessRepository,
             RoleRepository roleRepository, RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder, OrganizationApi organizationApi, CurrentUser currentUser,
-            UserGrantCache grantCache, SystemTransactions system) {
+            UserGrantCache grantCache, AuthVersions authVersions, SystemTransactions system) {
         this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.roleRepository = roleRepository;
@@ -66,6 +67,7 @@ public class UserService {
         this.organizationApi = organizationApi;
         this.currentUser = currentUser;
         this.grantCache = grantCache;
+        this.authVersions = authVersions;
         this.system = system;
     }
 
@@ -157,9 +159,8 @@ public class UserService {
     }
 
     /**
-     * Enables or disables an account. Disabling revokes every outstanding refresh
-     * token, so the account cannot be extended beyond the life of an access token
-     * already in flight.
+     * Enables or disables an account. Either way the access tokens the user holds end; disabling
+     * also revokes every outstanding refresh token, so the account cannot sign back in by refreshing.
      *
      * <p>Changing your own status is refused: disabling yourself is the one change
      * you could not then undo.
@@ -174,6 +175,7 @@ public class UserService {
         if (status == UserStatus.DISABLED) {
             revokeAllTokens(id);
         }
+        authVersions.bump(user.getCompanyId(), List.of(id));
         return user;
     }
 
@@ -187,6 +189,7 @@ public class UserService {
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(userId);
+        authVersions.bump(user.getCompanyId(), List.of(userId));
     }
 
     /** Administrative reset; does not need the old password, but does need user:write. */
@@ -195,6 +198,7 @@ public class UserService {
         requireCanManage(id);
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         revokeAllTokens(user.getId());
+        authVersions.bump(user.getCompanyId(), List.of(user.getId()));
     }
 
     // Emails are unique across companies (login finds a user by email alone), so the check runs as

@@ -3,6 +3,7 @@ package vn.essvn.erpcafe.identity.security;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -12,41 +13,53 @@ import org.springframework.stereotype.Component;
 
 import vn.essvn.erpcafe.identity.domain.UserBranchAccess;
 import vn.essvn.erpcafe.identity.persistence.UserBranchAccessRepository;
+import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /**
  * Class: UserGrantCache
- * Purpose: Holds the role each user holds at each live branch, so a token's branch roles are honoured only while still granted.
+ * Purpose: Holds each user's auth version and role at each live branch, so a token counts only while both still hold.
  */
 @Component
 public class UserGrantCache {
 
-    /** How long a grant or revoke may take to reach a token on another instance. */
-    static final Duration TTL = Duration.ofSeconds(60);
+    /** How long a grant, revoke or auth-version change may take to reach a token on another instance. */
+    static final Duration TTL = Duration.ofSeconds(30);
 
-    private final UserBranchAccessRepository accessRepository;
-    private final OrganizationApi organizationApi;
-    private final ExpiringCache<UUID, Map<UUID, UUID>> cache;
-
-    @Autowired
-    public UserGrantCache(UserBranchAccessRepository accessRepository, OrganizationApi organizationApi) {
-        this(accessRepository, organizationApi, Clock.systemUTC());
+    /**
+     * Class: Grants
+     * Purpose: A user's auth version and the role they hold at each live branch, as one read saw them.
+     */
+    public record Grants(int authVersion, Map<UUID, UUID> roleByBranch) {
     }
 
-    UserGrantCache(UserBranchAccessRepository accessRepository, OrganizationApi organizationApi, Clock clock) {
+    private final UserRepository userRepository;
+    private final UserBranchAccessRepository accessRepository;
+    private final OrganizationApi organizationApi;
+    private final ExpiringCache<UUID, Optional<Grants>> cache;
+
+    @Autowired
+    public UserGrantCache(UserRepository userRepository, UserBranchAccessRepository accessRepository,
+            OrganizationApi organizationApi) {
+        this(userRepository, accessRepository, organizationApi, Clock.systemUTC());
+    }
+
+    UserGrantCache(UserRepository userRepository, UserBranchAccessRepository accessRepository,
+            OrganizationApi organizationApi, Clock clock) {
+        this.userRepository = userRepository;
         this.accessRepository = accessRepository;
         this.organizationApi = organizationApi;
         this.cache = new ExpiringCache<>(TTL, clock);
     }
 
-    /** The user's role at each live branch, as of at most a minute ago. */
-    public Map<UUID, UUID> current(UUID userId, UUID companyId) {
+    /** The user's grants as of at most {@link #TTL} ago; empty once the user is gone. */
+    public Optional<Grants> current(UUID userId, UUID companyId) {
         return cache.get(userId, id -> load(id, companyId));
     }
 
-    /** The user's role at each live branch now; issuing a token reads it so the token and the check agree. */
-    public Map<UUID, UUID> reload(UUID userId, UUID companyId) {
+    /** The user's grants now; issuing a token reads them so the token and the check agree. */
+    public Optional<Grants> reload(UUID userId, UUID companyId) {
         return cache.reload(userId, id -> load(id, companyId));
     }
 
@@ -55,8 +68,13 @@ public class UserGrantCache {
         cache.evictAfterCommit(userId);
     }
 
+    private Optional<Grants> load(UUID userId, UUID companyId) {
+        return userRepository.findAuthVersion(userId, companyId)
+                .map(version -> new Grants(version, liveGrants(userId, companyId)));
+    }
+
     // a grant on a deleted or deactivated branch grants nothing: not the branch, not its role's permissions
-    private Map<UUID, UUID> load(UUID userId, UUID companyId) {
+    private Map<UUID, UUID> liveGrants(UUID userId, UUID companyId) {
         Set<UUID> liveBranchIds = organizationApi.listActiveBranches(companyId).stream()
                 .map(BranchDto::id).collect(Collectors.toSet());
         return accessRepository.findByUserId(userId).stream()

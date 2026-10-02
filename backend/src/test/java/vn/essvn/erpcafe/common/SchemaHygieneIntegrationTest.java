@@ -147,6 +147,8 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
         String first = JsonPath.read(createOk("/api/v1/branches", body), "$.id");
         createdBranches.add(UUID.fromString(first));
         deleteOk("/api/v1/branches", first);
+        // the owner held the deleted branch, so the deletion ended their token
+        token = adminToken();
         String second = JsonPath.read(createOk("/api/v1/branches", body), "$.id");
         createdBranches.add(UUID.fromString(second));
         assertThat(second).isNotEqualTo(first);

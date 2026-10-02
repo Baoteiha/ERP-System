@@ -139,10 +139,12 @@ public class AuthService {
                 .ifPresent(RefreshToken::revoke));
     }
 
-    /** What a user's access token asserts: the role they hold at each live branch, read afresh. */
+    /** What a user's access token asserts: their role at each live branch and their auth version, read afresh. */
     private AccessClaims accessClaimsFor(User user) {
-        return new AccessClaims(user.getId(), user.getEmail(), user.getCompanyId(),
-                grantCache.reload(user.getId(), user.getCompanyId()));
+        UserGrantCache.Grants grants = grantCache.reload(user.getId(), user.getCompanyId())
+                .orElseThrow(() -> new BusinessRuleException("User no longer exists"));
+        return new AccessClaims(user.getId(), user.getEmail(), user.getCompanyId(), grants.roleByBranch(),
+                grants.authVersion());
     }
 
     /** A login starts a brand-new token family. */

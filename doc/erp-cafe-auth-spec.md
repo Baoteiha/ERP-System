@@ -147,6 +147,7 @@ that signed it, claims:
 | `email` | login email |
 | `companyId` | the user's company |
 | `branchRoles` | branch id → the role id the user holds there (ADR-0007) |
+| `av` | the user's auth version when the token was issued |
 
 **Signing keys** (AUTH-G09). `app.security.jwt.keys` lists every key a token may
 be signed with, each with a `kid`; exactly one is `active` and signs new tokens.
@@ -185,9 +186,10 @@ the revocation.
 | `PUT /api/v1/roles/{id}` | `role:write` | Rename a custom role |
 | `DELETE /api/v1/roles/{id}` | `role:write` | Delete a custom role nobody holds |
 
-Every credential or status change revokes that user's outstanding refresh
-tokens, so a disabled or reset account cannot be extended beyond the life of an
-access token already in flight.
+Every credential or status change moves the user's auth version, so the access
+tokens they hold answer 401 at once (AUTH-G08), and disabling or a password
+change or reset also revokes their outstanding refresh tokens, so the account
+cannot sign back in by refreshing.
 
 Guards: you cannot change your own status, since disabling yourself is the one
 change you could not undo. The seeded default roles cannot be renamed or deleted,
@@ -214,7 +216,9 @@ For every request, in order:
 
 1. **`JwtAuthenticationFilter`** (registered before `UsernamePasswordAuthenticationFilter`)
    parses the `Authorization: Bearer` token into an `AuthPrincipal`.
-   Invalid or expired → **401** with a problem+json body.
+   Invalid or expired → **401** with a problem+json body; so is a token whose
+   `av` is no longer the user's auth version, and one naming another role at
+   the `X-Branch-Id` branch than the user now holds there.
 2. **Branch resolution.** If `X-Branch-Id` is present: malformed UUID → **400**;
    a branch not in the principal's granted set → **403**; otherwise it is placed
    in `BranchContext` (a thread-local) for the request.
@@ -277,6 +281,7 @@ from one that was never real.
 | AUTH-G15 | Organization module was unscoped: company and branch list, get, update and delete resolved with no tenant check, and CASHIER holds `branch:read`. Branch company also came from the request body, so a branch could be created in, or moved to, another tenant | Scoped lookups and principal-derived company; `OrganizationTenantIsolationTest` |
 | AUTH-G16 | No account lifecycle: `UserStatus.DISABLED` and the password setter existed but were never called, so an account could not be disabled and a password never changed | `AccountLifecycleIntegrationTest` |
 | AUTH-G17 | No role lifecycle: roles could be created but never renamed or deleted | `RoleLifecycleIntegrationTest` |
+| AUTH-G08 | Revocation lag: a role, grant, status or password change stayed ineffective for up to 15 minutes | Grants, revokes and role edits reach issued tokens through the grant and role caches (ADR-0007); a status change, a password change or reset, and a branch closing move the user's `auth_version`, which ends every token carrying the old `av`. `AuthGapsIntegrationTest`. Other instances follow within the caches' lifetimes (30 s and 60 s) |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
@@ -288,7 +293,6 @@ MANAGER and CASHIER.
 | ID | Gap | Severity |
 |---|---|---|
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
-| AUTH-G08 | **Revocation lag.** Permissions live in the access token, so a *role or grant* change stays ineffective for up to 15 minutes. Narrowed: status and password changes now revoke refresh tokens, so they cannot be extended past the current access token | 🟡 low |
 | AUTH-G12 | **No forgotten-password self-service.** Change and administrative reset now exist (AUTH-106), but a user locked out with no admin available has no email-based recovery. No password complexity policy beyond an 8-character floor | 🟡 low |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies | 🟡 low |
 | AUTH-G14 | **No authentication audit trail.** Logins, refreshes, grants, and revocations are not recorded as durable events | 🟡 low |

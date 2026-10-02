@@ -41,6 +41,7 @@ public class JwtService {
     static final String ISSUER = "erp-cafe";
     static final String AUDIENCE = "erp-cafe-api";
     private static final String BRANCH_ROLES = "branchRoles";
+    private static final String AUTH_VERSION = "av";
 
     private final Map<String, SecretKey> keys;
     private final String activeKid;
@@ -73,6 +74,7 @@ public class JwtService {
                 .claim("email", claims.email())
                 .claim("companyId", claims.companyId().toString())
                 .claim(BRANCH_ROLES, branchRoles)
+                .claim(AUTH_VERSION, claims.authVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
                 .signWith(keys.get(activeKid))
@@ -81,7 +83,8 @@ public class JwtService {
 
     /**
      * Parses and verifies an access token. Throws on invalid/expired tokens, and on tokens
-     * without branch roles: those predate per-branch permissions, and a refresh replaces them.
+     * without branch roles or an auth version: those predate per-branch permissions or the
+     * version, and a refresh replaces them.
      */
     public AccessClaims parseAccessToken(String token) {
         Claims claims = parser.parseSignedClaims(token).getPayload();
@@ -89,11 +92,15 @@ public class JwtService {
         if (!(claims.get(BRANCH_ROLES) instanceof Map<?, ?> raw)) {
             throw new MalformedJwtException("Access token carries no branch roles");
         }
+        Integer authVersion = claims.get(AUTH_VERSION, Integer.class);
+        if (authVersion == null) {
+            throw new MalformedJwtException("Access token carries no auth version");
+        }
         Map<UUID, UUID> roleByBranch = new HashMap<>();
         raw.forEach((branchId, roleId) ->
                 roleByBranch.put(UUID.fromString(String.valueOf(branchId)), UUID.fromString(String.valueOf(roleId))));
         return new AccessClaims(UUID.fromString(claims.getSubject()), claims.get("email", String.class),
-                UUID.fromString(claims.get("companyId", String.class)), roleByBranch);
+                UUID.fromString(claims.get("companyId", String.class)), roleByBranch, authVersion);
     }
 
     // A token without a kid predates the key set; a refresh replaces it, as one signed with a removed key.
