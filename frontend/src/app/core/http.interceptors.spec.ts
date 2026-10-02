@@ -111,6 +111,60 @@ describe('errorInterceptor', () => {
     expect(ok).toBe(true);
   });
 
+  describe('a retry with the current token that is refused too', () => {
+    const refusedOnce = () => {
+      const stale = ctrl.expectOne('/api/v1/a'); // sent with 'old'
+      auth.accessToken.set('newer'); // a refresh completed while this request was in flight
+      stale.flush({}, unauthorized);
+      const retry = ctrl.expectOne('/api/v1/a');
+      expect(retry.request.headers.get('Authorization')).toBe('Bearer newer');
+      // its auth version moved in between
+      retry.flush({}, unauthorized);
+    };
+
+    it('goes through one refresh and is sent once more with its token', () => {
+      let ok = false;
+      http.get('/api/v1/a').subscribe(() => (ok = true));
+
+      refusedOnce();
+      ctrl.expectOne('/api/v1/auth/refresh').flush(tokens);
+      const last = ctrl.expectOne('/api/v1/a');
+      expect(last.request.headers.get('Authorization')).toBe('Bearer new');
+      last.flush({});
+
+      expect(ok).toBe(true);
+    });
+
+    it('stops after that refresh when the request is refused again, without a loop or a sign-out', () => {
+      const logout = vi.spyOn(auth, 'logout');
+      let status = 0;
+      http.get('/api/v1/a').subscribe({ error: (e) => (status = e.status) });
+
+      refusedOnce();
+      ctrl.expectOne('/api/v1/auth/refresh').flush(tokens);
+      ctrl.expectOne('/api/v1/a').flush({}, unauthorized);
+
+      ctrl.expectNone('/api/v1/auth/refresh');
+      ctrl.expectNone('/api/v1/a');
+      expect(status).toBe(401);
+      expect(logout).not.toHaveBeenCalled();
+    });
+
+    it('signs out locally when that refresh answers 401', () => {
+      let status = 0;
+      http.get('/api/v1/a').subscribe({ error: (e) => (status = e.status) });
+
+      refusedOnce();
+      ctrl.expectOne('/api/v1/auth/refresh').flush({ code: 'UNAUTHORIZED' }, unauthorized);
+
+      ctrl.expectNone('/api/v1/auth/refresh');
+      ctrl.expectNone('/api/v1/a');
+      expect(status).toBe(401);
+      expect(auth.accessToken()).toBeNull();
+      expect(navigate).toHaveBeenCalledWith(['/login']);
+    });
+  });
+
   it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])('sends %s without an Authorization header, whatever is stored', (url) => {
     expect(auth.accessToken()).toBe('old');
 

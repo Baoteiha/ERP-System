@@ -104,26 +104,32 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
     return surface(err);
   };
 
+  /** One refresh and one retry with its token, which is final whatever it answers; with no session, sign out. */
+  const reauthenticate = (err: HttpErrorResponse) => {
+    if (auth.canRefresh()) {
+      // only the refresh itself may log out; the retried request's errors propagate normally
+      return coordinator.refreshed().pipe(
+        switchMap((token) => next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))),
+        catchError((e: HttpErrorResponse) => settle(e)),
+      );
+    }
+    void auth.logout(false);
+    router.navigate(['/login']);
+    return throwError(() => err);
+  };
+
   return next(req).pipe(
     catchError((err: HttpErrorResponse) => {
       if (err.status === 401 && !isAuthFree(req.url)) {
         const current = auth.accessToken();
         if (current && req.headers.get('Authorization') !== `Bearer ${current}`) {
-          // sent with a token that has since been replaced: no new refresh, just retry with the current one
+          // sent with a token that has since been replaced: retry with the current one, without a refresh; if
+          // that is refused too (its auth version moved in between), it goes through one refresh after all
           return next(req.clone({ setHeaders: { Authorization: `Bearer ${current}` } })).pipe(
-            catchError((e: HttpErrorResponse) => settle(e)),
+            catchError((e: HttpErrorResponse) => (e.status === 401 ? reauthenticate(e) : settle(e))),
           );
         }
-        if (auth.canRefresh()) {
-          // only the refresh itself may log out; the retried request's errors propagate normally
-          return coordinator.refreshed().pipe(
-            switchMap((token) => next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }))),
-            catchError((e: HttpErrorResponse) => settle(e)),
-          );
-        }
-        void auth.logout(false);
-        router.navigate(['/login']);
-        return throwError(() => err);
+        return reauthenticate(err);
       }
       return settle(err);
     }),
