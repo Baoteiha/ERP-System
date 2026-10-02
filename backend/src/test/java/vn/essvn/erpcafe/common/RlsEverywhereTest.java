@@ -54,6 +54,9 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
     private static final String ORDER_COMPANY = "(SELECT b.company_id FROM sales_order o"
             + " JOIN branch b ON b.id = o.branch_id WHERE o.id = t.order_id)";
 
+    /** Tables only the schema owner reads or writes: no company owns their rows, and the app role holds nothing. */
+    private static final List<String> OWNER_ONLY = List.of("login_attempt");
+
     /** Every table a company owns, and the company each row belongs to: independent of the policies it checks. */
     private static final Map<String, String> COMPANY_OF = new LinkedHashMap<>();
 
@@ -260,6 +263,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + " JOIN pg_namespace ns ON ns.oid = c.relnamespace"
                 + " WHERE ns.nspname = current_schema() AND c.relkind = 'r'"
                 + " AND c.relname NOT IN ('permission', 'flyway_schema_history')", String.class);
+        tables.removeAll(OWNER_ONLY);
         assertThat(tables).containsExactlyInAnyOrderElementsOf(COMPANY_OF.keySet());
 
         for (String table : tables) {
@@ -279,6 +283,17 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 Boolean.class)).isFalse();
         assertThat(jdbc.queryForObject("SELECT has_table_privilege('flyway_schema_history',"
                 + " 'SELECT, INSERT, UPDATE, DELETE')", Boolean.class)).isFalse();
+    }
+
+    @Test
+    void theOwnerOnlyTables_giveTheAppRoleNothing_evenWereItGrantedSome() {
+        for (String table : OWNER_ONLY) {
+            assertThat(jdbc.queryForObject("SELECT has_table_privilege(?, 'SELECT, INSERT, UPDATE, DELETE')",
+                    Boolean.class, table)).as(table).isFalse();
+            Map<String, Object> rls = jdbc.queryForMap("SELECT c.relrowsecurity AS enabled,"
+                    + " c.relforcerowsecurity AS forced FROM pg_class c WHERE c.oid = ?::regclass", table);
+            assertThat(rls).as(table).containsEntry("enabled", true).containsEntry("forced", true);
+        }
     }
 
     @Test

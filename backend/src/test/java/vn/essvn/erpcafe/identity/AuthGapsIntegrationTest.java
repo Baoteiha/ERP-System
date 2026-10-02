@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -35,11 +37,14 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import vn.essvn.erpcafe.config.SecurityProperties;
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.exception.TooManyRequestsException;
+import vn.essvn.erpcafe.common.persistence.SystemTransactions;
 import vn.essvn.erpcafe.config.SecurityProperties.Key;
 import vn.essvn.erpcafe.identity.domain.User;
 import vn.essvn.erpcafe.identity.persistence.UserRepository;
 import vn.essvn.erpcafe.identity.security.AccessClaims;
 import vn.essvn.erpcafe.identity.security.JwtService;
+import vn.essvn.erpcafe.identity.security.LoginAttemptService;
 import vn.essvn.erpcafe.organization.domain.Company;
 import vn.essvn.erpcafe.organization.persistence.CompanyRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
@@ -60,6 +65,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired private CompanyRepository companies;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private SystemTransactions system;
 
     private record NewUser(String id, String email) {
     }
@@ -423,5 +429,22 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_event', 'INSERT')", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_event', 'UPDATE, DELETE')", Boolean.class))
                 .isFalse();
+    }
+
+    // --- G18: one login throttle for every instance ---
+
+    @Test
+    void throttleCounts_surviveANewInstance_asReplicasShareThem() {
+        String email = "gaps-throttle%d@t.test".formatted(SEQ.incrementAndGet());
+        String address = uniqueAddress();
+        LoginAttemptService one = new LoginAttemptService(jdbc, system, security);
+        for (int i = 0; i < security.login().maxFailures(); i++) {
+            one.recordFailure(email, address);
+        }
+
+        LoginAttemptService another = new LoginAttemptService(jdbc, system, security);
+        assertThatThrownBy(() -> another.checkNotBlocked(email, address)).isInstanceOf(TooManyRequestsException.class);
+        another.reset(email, address);
+        assertThatCode(() -> one.checkNotBlocked(email, address)).doesNotThrowAnyException();
     }
 }

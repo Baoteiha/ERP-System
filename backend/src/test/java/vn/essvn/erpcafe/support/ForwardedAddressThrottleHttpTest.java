@@ -2,10 +2,16 @@ package vn.essvn.erpcafe.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import javax.sql.DataSource;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -33,6 +39,16 @@ class ForwardedAddressThrottleHttpTest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    @Qualifier("ownerDataSource")
+    private DataSource ownerDataSource;
+
+    /** The throttle's counters live in the shared database, where other classes' failures from this address are. */
+    @BeforeEach
+    void forgetEarlierFailures() {
+        new JdbcTemplate(ownerDataSource).update("DELETE FROM login_attempt");
+    }
 
     private int failedLogin(int n, String spoofedAddress) {
         return RestClient.builder().baseUrl("http://localhost:" + port).build()

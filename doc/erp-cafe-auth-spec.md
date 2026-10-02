@@ -36,7 +36,7 @@ origin of most defects in §9.
 | Account lifecycle: enable/disable, profile edit | ✅ |
 | Password change (self) and reset (admin) | ✅ |
 | Role lifecycle: create, rename, delete | ✅ |
-| Failed-login throttling | ✅ per instance, in memory |
+| Failed-login throttling | ✅ shared by every instance (`login_attempt`) |
 | Company scoping below the service layer | ⚠️ convention, applied in every module today |
 | MFA / passwordless / SSO federation | ⬜ none |
 | Forgotten-password self-service (email flow) | ⬜ none |
@@ -131,8 +131,17 @@ by **email and client address**. Past the threshold the endpoint returns **429**
 until the window lapses; a successful login clears the counter. Keying on both
 is deliberate: an email-only key would let anyone lock a known user out of their
 own account. Defaults are 10 failures per 15 minutes, overridable with
-`app.security.login.max-failures` and `app.security.login.window`. The counters
-are in-memory and per-instance.
+`app.security.login.max-failures` and `app.security.login.window`. A second
+counter keyed by the address alone (default 20, `max-failures-per-address`)
+stops one client spraying guesses across many emails.
+
+The counters live in the `login_attempt` table (AUTH-G18), so every instance
+counts the same failures and a restart forgets none. Each row is keyed by the
+SHA-256 of its counter's name, so the table holds no email or address. It is
+read and written only as the schema owner, since a login runs before any
+company is known; the app role holds no privilege on it. Lapsed counters are
+purged every 15 minutes. The PIN clock throttle (staff) is still in memory and
+per instance.
 
 ### AUTH-102 — Token pair
 
@@ -282,6 +291,7 @@ app:
     login:
       max-failures: 10     # optional, default 10
       window: PT15M        # optional, default 15 minutes
+      max-failures-per-address: 20   # optional, default 20
 ```
 
 Sessions are stateless, CSRF is disabled (token auth, no cookies), and passwords
@@ -310,6 +320,7 @@ from one that was never real.
 | AUTH-G17 | No role lifecycle: roles could be created but never renamed or deleted | `RoleLifecycleIntegrationTest` |
 | AUTH-G08 | Revocation lag: a role, grant, status or password change stayed ineffective for up to 15 minutes | Grants, revokes and role edits reach issued tokens through the grant and role caches (ADR-0007); a status change, a password change or reset, and a branch closing move the user's `auth_version`, which ends every token carrying the old `av`. `AuthGapsIntegrationTest`. Other instances follow within the caches' lifetimes (30 s and 60 s) |
 | AUTH-G14 | No authentication audit trail: logins, refreshes, grants and revocations were not recorded as durable events | `auth_event` and `GET /api/v1/auth-events` (AUTH-107); `AuthGapsIntegrationTest`, `RlsEverywhereTest` |
+| AUTH-G18 | The login throttle was per instance and in memory: it reset on restart and was not shared across replicas | Counters in the `login_attempt` table; `AuthGapsIntegrationTest`, `LoginAttemptServiceTest` |
 | AUTH-G09 | A single static HS256 secret, with no key id in the header and no way to rotate it without signing everyone out | A key set with `kid`, `iss` and `aud` checked on every token; `JwtServiceTest`, `AuthGapsIntegrationTest`. The keys are still symmetric: anyone holding one can mint tokens |
 
 **Note on G06.** The gap text named `syncOwnerPermissions`. No such method
@@ -323,7 +334,6 @@ MANAGER and CASHIER.
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
 | AUTH-G12 | **No forgotten-password self-service.** Change and administrative reset now exist (AUTH-106), but a user locked out with no admin available has no email-based recovery. No password complexity policy beyond an 8-character floor | 🟡 low |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies | 🟡 low |
-| AUTH-G18 | **Login throttle is per-instance and in memory.** It resets on restart and is not shared across replicas, so it degrades as soon as the app is scaled out | 🟡 low |
 | AUTH-G19 | **A new branch has no one who can reach it.** All access is per branch, so creating a branch grants nobody access to it, including the owner who created it. Harmless today because permissions are unioned, but it is a hard blocker for AUTH-G07 | 🟠 medium |
 
 ## 10. Migration notes

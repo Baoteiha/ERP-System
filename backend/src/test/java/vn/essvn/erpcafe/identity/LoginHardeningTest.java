@@ -17,12 +17,17 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.sql.DataSource;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -53,11 +58,23 @@ class LoginHardeningTest extends AbstractIntegrationTest {
     private RefreshTokenPurger purger;
     @Autowired
     private ObjectProvider<FilterRegistrationBean<?>> filterRegistrations;
+    @Autowired
+    @Qualifier("ownerDataSource")
+    private DataSource ownerDataSource;
 
     @MockitoSpyBean
     private PasswordEncoder passwordEncoder;
     @MockitoSpyBean
     private JwtService jwtService;
+
+    /**
+     * The throttle's counters live in the shared database: failures other classes made from MockMvc's
+     * address would otherwise count against this class's lower per-address limit.
+     */
+    @BeforeEach
+    void forgetEarlierFailures() {
+        new JdbcTemplate(ownerDataSource).update("DELETE FROM login_attempt");
+    }
 
     private int attempt(String email, String password, String address) throws Exception {
         return mockMvc.perform(post("/api/v1/auth/login")

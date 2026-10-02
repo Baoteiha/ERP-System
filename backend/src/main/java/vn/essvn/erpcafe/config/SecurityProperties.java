@@ -24,7 +24,7 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
 
     public SecurityProperties {
         if (login == null) {
-            login = new Login(10, Duration.ofMinutes(15), 20, 10_000);
+            login = new Login(10, Duration.ofMinutes(15), 20);
         }
     }
 
@@ -74,12 +74,11 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
         }
     }
 
-    /** Failed-login throttle: per email-and-address pair, per address alone, and the memory bound. */
+    /** Failed-login throttle: the limits per email-and-address pair and per address alone, within the window. */
     public record Login(
             @Min(1) int maxFailures,
             @NotNull Duration window,
-            @Min(1) int maxFailuresPerAddress,
-            @Min(1) int maxTrackedKeys) {
+            @Min(1) int maxFailuresPerAddress) {
     }
 
     public record Bootstrap(
