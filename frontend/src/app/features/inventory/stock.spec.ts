@@ -122,7 +122,7 @@ describe('StockComponent 3D view', () => {
   const empty = { content: [], page: 0, size: 30, totalElements: 0, totalPages: 0 };
 
   /** Opens the stock page for a user who may write stock; `remembered` is the view stored from an earlier visit. */
-  function setup(opts: { webgl?: boolean; remembered?: string; blocked?: boolean } = {}) {
+  function setup(opts: { webgl?: boolean; remembered?: string; blocked?: boolean; perms?: string[] } = {}) {
     stubLocalStorage();
     if (opts.remembered) localStorage.setItem('erpcafe.stockView', opts.remembered);
     if (opts.blocked) {
@@ -144,7 +144,7 @@ describe('StockComponent 3D view', () => {
     });
     ctrl = TestBed.inject(HttpTestingController);
     const auth = TestBed.inject(AuthService);
-    const perms = ['inventory:read', 'inventory:write'];
+    const perms = opts.perms ?? ['inventory:read', 'inventory:write'];
     auth.me.set({ userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1', 'b2'], roles: [], permissions: perms, permissionsByBranch: { b1: perms, b2: perms } });
     auth.setActiveBranch('b1');
     const f = TestBed.createComponent(StockComponent);
@@ -217,6 +217,29 @@ describe('StockComponent 3D view', () => {
     expect(f.componentInstance.form.ingredientId).toBe('i1');
     expect(f.componentInstance.selectedIngredientId()).toBe('i1');
     ctrl.expectOne((r) => r.url === '/api/v1/stock/movements' && r.params.get('ingredientId') === 'i1').flush(empty);
+  });
+
+  it('only selects a picked container for a user who may not write stock', () => {
+    const f = setup({ remembered: '3d', perms: ['inventory:read'] });
+    el(f).querySelector<HTMLButtonElement>('app-stock-shelves button.shelf-label')!.click();
+    f.detectChanges();
+    expect(f.componentInstance.selectedIngredientId()).toBe('i1');
+    expect(f.componentInstance.mode()).toBeNull();
+    expect(el(f).querySelector('app-modal')).toBeNull();
+    ctrl.expectOne((r) => r.url === '/api/v1/stock/movements' && r.params.get('ingredientId') === 'i1').flush(empty);
+  });
+
+  it('moves focus to the Table button when the 3D view it was on cannot start', () => {
+    const f = setup();
+    const d3 = viewButtons(f)[1];
+    d3.focus();
+    d3.click();
+    f.detectChanges();
+    (shelves(f).componentInstance as StockShelvesComponent).unavailable.emit();
+    f.detectChanges();
+    expect(viewButtons(f).length).toBe(1);
+    expect(document.activeElement).toBe(viewButtons(f)[0]);
+    expect(viewButtons(f)[0].getAttribute('aria-pressed')).toBe('true');
   });
 
   it('rebuilds the same shelves for the new branch when the branch changes in 3D', () => {

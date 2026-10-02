@@ -232,8 +232,16 @@ describe('StockShelvesComponent', () => {
       const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(a.style.transform);
       return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
     };
-    const press = (f: ComponentFixture<StockShelvesComponent>, type: string, x: number, y: number) =>
-      el(f).querySelector('.stage')!.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+    const press = (f: ComponentFixture<StockShelvesComponent>, type: string, x: number, y: number, button = 0) =>
+      el(f).querySelector('.stage')!.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button }));
+    /** One category, 20 containers: wider than the 800px stage, so it pans. */
+    const LONG = Array.from({ length: 20 }, (_, i) => ing(`i${i}`, `Item ${String(i).padStart(2, '0')}`, 'Dry'));
+    const longRows = (qty: number) => LONG.map((i) => row(i.id, qty, 1));
+    const drag = (f: ComponentFixture<StockShelvesComponent>, from: number, to: number) => {
+      press(f, 'pointerdown', from, 100);
+      press(f, 'pointermove', to, 100);
+      frames.flush(16);
+    };
 
     it('lays one plank per shelf and draws the containers as instanced glass shells and level fills', async () => {
       const f = await mount();
@@ -438,6 +446,126 @@ describe('StockShelvesComponent', () => {
       const last = at(anchor(f, 'i19'))!.x;
       expect(last).toBeGreaterThan(0);
       expect(last).toBeLessThan(800);
+      f.destroy();
+    });
+
+    it('frees every old batch on a rebuild, the dimmed twins included', async () => {
+      const f = await mount();
+      const names = ['shells', 'shells-dim', ...['ok', 'low', 'empty'].flatMap((l) => [`fill-${l}`, `fill-${l}-dim`])];
+      const freed: string[] = [];
+      names.forEach((n) => batch(n).addEventListener('dispose', () => freed.push(n)));
+      f.componentRef.setInput('stock', [row('milk', 5000, 2000)]);
+      settle(f);
+      expect(freed.sort()).toEqual([...names].sort());
+      f.destroy();
+    });
+
+    it('picks the right container on the canvas while a filter is on', async () => {
+      const f = await mount();
+      f.componentInstance.category.set('Dairy'); // lit: Cream, Milk; the lit batch holds only those two
+      settle(f);
+      frames.flush(16);
+      for (const id of ['milk', 'cream']) {
+        const p = at(anchor(f, id))!;
+        press(f, 'pointerdown', p.x, p.y + 25);
+        press(f, 'pointerup', p.x, p.y + 25);
+      }
+      expect(picks).toEqual(['milk', 'cream']);
+      f.destroy();
+    });
+
+    it('picks only with the primary button', async () => {
+      const f = await mount();
+      const p = at(anchor(f, 'milk'))!;
+      for (const button of [2, 1]) {
+        press(f, 'pointerdown', p.x, p.y + 25, button);
+        press(f, 'pointerup', p.x, p.y + 25, button);
+      }
+      expect(picks).toEqual([]);
+      press(f, 'pointerdown', p.x, p.y + 25);
+      press(f, 'pointerup', p.x, p.y + 25);
+      expect(picks).toEqual(['milk']);
+      f.destroy();
+    });
+
+    it('keeps the pan through a reload of the same ingredients, and a focused label in view', async () => {
+      const f = await mount(longRows(10), LONG);
+      const first = () => at(anchor(f, 'i0'))!.x;
+      const start = first();
+      drag(f, 400, 250);
+      press(f, 'pointerup', 250, 100);
+      expect(first()).toBeCloseTo(start - 150, 0);
+      f.componentRef.setInput('stock', longRows(25)); // e.g. the reload after an Adjust is saved
+      settle(f);
+      frames.flush(32);
+      expect(first()).toBeCloseTo(start - 150, 0);
+
+      label(f, 'Item 19').focus();
+      settle(f);
+      frames.flush(48);
+      f.componentRef.setInput('stock', longRows(30));
+      settle(f);
+      frames.flush(64);
+      const x = at(anchor(f, 'i19'))!.x;
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(800);
+      f.destroy();
+    });
+
+    it('starts a different rack at its left end, unless a focused label is still on it', async () => {
+      const f = await mount(longRows(10), LONG);
+      const start = at(anchor(f, 'i0'))!.x;
+      label(f, 'Item 19').focus();
+      settle(f);
+      frames.flush(16);
+      const more = [...LONG, ing('i20', 'Item 20', 'Dry')];
+      f.componentRef.setInput('ingredients', more);
+      f.componentRef.setInput('stock', more.map((i) => row(i.id, 10, 1))); // another ingredient joined: a new rack
+      settle(f);
+      frames.flush(32);
+      const x = at(anchor(f, 'i19'))!.x;
+      expect(x).toBeGreaterThanOrEqual(0); // still in view for the keyboard user
+      expect(x).toBeLessThanOrEqual(800);
+
+      el(f).querySelector<HTMLInputElement>('#shelf-search')!.focus(); // focus leaves the rack
+      settle(f);
+      f.componentRef.setInput('stock', []); // a branch switch passes through no rows
+      settle(f);
+      f.componentRef.setInput('stock', more.map((i) => row(i.id, 10, 1)));
+      settle(f);
+      frames.flush(48);
+      expect(at(anchor(f, 'i0'))!.x).toBeCloseTo(start, 0);
+      f.destroy();
+    });
+
+    it('leaves the depth rank and the tip offsets alone during a drag, and catches the offsets up after it', async () => {
+      const f = await mount(longRows(10), LONG);
+      const a = anchor(f, 'i3');
+      a.style.setProperty('--z', 'keep'); // sentinels: a write would replace them
+      a.style.setProperty('--dx', 'keep');
+      drag(f, 400, 300);
+      drag(f, 300, 200);
+      expect(a.style.getPropertyValue('--z')).toBe('keep');
+      expect(a.style.getPropertyValue('--dx')).toBe('keep');
+      press(f, 'pointerup', 200, 100);
+      frames.flush(48);
+      expect(a.style.getPropertyValue('--dx')).toMatch(/px$/);
+      expect(a.style.getPropertyValue('--z')).toBe('keep'); // a flat rack never re-ranks its labels
+      f.destroy();
+    });
+
+    it('works out the label names once per stock change, not on every hover', async () => {
+      const f = await mount();
+      const named = vi.spyOn(f.componentInstance, 'labelFor');
+      anchor(f, 'milk').dispatchEvent(new MouseEvent('mouseenter'));
+      settle(f);
+      anchor(f, 'milk').dispatchEvent(new MouseEvent('mouseleave'));
+      anchor(f, 'cream').dispatchEvent(new MouseEvent('mouseenter'));
+      settle(f);
+      expect(named).not.toHaveBeenCalled();
+      f.componentRef.setInput('stock', [row('milk', 1, 1)]);
+      settle(f);
+      expect(named).toHaveBeenCalledTimes(1);
       f.destroy();
     });
 

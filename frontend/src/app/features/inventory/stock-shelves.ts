@@ -87,6 +87,8 @@ class ShelfScene {
   private readonly points = new Map<string, ScreenPoint>();
   private extent = { left: 0, right: 0, top: 0, bottom: 0 };
   private viewed = { w: 0, h: 0, x: NaN };
+  /** The ingredient ids on the rack, in order; the pan survives a rebuild while they stay the same. */
+  private rackKey = '';
 
   constructor(private readonly three: Three, private readonly stage: ThreeStage) {
     const T = three;
@@ -193,8 +195,12 @@ class ShelfScene {
     };
     for (const s of shelves) slot(`shelf:${s.index}`, left, plankTop(s.index) + SHELL_H / 2);
     for (const c of this.containers) slot(c.ingredientId, c.slot * SLOT, plankTop(c.shelf) + SHELL_H);
-    this.panX = -Infinity; // a new rack starts at its left end
-    this.viewed.x = NaN; // and is framed afresh on the next frame
+    // a reload of the same ingredients (after a save) keeps the pan, which `view` clamps to the new ends; a new
+    // rack, or the first after an empty one (a branch switch passes through no rows), starts at its left end
+    const key = this.containers.map((c) => c.ingredientId).join('\n');
+    if (!this.rackKey || key !== this.rackKey) this.panX = -Infinity;
+    this.rackKey = key;
+    this.viewed.x = NaN; // framed afresh on the next frame
     this.highlight(lit, filtering);
   }
 
@@ -248,21 +254,26 @@ class ShelfScene {
     camera.updateMatrixWorld();
   }
 
-  /** Pans just enough to bring a container (a focused label) inside the stage. */
+  /** Pans just enough to bring a container (a focused label) inside a stage w pixels wide. */
   reveal(c: ContainerSpec, w: number): void {
-    if (!this.pannable) return;
-    const x = c.slot * SLOT;
+    const { left, right } = this.extent;
     const half = w / PPU / 2;
-    if (x - REVEAL_MARGIN < this.panX - half) this.panX = x - REVEAL_MARGIN + half;
-    else if (x + REVEAL_MARGIN > this.panX + half) this.panX = x + REVEAL_MARGIN - half;
+    if (left + half >= right - half) return; // the rack fits: nothing to pan
+    const x = c.slot * SLOT;
+    const pan = clamp(this.panX, left + half, right - half);
+    if (x - REVEAL_MARGIN < pan - half) this.panX = x - REVEAL_MARGIN + half;
+    else if (x + REVEAL_MARGIN > pan + half) this.panX = x + REVEAL_MARGIN - half;
+    else this.panX = pan;
   }
 
-  /** Where each label lands on a w × h canvas, by id. The map and its points are reused every call. */
+  /**
+   * Where each label lands on a w × h canvas, by id. The map and its points are reused every call. The rack is flat
+   * and its labels never overlap, so they keep one depth rank (z 0) and a pan never rewrites it.
+   */
   screenPoints(w: number, h: number): ReadonlyMap<string, ScreenPoint> {
     const camera = this.stage.camera;
     for (const { x, y, p } of this.slots) {
       const v = this.point.set(x, y, 0);
-      p.z = Math.max(0, 10000 - Math.round(v.distanceTo(camera.position) * 100));
       v.project(camera);
       p.x = ((v.x + 1) / 2) * w;
       p.y = ((1 - v.y) / 2) * h;
@@ -339,7 +350,7 @@ class ShelfScene {
                 <div #anchor class="label-anchor shelf-anchor" [attr.data-id]="c.ingredientId" [class.on]="focused()?.ingredientId === c.ingredientId" [class.dim]="!lit"
                   (mouseenter)="tips.show(c)" (mouseleave)="tips.leave(anchor)" (focusin)="focusOn(c)" (focusout)="tips.blur(anchor, $event)">
                   <button type="button" class="shelf-label glass" [class.hit]="lit && filtering()" [attr.aria-disabled]="lit ? null : true"
-                    [attr.tabindex]="lit ? null : -1" [attr.aria-label]="labelFor(c)" (click)="choose(c)"><span>{{ c.name }}</span></button>
+                    [attr.tabindex]="lit ? null : -1" [attr.aria-label]="names().get(c.ingredientId)" (click)="choose(c)"><span>{{ c.name }}</span></button>
                   @if (c.level !== 'ok') {
                     <span class="jar-flag" [class.out]="c.level === 'empty'" aria-hidden="true">{{ c.level === 'empty' ? 'Out' : 'Low' }}</span>
                   }
@@ -446,6 +457,8 @@ export class StockShelvesComponent implements OnDestroy {
     return ids;
   });
   readonly total = computed(() => this.shelves().reduce((n, s) => n + s.containers.length, 0));
+  /** Each label's accessible name by ingredient id, worked out once per stock change rather than on every hover. */
+  readonly names = computed(() => new Map(this.shelves().flatMap((s) => s.containers).map((c) => [c.ingredientId, this.labelFor(c)])));
   /** The stage grows with the shelves, so every shelf is in frame at the same scale and the page scrolls past them. */
   readonly height = computed(() => Math.max(MIN_HEIGHT, Math.round(rackHeight(this.shelves().length) * PPU)));
 
@@ -474,6 +487,8 @@ export class StockShelvesComponent implements OnDestroy {
   private clock = 0;
   /** The stage width the tip offsets were last worked out for. */
   private placedWidth = 0;
+  /** A drag just ended: the tip offsets it skipped are due on the next frame. */
+  private tipsStale = false;
   private readonly motion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
   private reduced = this.motion?.matches ?? false;
   private readonly onMotion = (e: { matches: boolean }) => {
@@ -531,6 +546,7 @@ export class StockShelvesComponent implements OnDestroy {
   }
 
   onPointerDown(e: PointerEvent): void {
+    if (e.button !== 0) return; // only the primary button picks or pans
     this.press = { id: e.pointerId, x: e.clientX, y: e.clientY, pan: this.scene?.panX ?? 0, moved: false };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   }
@@ -553,14 +569,14 @@ export class StockShelvesComponent implements OnDestroy {
   onPointerUp(e: PointerEvent): void {
     const press = this.press;
     if (!press || e.pointerId !== press.id) return;
-    this.press = null;
+    this.endPress();
     if (press.moved) return;
     const c = this.hit(e);
     if (c) this.pick.emit(c.ingredientId);
   }
 
   onPointerCancel(e: PointerEvent): void {
-    if (this.press?.id === e.pointerId) this.press = null;
+    if (this.press?.id === e.pointerId) this.endPress();
   }
 
   onPointerLeave(e: PointerEvent): void {
@@ -583,9 +599,24 @@ export class StockShelvesComponent implements OnDestroy {
     return this.scene.pickAt(((e.clientX - r.left) / host.clientWidth) * 2 - 1, 1 - ((e.clientY - r.top) / host.clientHeight) * 2);
   }
 
+  /** A press is over; after a drag, the tip offsets it skipped are worked out on one more frame. */
+  private endPress(): void {
+    if (this.press?.moved) {
+      this.tipsStale = true;
+      this.stage?.invalidate();
+    }
+    this.press = null;
+  }
+
   /** The stage element came, went or stayed: mount, tear down, or rebuild the rack in place. */
   private sync(host: HTMLElement | null, shelves: readonly ShelfSpec[]): void {
-    if (this.lazy.follow(host)) this.scene?.setShelves(shelves, this.matched(), this.filtering());
+    if (!this.lazy.follow(host) || !this.scene) return;
+    this.scene.setShelves(shelves, this.matched(), this.filtering());
+    // a focused label still on the rebuilt rack stays in view (focus comes back to it after the Adjust drawer)
+    const open = this.focused();
+    const stageHost = this.lazy.host;
+    const c = open && shelves.flatMap((s) => s.containers).find((x) => x.ingredientId === open.ingredientId);
+    if (c && stageHost) this.scene.reveal(c, stageHost.clientWidth);
   }
 
   /** One frame: pulse the low fills, frame the camera, then pin every label. Loops while a lit low container pulses. */
@@ -601,10 +632,13 @@ export class StockShelvesComponent implements OnDestroy {
     scene.view(w, h);
     host.classList.toggle('pannable', scene.pannable);
     const points = scene.screenPoints(w, h);
-    const resized = w !== this.placedWidth; // the tip offsets clamp to the width, so they follow it
+    const moving = !!this.press?.moved;
+    // the tip offsets clamp to the width, so they follow it; and they catch up once a drag has ended
+    const force = w !== this.placedWidth || this.tipsStale;
     this.placedWidth = w;
-    this.placer.place(this.tags(), points, w, { tips: false, moving: false, force: false });
-    this.placer.place(this.anchors(), points, w, { tips: true, moving: false, force: resized });
+    this.tipsStale = false;
+    this.placer.place(this.tags(), points, w, { tips: false, moving, force: false });
+    this.placer.place(this.anchors(), points, w, { tips: true, moving, force });
     return pulsing;
   }
 }

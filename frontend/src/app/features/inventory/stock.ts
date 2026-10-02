@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { InventoryService } from '../../core/api.services';
@@ -32,7 +32,7 @@ const VIEWS: readonly StockView[] = ['table', '3d'];
           <div class="sub">On-hand quantities, reorder signals, and branch stock movements.</div>
         </div>
         <div class="segmented view-switch" role="group" aria-label="Stock view">
-          <button type="button" [class.active]="stockView() === 'table'" [attr.aria-pressed]="stockView() === 'table'" (click)="setView('table')">Table</button>
+          <button #tableButton type="button" [class.active]="stockView() === 'table'" [attr.aria-pressed]="stockView() === 'table'" (click)="setView('table')">Table</button>
           @if (can3d()) {
             <button type="button" [class.active]="stockView() === '3d'" [attr.aria-pressed]="stockView() === '3d'" (click)="setView('3d')">3D</button>
           }
@@ -206,6 +206,7 @@ export class StockComponent {
   readonly can3d = computed(() => this.webgl && !this.shelvesFailed());
   /** Table or 3D shelves, remembered per browser; a device without WebGL always gets the table. */
   readonly stockView = signal<StockView>(this.webgl ? readPref(VIEW_KEY, VIEWS, 'table') : 'table');
+  private readonly tableButton = viewChild<ElementRef<HTMLButtonElement>>('tableButton');
 
   constructor() {
     // a link's intent is one-shot: act on it once identity is known, then drop it, permitted or not
@@ -262,10 +263,15 @@ export class StockComponent {
     if (this.canWrite()) this.openAction('adjust');
   }
 
-  /** The 3D view could not start: show the table for this visit, keeping the remembered choice for the next one. */
+  /**
+   * The 3D view could not start: show the table for this visit, keeping the remembered choice for the next one.
+   * Focus on the 3D button or inside the shelves would fall to the page as they go, so it moves to Table.
+   */
   on3dUnavailable() {
+    const active = document.activeElement;
     this.shelvesFailed.set(true);
     this.stockView.set('table');
+    if (active?.closest('app-stock-shelves, .view-switch')) this.tableButton()?.nativeElement.focus();
   }
 
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
