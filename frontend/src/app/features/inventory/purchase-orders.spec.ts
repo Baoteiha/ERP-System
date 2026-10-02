@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { PurchaseOrdersComponent } from './purchase-orders';
 
@@ -77,5 +78,40 @@ describe('PurchaseOrdersComponent', () => {
     ctrl.expectOne('/api/v1/suppliers').flush([]);
     ctrl.expectOne('/api/v1/items').flush([]);
     ctrl.expectOne(url('/api/v1/purchase-orders')).flush(page([]));
+  });
+});
+
+describe('PurchaseOrdersComponent route intent', () => {
+  let router: Router;
+  const setup = (perms: string[], param: string) => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const auth = TestBed.inject(AuthService);
+    auth.me.set({ userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1'], roles: [], permissions: perms, permissionsByBranch: { b1: perms } });
+    auth.setActiveBranch('b1');
+    router = TestBed.inject(Router);
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const f = TestBed.createComponent(PurchaseOrdersComponent);
+    f.componentRef.setInput('new', param);
+    TestBed.tick();
+    return { f, nav, ctrl: TestBed.inject(HttpTestingController) };
+  };
+
+  it('opens the dialog once with the permission, and clears the param', () => {
+    const { f, nav, ctrl } = setup(['purchasing:write'], '1');
+    expect(f.componentInstance.creating()).toBe(true);
+    expect(nav).toHaveBeenCalledWith([], { queryParams: { new: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    ctrl.match(() => true);
+    void f;
+  });
+
+  it('does nothing without the permission', () => {
+    const { nav, f, ctrl } = setup([], '1');
+    expect(f.componentInstance.creating()).toBe(false);
+    expect(nav).not.toHaveBeenCalled();
+    ctrl.match(() => true);
+    void f;
   });
 });

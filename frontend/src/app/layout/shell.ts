@@ -1,4 +1,4 @@
-import { ElementRef, Component, HostListener, Injector, afterNextRender, computed, inject, signal } from '@angular/core';
+import { ElementRef, Component, HostListener, Injector, afterNextRender, computed, effect, inject, signal, untracked } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { AuthService } from '../core/auth.service';
@@ -8,8 +8,9 @@ import { IconComponent } from '../shared/icon';
 import { DensityService } from '../core/density.service';
 import { ThemeService } from '../core/theme.service';
 import { readPref, writePref } from '../core/prefs';
-import { NAV_SECTIONS } from './nav';
-import { CommandPaletteComponent, PaletteService } from './command-palette';
+import { NAV_SECTIONS, visibleNav } from './nav';
+import { BranchSwitcher } from './branch-switch';
+import { CommandPaletteComponent, PALETTE_SHORTCUT, PaletteService } from './command-palette';
 
 const SIDEBAR_KEY = 'erpcafe.sidebar';
 
@@ -54,8 +55,8 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
               <span class="crumb-section">{{ pageTitle().section }}</span><span class="crumb-sep" aria-hidden="true">/</span><b>{{ pageTitle().label }}</b>
             }
           </div>
-          <button type="button" class="palette-trigger" (click)="palette.open()" aria-label="Search or jump to (Control K)">
-            <app-icon name="search" [size]="15" /><span class="pt-txt">Search or jump to…</span><kbd>⌘K</kbd>
+          <button type="button" class="palette-trigger" (click)="palette.open()" [attr.aria-label]="'Search or jump to (' + shortcut.aria + ')'">
+            <app-icon name="search" [size]="15" /><span class="pt-txt">Search or jump to…</span><kbd>{{ shortcut.kbd }}</kbd>
           </button>
           <div class="spacer"></div>
           <div class="branch-switch">
@@ -101,6 +102,8 @@ export class ShellComponent {
   theme = inject(ThemeService);
   density = inject(DensityService);
   palette = inject(PaletteService);
+  shortcut = PALETTE_SHORTCUT;
+  private switcher = inject(BranchSwitcher);
 
   mobileNav = signal(false);
   private allBranches = signal<BranchResponse[]>([]);
@@ -133,12 +136,7 @@ export class ShellComponent {
     return best ? { section: best.section, label: best.label } : { section: 'ERP-Cafe', label: '' };
   });
 
-  visibleSections = computed(() => {
-    this.auth.me(); // track permission changes
-    return NAV_SECTIONS
-      .map((s) => ({ ...s, items: s.items.filter((i) => !i.perms || this.auth.canAny(...i.perms)) }))
-      .filter((s) => s.items.length > 0);
-  });
+  visibleSections = computed(() => visibleNav(this.auth));
 
   initials = computed(() => {
     const email = this.auth.me()?.email ?? '';
@@ -146,6 +144,8 @@ export class ShellComponent {
   });
 
   constructor() {
+    // the palette sits over everything: close the other popups so one Esc closes one layer
+    effect(() => { if (this.palette.isOpen()) untracked(() => { this.userMenu.set(false); this.mobileNav.set(false); }); });
     // hydrate identity + branch list on entry
     if (this.auth.isAuthenticated() && !this.auth.me()) {
       this.auth.loadMe().subscribe({ next: () => this.loadBranches() });
@@ -225,11 +225,7 @@ export class ShellComponent {
   onBranchChange(e: Event) {
     const id = (e.target as HTMLSelectElement).value;
     if (!id) return;
-    this.auth.setActiveBranch(id);
-    // permissions follow the branch, but route guards run only on navigation: leave a page this branch closes
-    const path = this.router.url.split(/[?#]/)[0];
-    const page = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.path === path);
-    if (page?.perms && !this.auth.canAny(...page.perms)) void this.router.navigateByUrl('/');
+    this.switcher.switchTo(id);
   }
 
   async logout() { await this.auth.logout(); location.href = '/login'; }

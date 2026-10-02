@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
@@ -234,8 +235,11 @@ export class PurchaseOrdersComponent {
   /** `?new=1` from the command palette opens the create dialog */
   new = input<string>();
 
+  private router = inject(Router);
+  private canWrite = computed(() => this.auth.can('purchasing:write'));
+
   constructor() {
-    effect(() => { if (this.new() === '1' && this.auth.can('purchasing:write')) untracked(() => this.openNew()); });
+    effect(() => { if (this.new() === '1' && this.canWrite()) untracked(() => { this.openNew(); void this.router.navigate([], { queryParams: { new: null }, queryParamsHandling: 'merge', replaceUrl: true }); }); });
     // runs once at start and again whenever the till switches branch, so no other branch's orders linger
     effect(() => {
       this.auth.activeBranchId();

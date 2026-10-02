@@ -174,4 +174,23 @@ describe('ShellComponent layout', () => {
       fixture.nativeElement.remove();
     });
   });
+
+  it('the top-bar trigger opens the palette with focus in the search field', () => {
+    const f = TestBed.createComponent(ShellComponent);
+    f.detectChanges();
+    (f.nativeElement.querySelector('.palette-trigger') as HTMLElement).click();
+    f.detectChanges();
+    expect(document.activeElement).toBe(f.nativeElement.querySelector('.palette-input'));
+  });
+
+  it('closes the account menu and mobile drawer when the palette opens', () => {
+    const f = TestBed.createComponent(ShellComponent);
+    f.detectChanges();
+    f.componentInstance.userMenu.set(true);
+    f.componentInstance.mobileNav.set(true);
+    f.componentInstance.palette.open();
+    f.detectChanges();
+    expect(f.componentInstance.userMenu()).toBe(false);
+    expect(f.componentInstance.mobileNav()).toBe(false);
+  });
 });

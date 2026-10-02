@@ -1,4 +1,4 @@
-import { Component, ElementRef, HostListener, Injectable, afterNextRender, computed, inject, input, signal, Injector } from '@angular/core';
+import { Component, ElementRef, HostListener, Injectable, Injector, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { BranchResponse } from '../core/models';
@@ -6,9 +6,13 @@ import { writePref } from '../core/prefs';
 import { ThemeService } from '../core/theme.service';
 import { IconComponent } from '../shared/icon';
 import { OverlayStack } from '../shared/overlay-stack';
-import { NAV_SECTIONS } from './nav';
+import { BranchSwitcher } from './branch-switch';
+import { visibleNav } from './nav';
 
 const RECENT_KEY = 'erpcafe.recent';
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/** The shortcut as shown on screen and read aloud: ⌘K on macOS, Ctrl K elsewhere. */
+export const PALETTE_SHORTCUT = IS_MAC ? { kbd: '⌘K', aria: 'Command K' } : { kbd: 'Ctrl K', aria: 'Control K' };
 const GROUPS: Command['group'][] = ['Recent', 'Go to', 'Actions'];
 
 /** One thing the palette can do: where it sits, how it reads and what it runs. */
@@ -39,7 +43,12 @@ export class PaletteService {
   private state = signal(false);
   readonly isOpen = this.state.asReadonly();
 
-  open() { this.overlays.push(this); this.state.set(true); }
+  /** Opens unless a dialog or drawer is already up. */
+  open() {
+    if (!this.state() && this.overlays.size > 0) return;
+    this.overlays.push(this);
+    this.state.set(true);
+  }
   close() { this.overlays.remove(this); this.state.set(false); }
   toggle() { if (this.state()) this.close(); else this.open(); }
 }
@@ -51,26 +60,30 @@ export class PaletteService {
   imports: [IconComponent],
   template: `
     @if (palette.isOpen()) {
-      <div class="palette-backdrop" (click)="palette.close()">
-        <div class="palette glass" role="dialog" aria-modal="true" aria-label="Command palette" (click)="$event.stopPropagation()">
-          <input #field class="palette-input" role="combobox" aria-expanded="true" aria-controls="palette-list"
-                 aria-label="Search commands" [attr.aria-activedescendant]="activeId()" autocomplete="off"
+      <div class="palette-backdrop" role="presentation" (click)="$event.target === $event.currentTarget && palette.close()">
+        <div class="palette glass" role="dialog" aria-modal="true" aria-label="Command palette">
+          <label for="palette-input" class="sr-only">Search or jump to</label>
+          <input #field id="palette-input" class="palette-input" role="combobox" aria-expanded="true" aria-controls="palette-list"
+                 [attr.aria-activedescendant]="activeId()" autocomplete="off"
                  placeholder="Search or jump to…" [value]="query()" (input)="onInput($event)" />
-          <ul id="palette-list" role="listbox" aria-label="Commands">
-            @for (c of results(); track c.id; let i = $index) {
-              @if (i === 0 || results()[i - 1].group !== c.group) {
-                <li role="presentation" class="palette-group">{{ c.group }}</li>
-              }
-              <li role="option" class="palette-row" [id]="'cmd-' + c.id" [attr.aria-selected]="i === active()"
-                  (click)="run(c)" (mousemove)="active.set(i)">
-                <app-icon [name]="c.icon" [size]="16" aria-hidden="true" />
-                <span class="palette-label">{{ c.label }}</span>
-                @if (c.hint) { <kbd>{{ c.hint }}</kbd> }
-              </li>
-            } @empty {
-              <li class="palette-empty">No matches for "{{ query() }}"</li>
+          <div id="palette-list" role="listbox" aria-label="Commands" (mousedown)="$event.preventDefault()">
+            @for (g of groups(); track g.name; let gi = $index) {
+              <div role="group" [attr.aria-labelledby]="'palette-g-' + gi">
+                <div class="palette-group" role="presentation" [id]="'palette-g-' + gi">{{ g.name }}</div>
+                @for (r of g.items; track r.c.id) {
+                  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events -->
+                  <div role="option" tabindex="-1" class="palette-row" [id]="'cmd-' + r.c.id" [attr.aria-selected]="r.i === active()"
+                       (click)="run(r.c)" (mousemove)="active.set(r.i)">
+                    <app-icon [name]="r.c.icon" [size]="16" aria-hidden="true" />
+                    <span class="palette-label">{{ r.c.label }}</span>
+                    @if (r.c.hint) { <kbd>{{ r.c.hint }}</kbd> }
+                  </div>
+                }
+              </div>
             }
-          </ul>
+          </div>
+          @if (!results().length) { <div class="palette-empty" aria-hidden="true">No matches for "{{ query() }}"</div> }
+          <div class="sr-only" role="status" aria-live="polite">{{ results().length ? results().length + ' results' : 'No matches for "' + query() + '"' }}</div>
         </div>
       </div>
     }
@@ -83,12 +96,14 @@ export class PaletteService {
     .palette-input { width: 100%; padding: 1rem 1.25rem; font: inherit; font-size: 16px; color: var(--text);
       background: transparent; border: 0; border-bottom: 1px solid var(--hairline); }
     .palette-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-    ul { list-style: none; margin: 0; padding: .4rem; overflow-y: auto; }
+    #palette-list { margin: 0; padding: .4rem; overflow-y: auto; }
     .palette-group { padding: .6rem .75rem .25rem; font-size: 11px; text-transform: uppercase;
       letter-spacing: .06em; color: var(--text-muted); }
     .palette-row { display: flex; align-items: center; gap: .75rem; min-height: 44px; padding: 0 .75rem;
-      border-radius: var(--radius-md); cursor: pointer; color: var(--text); }
-    .palette-row[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-text); }
+      border-radius: var(--radius-sm); cursor: pointer; color: var(--text); }
+    .palette-row:focus { outline: none; }
+    .palette-row[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-text); box-shadow: inset 2px 0 0 var(--accent); }
+    @media (forced-colors: active) { .palette-row[aria-selected='true'] { outline: 2px solid Highlight; } }
     .palette-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     kbd { margin-left: auto; font-size: 11px; color: var(--text-muted); }
     .palette-empty { padding: 1rem .75rem; color: var(--text-muted); }
@@ -104,19 +119,15 @@ export class CommandPaletteComponent {
   private theme = inject(ThemeService);
   private overlays = inject(OverlayStack);
   private injector = inject(Injector);
-  private host = inject(ElementRef<HTMLElement>);
+  private switcher = inject(BranchSwitcher);
+  private field = viewChild<ElementRef<HTMLInputElement>>('field');
   private opener: HTMLElement | null = null;
 
   query = signal('');
   active = signal(0);
   private recent = signal<string[]>(readRecent());
 
-  private nav = computed(() => {
-    this.auth.me(); // track permission changes
-    return NAV_SECTIONS.flatMap((s) => s.items
-      .filter((i) => !i.perms || this.auth.canAny(...i.perms))
-      .map((i) => ({ ...i, section: s.title })));
-  });
+  private nav = computed(() => visibleNav(this.auth).flatMap((s) => s.items.map((i) => ({ ...i, section: s.title }))));
 
   private commands = computed<Command[]>(() => {
     this.auth.me();
@@ -125,6 +136,7 @@ export class CommandPaletteComponent {
     const recents: Command[] = this.recent()
       .map((p) => nav.find((n) => n.path === p))
       .filter((n) => !!n)
+      .slice(0, 4)
       .map((n) => ({ id: 'recent:' + n.path, group: 'Recent' as const, label: n.label, icon: n.icon, hint: n.section, run: go(n.path) }));
     const goTo: Command[] = nav.map((n) => ({ id: 'go:' + n.path, group: 'Go to' as const, label: n.label, icon: n.icon, hint: n.section, run: go(n.path) }));
     const actions: Command[] = [];
@@ -134,8 +146,8 @@ export class CommandPaletteComponent {
     to('act:new-order', 'New order', 'cart', 'sales:write', '/pos');
     to('act:new-po', 'New purchase order', 'clipboard', 'purchasing:write', '/inventory/purchase-orders?new=1');
     to('act:adjust', 'Adjust stock', 'sliders', 'inventory:write', '/inventory/stock?action=adjust');
-    for (const b of this.branches()) {
-      actions.push({ id: 'branch:' + b.id, group: 'Actions', label: 'Switch branch: ' + b.name, icon: 'pin', run: () => this.auth.setActiveBranch(b.id) });
+    for (const b of this.branches().filter((x) => x.id !== this.auth.activeBranchId())) {
+      actions.push({ id: 'branch:' + b.id, group: 'Actions', label: 'Switch branch: ' + b.name, icon: 'pin', run: () => this.switcher.switchTo(b.id) });
     }
     actions.push({ id: 'act:theme', group: 'Actions', label: 'Change theme', icon: 'moon', run: () => this.theme.cycle() });
     actions.push({ id: 'act:signout', group: 'Actions', label: 'Sign out', icon: 'logout', run: async () => { await this.auth.logout(); location.href = '/login'; } });
@@ -148,7 +160,41 @@ export class CommandPaletteComponent {
     return filterCommands(all, q);
   });
 
+  /** results grouped for display, each row carrying its index in the flat list */
+  groups = computed(() => {
+    const all = this.results();
+    return GROUPS
+      .map((name) => ({ name, items: all.map((c, i) => ({ c, i })).filter((r) => r.c.group === name) }))
+      .filter((g) => g.items.length);
+  });
+
   activeId = computed(() => { const c = this.results()[this.active()]; return c ? 'cmd-' + c.id : null; });
+
+  constructor() {
+    // every way of opening or closing lands here: focus in on open, reset and focus back on close
+    effect(() => {
+      if (this.palette.isOpen()) {
+        untracked(() => {
+          this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          afterNextRender(() => this.field()?.nativeElement.focus(), { injector: this.injector });
+        });
+      } else {
+        untracked(() => {
+          this.query.set('');
+          this.active.set(0);
+          this.opener?.focus();
+          this.opener = null;
+        });
+      }
+    });
+    // keep the highlighted row visible in the scrolling list
+    effect(() => {
+      const id = this.activeId();
+      if (id && this.palette.isOpen()) {
+        afterNextRender(() => document.getElementById(id)?.scrollIntoView?.({ block: 'nearest' }), { injector: this.injector });
+      }
+    });
+  }
 
   onInput(e: Event) {
     this.query.set((e.target as HTMLInputElement).value);
@@ -156,16 +202,8 @@ export class CommandPaletteComponent {
   }
 
   run(c: Command) {
-    this.close();
-    c.run();
-  }
-
-  private close() {
     this.palette.close();
-    this.query.set('');
-    this.active.set(0);
-    this.opener?.focus();
-    this.opener = null;
+    c.run();
   }
 
   private remember(path: string) {
@@ -176,13 +214,11 @@ export class CommandPaletteComponent {
 
   @HostListener('document:keydown', ['$event'])
   onKey(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    if (e.isComposing) return;
+    if ((IS_MAC ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
-      if (this.palette.isOpen()) { if (this.overlays.isTop(this.palette, e)) this.close(); return; }
-      if (this.overlays.size > 0) return; // a dialog or drawer is up
-      this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      this.palette.open();
-      afterNextRender(() => (this.host.nativeElement as HTMLElement).querySelector<HTMLInputElement>('.palette-input')?.focus(), { injector: this.injector });
+      if (!this.palette.isOpen()) this.palette.open();
+      else if (this.overlays.isTop(this.palette, e)) this.palette.close();
       return;
     }
     if (!this.palette.isOpen() || !this.overlays.isTop(this.palette, e)) return;
@@ -191,7 +227,7 @@ export class CommandPaletteComponent {
       case 'ArrowDown': e.preventDefault(); if (n) this.active.set((this.active() + 1) % n); break;
       case 'ArrowUp': e.preventDefault(); if (n) this.active.set((this.active() - 1 + n) % n); break;
       case 'Enter': { e.preventDefault(); const c = this.results()[this.active()]; if (c) this.run(c); break; }
-      case 'Escape': e.preventDefault(); this.close(); break;
+      case 'Escape': e.preventDefault(); this.palette.close(); break;
       case 'Tab': e.preventDefault(); break; // focus stays in the search field
     }
   }
@@ -201,6 +237,6 @@ export class CommandPaletteComponent {
 function readRecent(): string[] {
   try {
     const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
-    return Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string').slice(0, 4) : [];
+    return Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string') : [];
   } catch { return []; }
 }

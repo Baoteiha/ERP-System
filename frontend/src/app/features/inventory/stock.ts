@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { IngredientResponse, MovementResponse, MovementType, StockItemResponse } from '../../core/models';
@@ -174,8 +175,11 @@ export class StockComponent {
   /** `?action=adjust` from the command palette opens the adjust dialog */
   action = input<string>();
 
+  private router = inject(Router);
+  private canWrite = computed(() => this.auth.can('inventory:write'));
+
   constructor() {
-    effect(() => { if (this.action() === 'adjust' && this.auth.can('inventory:write')) untracked(() => this.openAction('adjust')); });
+    effect(() => { if (this.action() === 'adjust' && this.canWrite()) untracked(() => { this.openAction('adjust'); void this.router.navigate([], { queryParams: { action: null }, queryParamsHandling: 'merge', replaceUrl: true }); }); });
     // runs once at start and again whenever the till switches branch, so no other branch's rows linger
     effect(() => {
       this.auth.activeBranchId();

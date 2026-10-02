@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { StockComponent } from './stock';
 
@@ -70,5 +71,40 @@ describe('StockComponent', () => {
     expect(stock.pinIcon('WASTE')).toBe('trash');
     expect(stock.pinClass('PURCHASE_RECEIPT')).toBe('pin-green');
     expect(stock.pinClass('SALE_DEPLETION')).toBe('pin-azure');
+  });
+});
+
+describe('StockComponent route intent', () => {
+  let router: Router;
+  const setup = (perms: string[], param: string) => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const auth = TestBed.inject(AuthService);
+    auth.me.set({ userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1'], roles: [], permissions: perms, permissionsByBranch: { b1: perms } });
+    auth.setActiveBranch('b1');
+    router = TestBed.inject(Router);
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const f = TestBed.createComponent(StockComponent);
+    f.componentRef.setInput('action', param);
+    TestBed.tick();
+    return { f, nav, ctrl: TestBed.inject(HttpTestingController) };
+  };
+
+  it('opens the dialog once with the permission, and clears the param', () => {
+    const { f, nav, ctrl } = setup(['inventory:write'], 'adjust');
+    expect(f.componentInstance.mode() === 'adjust').toBe(true);
+    expect(nav).toHaveBeenCalledWith([], { queryParams: { action: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    ctrl.match(() => true);
+    void f;
+  });
+
+  it('does nothing without the permission', () => {
+    const { nav, f, ctrl } = setup([], 'adjust');
+    expect(f.componentInstance.mode() === 'adjust').toBe(false);
+    expect(nav).not.toHaveBeenCalled();
+    ctrl.match(() => true);
+    void f;
   });
 });

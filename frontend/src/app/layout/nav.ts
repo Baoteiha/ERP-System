@@ -1,3 +1,4 @@
+import type { AuthService } from '../core/auth.service';
 /** A sidebar link: where it goes, its icon, and the permissions that reveal it. */
 export interface NavItem { label: string; icon: string; path: string; perms?: string[]; }
 /** A titled group of sidebar links. */
@@ -38,3 +39,11 @@ export const NAV_SECTIONS: NavSection[] = [
     { label: 'Roles', path: '/org/roles', perms: ['role:read'], icon: 'key' },
   ]},
 ];
+
+/** The sections whose links the user may open; reads `me` so it follows permission changes. */
+export function visibleNav(auth: AuthService): NavSection[] {
+  auth.me();
+  return NAV_SECTIONS
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.perms || auth.canAny(...i.perms)) }))
+    .filter((s) => s.items.length > 0);
+}
