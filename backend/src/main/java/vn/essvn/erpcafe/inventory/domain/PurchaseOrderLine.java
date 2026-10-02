@@ -14,8 +14,10 @@ import vn.essvn.erpcafe.common.domain.Money;
 
 /**
  * One ingredient line of a {@link PurchaseOrder}: how much was ordered, how much
- * has been received so far, and the agreed unit cost. The FK to the order is
- * managed by {@code PurchaseOrder.lines}.
+ * has been received so far, and the agreed unit cost. Quantities and cost are all
+ * counted in the line's own {@code unit} (the one it is bought in, whether taken from
+ * an {@link Item} or given with the ingredient), not the ingredient's base unit; the
+ * ledger converts on receipt. The FK to the order is managed by {@code PurchaseOrder.lines}.
  */
 @Entity
 @Table(name = "purchase_order_line")
@@ -23,6 +25,13 @@ public class PurchaseOrderLine extends BaseEntity {
 
     @Column(name = "ingredient_id", nullable = false)
     private UUID ingredientId;
+
+    /** The item the line was created from, or null when it was made from an ingredient and a unit. */
+    @Column(name = "item_id")
+    private UUID itemId;
+
+    @Column(name = "unit", nullable = false, length = 16)
+    private String unit;
 
     @Column(name = "ordered_qty", nullable = false, precision = 19, scale = 4)
     private BigDecimal orderedQty;
@@ -40,14 +49,24 @@ public class PurchaseOrderLine extends BaseEntity {
     protected PurchaseOrderLine() {
     }
 
-    public PurchaseOrderLine(UUID ingredientId, BigDecimal orderedQty, Money unitCost) {
+    public PurchaseOrderLine(UUID itemId, UUID ingredientId, String unit, BigDecimal orderedQty, Money unitCost) {
+        this.itemId = itemId;
         this.ingredientId = ingredientId;
+        this.unit = unit;
         this.orderedQty = orderedQty;
         this.unitCost = unitCost;
     }
 
     public UUID getIngredientId() {
         return ingredientId;
+    }
+
+    public UUID getItemId() {
+        return itemId;
+    }
+
+    public String getUnit() {
+        return unit;
     }
 
     public BigDecimal getOrderedQty() {

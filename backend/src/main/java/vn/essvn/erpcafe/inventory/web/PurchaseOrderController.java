@@ -61,7 +61,7 @@ public class PurchaseOrderController {
     @PreAuthorize("hasAuthority('purchasing:write')")
     public ResponseEntity<PurchaseOrderResponse> create(@Valid @RequestBody CreatePurchaseOrderRequest request) {
         List<LineInput> lines = request.lines().stream()
-                .map(l -> new LineInput(l.ingredientId(), l.orderedQty(), l.unitCost()))
+                .map(l -> new LineInput(l.itemId(), l.ingredientId(), l.unit(), l.orderedQty(), l.unitCost()))
                 .toList();
         PurchaseOrderResponse body = toResponse(
                 purchaseOrderService.create(request.supplierId(), request.note(), lines));
@@ -98,7 +98,7 @@ public class PurchaseOrderController {
     }
 
     private static PoLineResponse toLine(PurchaseOrderLine l) {
-        return new PoLineResponse(l.getId(), l.getIngredientId(), l.getOrderedQty(),
+        return new PoLineResponse(l.getId(), l.getItemId(), l.getIngredientId(), l.getUnit(), l.getOrderedQty(),
                 l.getReceivedQty(), MoneyDto.from(l.getUnitCost()));
     }
 }

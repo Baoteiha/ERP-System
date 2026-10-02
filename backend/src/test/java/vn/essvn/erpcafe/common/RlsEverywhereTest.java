@@ -188,8 +188,8 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + "?, 0, ?, ?, 'ADJUSTMENT', 5, now(), now())", UUID.randomUUID(), branch, ingredient);
         db.update("INSERT INTO purchase_order (id, version, branch_id, supplier_id, status, " + audit
                 + "?, 0, ?, ?, 'DRAFT', now(), now())", purchaseOrder, branch, supplier);
-        db.update("INSERT INTO purchase_order_line (id, version, purchase_order_id, ingredient_id, ordered_qty)"
-                + " VALUES (?, 0, ?, ?, 1000)", UUID.randomUUID(), purchaseOrder, ingredient);
+        db.update("INSERT INTO purchase_order_line (id, version, purchase_order_id, ingredient_id, ordered_qty, unit)"
+                + " VALUES (?, 0, ?, ?, 1000, 'g')", UUID.randomUUID(), purchaseOrder, ingredient);
         db.update("INSERT INTO sales_order (id, version, branch_id, order_type, status, currency, " + audit
                 + "?, 0, ?, 'DINE_IN', 'PAID', 'VND', now(), now())", order, branch);
         db.update("INSERT INTO order_line (id, version, order_id, product_id, product_name, quantity, line_total)"

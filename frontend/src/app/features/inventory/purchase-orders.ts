@@ -3,11 +3,18 @@ import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
-import { CreatePurchaseOrderRequest, IngredientResponse, PoLineRequest, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
+import { IngredientResponse, ItemResponse, PoLineRequest, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { unitsFor } from '../../core/units';
 import { MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+
+/** A line as edited: `source` is `item:<id>` or `ingredient:<id>`, `unit` only matters for an ingredient. */
+interface LineForm { source: string; unit: string; orderedQty: string; unitCost: string; }
+interface PoForm { supplierId: string; note: string; lines: LineForm[]; }
+const newLine = (): LineForm => ({ source: '', unit: '', orderedQty: '', unitCost: '' });
+const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] });
 
 @Component({
   selector: 'app-purchase-orders',
@@ -73,9 +80,9 @@ import { IconComponent } from '../../shared/icon';
                   @for (l of po.lines; track l.id) {
                     <tr>
                       <td>{{ ingredientName(l.ingredientId) }}</td>
-                      <td class="num">{{ l.orderedQty }} <span class="unit">{{ unitOf(l.ingredientId) }}</span></td>
-                      <td class="num">{{ l.receivedQty }} <span class="unit">{{ unitOf(l.ingredientId) }}</span></td>
-                      <td class="num">{{ l.unitCost | money }} <span class="unit">per {{ unitOf(l.ingredientId) }}</span></td>
+                      <td class="num">{{ l.orderedQty }} <span class="unit">{{ l.unit }}</span></td>
+                      <td class="num">{{ l.receivedQty }} <span class="unit">{{ l.unit }}</span></td>
+                      <td class="num">{{ l.unitCost | money }} <span class="unit">per {{ l.unit }}</span></td>
                     </tr>
                   }
                 </tbody>
@@ -92,7 +99,7 @@ import { IconComponent } from '../../shared/icon';
       <app-modal title="New purchase order" (close)="creating.set(false)">
         <div class="field">
           <label for="po-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
-          <select id="po-supplier" class="select" [(ngModel)]="form.supplierId" required>
+          <select id="po-supplier" class="select" [ngModel]="form.supplierId" (ngModelChange)="onSupplierChange($event)" required>
             <option value="">Select supplier</option>
             @for (s of suppliers(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
           </select>
@@ -101,17 +108,31 @@ import { IconComponent } from '../../shared/icon';
         <div class="line-editor">
           @for (line of form.lines; track $index; let idx = $index) {
             <div class="po-line">
-              <select class="select" [(ngModel)]="line.ingredientId" aria-label="Ingredient">
-                <option value="">Ingredient</option>
-                @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }}</option> }
-              </select>
+              <div class="source">
+                <select class="select" [ngModel]="line.source" (ngModelChange)="pickSource(line, $event)" aria-label="Item or ingredient">
+                  <option value="">Item or ingredient</option>
+                  @if (supplierItems().length) {
+                    <optgroup label="Supplier items">
+                      @for (it of supplierItems(); track it.id) { <option [value]="'item:' + it.id">{{ it.name }} ({{ it.unit }})</option> }
+                    </optgroup>
+                  }
+                  <optgroup label="Ingredients">
+                    @for (i of ingredients(); track i.id) { <option [value]="'ingredient:' + i.id">{{ i.name }}</option> }
+                  </optgroup>
+                </select>
+                @if (line.source.startsWith('ingredient:')) {
+                  <select class="select" [(ngModel)]="line.unit" aria-label="Unit">
+                    @for (u of unitChoices(line); track u.value) { <option [value]="u.value">{{ u.value }}</option> }
+                  </select>
+                }
+              </div>
               <div class="with-unit">
                 <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" aria-label="Quantity" />
-                <span class="unit">{{ unitOf(line.ingredientId) }}</span>
+                <span class="unit">{{ editorUnit(line) }}</span>
               </div>
               <div class="with-unit">
                 <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" aria-label="Unit cost" />
-                @if (unitOf(line.ingredientId); as u) { <span class="unit">per {{ u }}</span> }
+                @if (editorUnit(line); as u) { <span class="unit">per {{ u }}</span> }
               </div>
               <button class="btn btn-ghost btn-icon" (click)="removeLine(idx)" aria-label="Remove line"><app-icon name="close" [size]="16" /></button>
             </div>
@@ -178,6 +199,7 @@ import { IconComponent } from '../../shared/icon';
     .unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
     .detail .unit { color: var(--paper-ink-soft); }
     .compact th, .compact td { padding: .65rem .55rem; }
+    .source { display: grid; gap: .35rem; min-width: 0; }
     .line-editor { display: grid; gap: .65rem; }
     .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 140px 170px 40px; gap: .5rem; align-items: center; }
     .po-line.receive { grid-template-columns: 1fr 140px 190px; }
@@ -198,8 +220,13 @@ export class PurchaseOrdersComponent {
   selected = signal<PurchaseOrderResponse | null>(null);
   creating = signal(false);
   receiving = signal<PurchaseOrderResponse | null>(null);
-  form: CreatePurchaseOrderRequest = { supplierId: '', note: '', lines: [{ ingredientId: '', orderedQty: '', unitCost: '' }] };
+  allItems = signal<ItemResponse[]>([]);
+  form: PoForm = newForm();
   receiveLines: { lineId: string; receivedQty: string; unitCostOverride?: string | null }[] = [];
+
+  // the picked supplier's catalogue; the form re-reads it as the supplier changes
+  private formSupplier = signal('');
+  supplierItems = computed(() => this.allItems().filter((i) => i.active && i.supplierId === this.formSupplier()));
 
   selectedTotal = computed(() => this.selected() ? this.total(this.selected()!) : '0');
 
@@ -215,6 +242,7 @@ export class PurchaseOrdersComponent {
     this.loading.set(true);
     this.api.listIngredients().subscribe({ next: (i) => this.ingredients.set(i) });
     this.api.listSuppliers().subscribe({ next: (s) => this.suppliers.set(s) });
+    this.api.listItems().subscribe({ next: (i) => this.allItems.set(i) });
     const branch = this.auth.activeBranchId();
     this.api.listPurchaseOrders().subscribe({
       // a slow answer for a branch the till has since left must not overwrite the current one
@@ -227,17 +255,32 @@ export class PurchaseOrdersComponent {
     });
   }
 
-  openNew() { this.form = { supplierId: '', note: '', lines: [{ ingredientId: '', orderedQty: '', unitCost: '' }] }; this.creating.set(true); }
-  addLine() { this.form.lines.push({ ingredientId: '', orderedQty: '', unitCost: '' }); }
+  openNew() { this.form = newForm(); this.formSupplier.set(''); this.creating.set(true); }
+  addLine() { this.form.lines.push(newLine()); }
+  onSupplierChange(id: string) {
+    this.form.supplierId = id;
+    this.formSupplier.set(id);
+    // an item belongs to one supplier, so lines picked from the previous one no longer apply
+    this.form.lines.filter((l) => l.source.startsWith('item:')).forEach((l) => Object.assign(l, newLine()));
+  }
+  pickSource(line: LineForm, source: string) {
+    line.source = source;
+    line.unit = source.startsWith('ingredient:') ? this.unitOf(source.slice(11)) : '';
+  }
+  private itemOf(line: LineForm) { return this.allItems().find((i) => i.id === line.source.slice(5)); }
+  /** The unit the line is counted and priced in: the item's, or the ingredient unit picked. */
+  editorUnit(line: LineForm) {
+    if (line.source.startsWith('item:')) return this.itemOf(line)?.unit ?? '';
+    return line.source.startsWith('ingredient:') ? line.unit : '';
+  }
+  /** Only units of the ingredient's own dimension; conversion never crosses one. */
+  unitChoices(line: LineForm) { return unitsFor(this.unitOf(line.source.slice(11))); }
   removeLine(idx: number) { if (this.form.lines.length > 1) this.form.lines.splice(idx, 1); }
   select(po: PurchaseOrderResponse) { this.selected.set(po); }
 
   supplierName(id: string) { return this.suppliers().find((s) => s.id === id)?.name ?? id.slice(0, 8); }
   unitOf(ingredientId: string) { return this.ingredients().find((i) => i.id === ingredientId)?.baseUnit ?? ''; }
-  lineUnit(lineId: string) {
-    const line = this.receiving()?.lines.find((l) => l.id === lineId);
-    return line ? this.unitOf(line.ingredientId) : '';
-  }
+  lineUnit(lineId: string) { return this.receiving()?.lines.find((l) => l.id === lineId)?.unit ?? ''; }
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
   lineIngredientName(lineId: string) {
     const line = this.receiving()?.lines.find((l) => l.id === lineId);
@@ -264,12 +307,18 @@ export class PurchaseOrdersComponent {
   }
 
   save() {
-    if (!this.form.supplierId || this.form.lines.some((l: PoLineRequest) => !l.ingredientId || !l.orderedQty || !l.unitCost)) {
+    if (!this.form.supplierId || this.form.lines.some((l) => !l.source || !l.orderedQty || !l.unitCost)) {
       this.toast.error('Supplier and all line fields are required');
       return;
     }
     this.saving.set(true);
-    this.api.createPurchaseOrder(this.form).subscribe({
+    const lines: PoLineRequest[] = this.form.lines.map((l) => {
+      const base = { orderedQty: l.orderedQty, unitCost: l.unitCost };
+      return l.source.startsWith('item:')
+        ? { itemId: l.source.slice(5), ...base }
+        : { ingredientId: l.source.slice(11), unit: l.unit, ...base };
+    });
+    this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines }).subscribe({
       next: (po) => { this.saving.set(false); this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); },
       error: () => this.saving.set(false),
     });

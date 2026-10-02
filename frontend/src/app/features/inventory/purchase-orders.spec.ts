@@ -25,6 +25,7 @@ describe('PurchaseOrdersComponent', () => {
     TestBed.tick();
     ctrl.expectOne('/api/v1/ingredients').flush([]);
     ctrl.expectOne('/api/v1/suppliers').flush([]);
+    ctrl.expectOne('/api/v1/items').flush([]);
     ctrl.expectOne(url('/api/v1/purchase-orders')).flush(page([po('a1', 'b1')]));
   });
 
@@ -34,6 +35,7 @@ describe('PurchaseOrdersComponent', () => {
     orders.load(); // branch A's load, still in flight
     ctrl.expectOne('/api/v1/ingredients').flush([]);
     ctrl.expectOne('/api/v1/suppliers').flush([]);
+    ctrl.expectOne('/api/v1/items').flush([]);
     const lateA = ctrl.expectOne(url('/api/v1/purchase-orders'));
 
     TestBed.inject(AuthService).setActiveBranch('b2');
@@ -41,10 +43,39 @@ describe('PurchaseOrdersComponent', () => {
     expect(orders.items()).toEqual([]);
     ctrl.expectOne('/api/v1/ingredients').flush([]);
     ctrl.expectOne('/api/v1/suppliers').flush([]);
+    ctrl.expectOne('/api/v1/items').flush([]);
     ctrl.expectOne(url('/api/v1/purchase-orders')).flush(page([po('b-1', 'b2')]));
 
     lateA.flush(page([po('a1', 'b1')]));
 
     expect(orders.items().map((p) => p.id)).toEqual(['b-1']);
+  });
+
+  it('sends an item line as itemId, and an ingredient line with its chosen unit', () => {
+    orders.allItems.set([{ id: 'i1', supplierId: 's1', ingredientId: 'g1', unit: 'kg', active: true } as never]);
+    orders.ingredients.set([{ id: 'g1', baseUnit: 'g' } as never]);
+    orders.openNew();
+    orders.onSupplierChange('s1');
+    orders.form.note = '';
+    orders.addLine();
+    orders.pickSource(orders.form.lines[0], 'item:i1');
+    orders.pickSource(orders.form.lines[1], 'ingredient:g1');
+    orders.form.lines[1].unit = 'kg';
+    orders.form.lines.forEach((l) => { l.orderedQty = '10'; l.unitCost = '210000'; });
+
+    expect(orders.editorUnit(orders.form.lines[0])).toBe('kg');
+    expect(orders.unitChoices(orders.form.lines[1]).map((u) => u.value)).toEqual(['mg', 'g', 'kg']);
+
+    orders.save();
+    const req = ctrl.expectOne(url('/api/v1/purchase-orders'));
+    expect(req.request.body.lines).toEqual([
+      { itemId: 'i1', orderedQty: '10', unitCost: '210000' },
+      { ingredientId: 'g1', unit: 'kg', orderedQty: '10', unitCost: '210000' },
+    ]);
+    req.flush(po('p1', 'b1'));
+    ctrl.expectOne('/api/v1/ingredients').flush([]);
+    ctrl.expectOne('/api/v1/suppliers').flush([]);
+    ctrl.expectOne('/api/v1/items').flush([]);
+    ctrl.expectOne(url('/api/v1/purchase-orders')).flush(page([]));
   });
 });

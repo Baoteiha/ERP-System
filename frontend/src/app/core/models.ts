@@ -162,12 +162,14 @@ export interface ReorderLevelRequest { ingredientId: UUID; reorderLevel: string;
 
 export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
 export interface PoLineResponse {
-  id: UUID; ingredientId: UUID; orderedQty: string; receivedQty: string; unitCost: Money;
+  id: UUID; itemId?: UUID; ingredientId: UUID; unit: string; orderedQty: string; receivedQty: string;
+  unitCost: Money;
 }
 export interface PurchaseOrderResponse {
   id: UUID; branchId: UUID; supplierId: UUID; status: string; note?: string; lines: PoLineResponse[];
 }
-export interface PoLineRequest { ingredientId: UUID; orderedQty: string; unitCost: string; }
+// A line is an item (unit comes from it) or an ingredient + unit — never both. Qty and cost are per `unit`.
+export interface PoLineRequest { itemId?: UUID; ingredientId?: UUID; unit?: string; orderedQty: string; unitCost: string; }
 export interface CreatePurchaseOrderRequest { supplierId: UUID; note?: string; lines: PoLineRequest[]; }
 export interface ReceiptRequest { lineId: UUID; receivedQty: string; unitCostOverride?: string | null; }
 export interface ReceiveRequest { receipts: ReceiptRequest[]; }

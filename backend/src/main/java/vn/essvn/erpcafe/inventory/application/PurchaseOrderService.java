@@ -13,15 +13,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
+import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
+import vn.essvn.erpcafe.inventory.domain.Item;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderLine;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
+import vn.essvn.erpcafe.inventory.persistence.ItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.PurchaseOrderRepository;
 import vn.essvn.erpcafe.inventory.persistence.SupplierRepository;
 
@@ -39,14 +42,16 @@ public class PurchaseOrderService {
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final SupplierRepository supplierRepository;
     private final IngredientRepository ingredientRepository;
+    private final ItemRepository itemRepository;
     private final StockLedgerService ledger;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
             SupplierRepository supplierRepository, IngredientRepository ingredientRepository,
-            StockLedgerService ledger) {
+            ItemRepository itemRepository, StockLedgerService ledger) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.supplierRepository = supplierRepository;
         this.ingredientRepository = ingredientRepository;
+        this.itemRepository = itemRepository;
         this.ledger = ledger;
     }
 
@@ -71,8 +76,7 @@ public class PurchaseOrderService {
         }
         PurchaseOrder order = new PurchaseOrder(supplierId, activeBranch(), note);
         for (LineInput line : lines) {
-            requireIngredient(line.ingredientId());
-            order.addLine(new PurchaseOrderLine(line.ingredientId(), line.orderedQty(), Money.of(line.unitCost())));
+            order.addLine(toLine(line));
         }
         return purchaseOrderRepository.save(order);
     }
@@ -119,24 +123,56 @@ public class PurchaseOrderService {
             if (qty == null || qty.signum() <= 0) {
                 throw new BusinessRuleException("Received quantity must be positive");
             }
-            BigDecimal costOverride = receipt.unitCostOverride();
-            // A delivery may be counted in any unit of the ingredient's dimension (ADR-0006). The
-            // outstanding check speaks base units, so convert through the ledger's single path; the
-            // cost override is per received unit and is re-rated per base unit the same way.
+            // The line is counted and priced in its own unit; a delivery may be counted in any unit of
+            // the same dimension (ADR-0006) and defaults to the line's. The outstanding check speaks the
+            // line's unit, while the ledger takes the receipt's unit and a cost per BASE unit, so costs
+            // are re-rated through its single path (210,000 per kg is 210 per g).
             UUID branchId = order.getBranchId();
-            BigDecimal baseQty = ledger.toBase(branchId, line.getIngredientId(), qty, receipt.unit());
-            if (costOverride != null) {
-                costOverride = ledger.toBaseRate(branchId, line.getIngredientId(), costOverride, receipt.unit());
-            }
-            if (baseQty.compareTo(line.outstandingQty()) > 0) {
+            Unit lineUnit = Unit.parse(line.getUnit());
+            Unit receiptUnit = receipt.unit() == null || receipt.unit().isBlank()
+                    ? lineUnit : Unit.parse(receipt.unit());
+            BigDecimal lineQty = Unit.convert(qty, receiptUnit, lineUnit);
+            if (lineQty.compareTo(line.outstandingQty()) > 0) {
                 throw new BusinessRuleException("Received quantity exceeds outstanding for line " + line.getId());
             }
-            Money unitCost = costOverride != null ? Money.of(costOverride) : line.getUnitCost();
-            line.receive(baseQty);
-            ledger.receive(branchId, line.getIngredientId(), qty, receipt.unit(), unitCost, REF_TYPE, order.getId());
+            BigDecimal unitCost = receipt.unitCostOverride() != null
+                    ? ledger.toBaseRate(branchId, line.getIngredientId(), receipt.unitCostOverride(),
+                            receiptUnit.symbol())
+                    : ledger.toBaseRate(branchId, line.getIngredientId(), line.getUnitCost().getAmount(),
+                            lineUnit.symbol());
+            line.receive(lineQty);
+            ledger.receive(branchId, line.getIngredientId(), qty, receiptUnit.symbol(), Money.of(unitCost),
+                    REF_TYPE, order.getId());
         }
         order.refreshReceiptStatus();
         return order;
+    }
+
+    // A line is an item (it fixes ingredient and unit) or an ingredient with a unit, never both: two
+    // sources could disagree. An ingredient alone keeps the old meaning, its base unit.
+    private PurchaseOrderLine toLine(LineInput line) {
+        if (line.itemId() != null) {
+            if (line.ingredientId() != null || line.unit() != null) {
+                throw new BusinessRuleException("A line is an item, or an ingredient with a unit, not both");
+            }
+            // Items are tenant-owned, so another company's item is simply not found.
+            Item item = itemRepository.findById(line.itemId())
+                    .orElseThrow(() -> ResourceNotFoundException.of("Item", line.itemId()));
+            return new PurchaseOrderLine(item.getId(), item.getIngredientId(), item.getUnit(),
+                    line.orderedQty(), Money.of(line.unitCost()));
+        }
+        if (line.ingredientId() == null) {
+            throw new BusinessRuleException("A line needs an item, or an ingredient");
+        }
+        Ingredient ingredient = requireIngredient(line.ingredientId());
+        Unit base = Unit.parse(ingredient.getBaseUnit());
+        Unit unit = line.unit() == null || line.unit().isBlank() ? base : Unit.parse(line.unit());
+        if (!unit.isCompatibleWith(base)) {
+            throw new BusinessRuleException("Cannot buy %s in %s: it is counted in %s"
+                    .formatted(ingredient.getName(), unit.symbol(), base.symbol()));
+        }
+        return new PurchaseOrderLine(null, ingredient.getId(), unit.symbol(), line.orderedQty(),
+                Money.of(line.unitCost()));
     }
 
     private void requireSupplier(UUID supplierId) {
@@ -144,8 +180,8 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Supplier", supplierId));
     }
 
-    private void requireIngredient(UUID ingredientId) {
-        ingredientRepository.findById(ingredientId)
+    private Ingredient requireIngredient(UUID ingredientId) {
+        return ingredientRepository.findById(ingredientId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Ingredient", ingredientId));
     }
 

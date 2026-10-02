@@ -179,6 +179,43 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
+    @Test
+    void purchaseLine_cannotReferenceAnotherCompanysItem() throws Exception {
+        int n = SEQ.incrementAndGet();
+        String admin = adminToken();
+        String branchA = firstBranch(admin);
+        TenantB b = seedOtherCompany(n);
+
+        String supplierA = JsonPath.read(createJson(admin, branchA, "/api/v1/suppliers",
+                "{\"name\":\"SupItem%d\"}".formatted(n)), "$.id");
+        String ingredientA = JsonPath.read(createJson(admin, branchA, "/api/v1/ingredients",
+                "{\"name\":\"BeansItem%d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
+        String itemA = JsonPath.read(createJson(admin, branchA, "/api/v1/items",
+                "{\"name\":\"Arabica\",\"supplierId\":\"%s\",\"ingredientId\":\"%s\",\"unit\":\"kg\"}"
+                        .formatted(supplierA, ingredientA)), "$.id");
+        String supplierB = JsonPath.read(createJson(b.token(), b.branchId(), "/api/v1/suppliers",
+                "{\"name\":\"SupItemB%d\"}".formatted(n)), "$.id");
+
+        mockMvc.perform(post("/api/v1/purchase-orders")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
+                        .header("X-Branch-Id", b.branchId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
+                                .formatted(supplierB, itemA)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
+        // Nothing was created for B, and A's item is untouched.
+        mockMvc.perform(get("/api/v1/purchase-orders")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
+                        .header("X-Branch-Id", b.branchId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+        mockMvc.perform(get("/api/v1/items/" + itemA).header(HttpHeaders.AUTHORIZATION, authHeader(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unit").value("kg"));
+    }
+
     // --- helpers ---
 
     private record TenantB(String token, String branchId) {

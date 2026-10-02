@@ -15,7 +15,9 @@ import vn.essvn.erpcafe.common.web.MoneyDto;
 public final class PurchaseOrderDtos {
 
     public record PoLineRequest(
-            @NotNull UUID ingredientId,
+            UUID itemId,
+            UUID ingredientId,
+            @Size(max = 16) String unit,
             @NotNull @Positive BigDecimal orderedQty,
             @NotNull @PositiveOrZero BigDecimal unitCost) {
     }
@@ -39,7 +41,9 @@ public final class PurchaseOrderDtos {
 
     public record PoLineResponse(
             UUID id,
+            UUID itemId,
             UUID ingredientId,
+            String unit,
             BigDecimal orderedQty,
             BigDecimal receivedQty,
             MoneyDto unitCost) {
