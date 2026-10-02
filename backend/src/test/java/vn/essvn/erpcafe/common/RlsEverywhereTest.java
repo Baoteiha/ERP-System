@@ -526,7 +526,9 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 owner().execute("GRANT " + strayOwner + " TO erp_app");
                 try {
                     assertThat(catchThrowable(() -> flyway(url, role, "unused", null).migrate()))
-                            .hasStackTraceContaining("erp_app owns a table");
+                            .hasStackTraceContaining("erp_app owns, itself or through a role it is a member of,"
+                                    + " these tables: stray")
+                            .hasStackTraceContaining("REVOKE");
                 } finally {
                     owner().execute("REVOKE " + strayOwner + " FROM erp_app");
                 }
