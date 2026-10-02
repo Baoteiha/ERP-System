@@ -8,14 +8,14 @@ import { ConfirmService } from '../../core/confirm.service';
 import { OrderResponse, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
-import { MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
 @Component({
   selector: 'app-orders',
   standalone: true,
-  imports: [FormsModule, RouterLink, DatePipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, RouterLink, DatePipe, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -35,8 +35,8 @@ import { IconComponent } from '../../shared/icon';
                   <tr (click)="select(o)" [class.row-selected]="detailOpen() && selected()?.id === o.id">
                     <td><button type="button" class="row-open" (click)="select(o); $event.stopPropagation()"><b class="mono">{{ o.id | shortId }}</b></button><div class="soft">{{ o.lines.length }} line(s)</div></td>
                     <td>{{ o.createdAt | date:'short' }}</td>
-                    <td>{{ o.orderType }}</td>
-                    <td><span class="badge dot" [class]="statusClass(o.status)">{{ o.status }}</span></td>
+                    <td>{{ o.orderType | label }}</td>
+                    <td><span class="badge dot" [class]="statusClass(o.status)">{{ o.status | label }}</span></td>
                     <td class="num">{{ o.grandTotal | money:o.currency }}</td>
                     <td class="num">{{ o.amountPaid | money:o.currency }}</td>
                   </tr>
@@ -57,7 +57,7 @@ import { IconComponent } from '../../shared/icon';
       <app-modal variant="drawer" [width]="560" [title]="'Order ' + (o.id | shortId)" (close)="detailOpen.set(false)">
         <div class="detail-title">
           <div class="sub">{{ o.createdAt | date:'medium' }}</div>
-          <span class="badge dot" [class]="statusClass(o.status)">{{ o.status }}</span>
+          <span class="badge dot" [class]="statusClass(o.status)">{{ o.status | label }}</span>
         </div>
 
         <div class="totals">
@@ -84,7 +84,7 @@ import { IconComponent } from '../../shared/icon';
 
         <div class="section-title">Payments</div>
         @for (p of o.payments; track p.at + p.method + p.type) {
-          <div class="payment-row"><span>{{ p.method }} · {{ p.type }}</span><b>{{ p.amount | money:o.currency }}</b></div>
+          <div class="payment-row"><span>{{ p.method | label }} · {{ p.type | label }}</span><b>{{ p.amount | money:o.currency }}</b></div>
         } @empty { <div class="soft">No payments yet</div> }
 
         <div footer class="action-bar">

@@ -4,8 +4,8 @@ import { Subject, catchError, forkJoin, of, switchMap } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { CatalogService, InventoryService, ReportingService, SalesService } from '../../core/api.services';
-import { MoneyPipe, ShortIdPipe } from '../../core/util';
-import { OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
+import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
+import { IngredientResponse, OrderResponse, PeriodSummary, StockItemResponse } from '../../core/models';
 import { IconComponent } from '../../shared/icon';
 import { KpiTileComponent } from '../../shared/kpi-tile';
 import { reportPeriod, zeroFillDays } from '../reports/reports';
@@ -20,7 +20,7 @@ export function pct(cur: number, prev: number): number | null {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, MoneyPipe, ShortIdPipe, IconComponent, KpiTileComponent],
+  imports: [RouterLink, MoneyPipe, ShortIdPipe, LabelPipe, IconComponent, KpiTileComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -71,9 +71,9 @@ export function pct(cur: number, prev: number): number | null {
                   <tbody>
                     @for (o of orders().slice(0, 8); track o.id) {
                       <tr>
-                        <td class="mono">#{{ o.id | shortId }}</td>
-                        <td>{{ o.orderType }}</td>
-                        <td><span class="badge dot" [class]="statusClass(o.status)">{{ o.status }}</span></td>
+                        <td class="mono">{{ o.id | shortId }}</td>
+                        <td>{{ o.orderType | label }}</td>
+                        <td><span class="badge dot" [class]="statusClass(o.status)">{{ o.status | label }}</span></td>
                         <td class="num">{{ o.grandTotal | money }}</td>
                       </tr>
                     } @empty {
@@ -105,9 +105,9 @@ export function pct(cur: number, prev: number): number | null {
               } @else {
                 @for (s of lowStock().slice(0, 8); track s.ingredientId) {
                   <div class="low-row">
-                    <span class="mono">{{ s.ingredientId | shortId }}</span>
+                    <span>{{ ingredientNames().get(s.ingredientId) ?? (s.ingredientId | shortId) }}</span>
                     <span class="spacer"></span>
-                    <span class="num soft">{{ s.quantityOnHand }} on hand</span>
+                    <span class="num soft">{{ s.quantityOnHand }}{{ unitOf(s.ingredientId) }} on hand</span>
                     <span class="badge dot badge-red"><app-icon name="boxes" [size]="12" aria-hidden="true" /> reorder {{ s.reorderLevel }}</span>
                   </div>
                 } @empty {
@@ -146,6 +146,8 @@ export class DashboardComponent {
 
   orders = signal<OrderResponse[]>([]);
   lowStock = signal<StockItemResponse[]>([]);
+  private ingredients = signal<IngredientResponse[]>([]);
+  ingredientNames = computed(() => new Map(this.ingredients().map((i) => [i.id, i.name])));
   productCount = signal(0);
   ordersState = signal<LoadState>('loading');
   salesState = signal<LoadState>('loading');
@@ -227,11 +229,15 @@ export class DashboardComponent {
     this.stockLoad$.pipe(
       switchMap(() => {
         this.stockState.set('loading');
-        return this.inventory.lowStock().pipe(catchError(() => of(null)));
+        return forkJoin({
+          low: this.inventory.lowStock(),
+          // names are a nicety: without them a row falls back to the short id
+          names: this.inventory.listIngredients().pipe(catchError(() => of([] as IngredientResponse[]))),
+        }).pipe(catchError(() => of(null)));
       }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((l) => {
-      if (l) { this.lowStock.set(l); this.stockState.set('ready'); } else this.stockState.set('error');
+      if (l) { this.lowStock.set(l.low); this.ingredients.set(l.names); this.stockState.set('ready'); } else this.stockState.set('error');
     });
 
     this.productsLoad$.pipe(
@@ -253,6 +259,12 @@ export class DashboardComponent {
     load(this.canReport, this.salesState, () => this.loadSales());
     load(this.canInventory, this.stockState, () => this.loadStock());
     load(this.canCatalog, this.productsState, () => this.loadProducts());
+  }
+
+  /** The ingredient's unit with a leading space, or nothing while it is unknown. */
+  unitOf(id: string): string {
+    const unit = this.ingredients().find((i) => i.id === id)?.baseUnit;
+    return unit ? ' ' + unit : '';
   }
 
   loadOrders() { this.ordersLoad$.next(); }

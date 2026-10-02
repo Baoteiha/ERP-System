@@ -226,3 +226,26 @@ describe('ShellComponent layout', () => {
     });
   });
 });
+
+describe('ShellComponent branch selector', () => {
+  it('shows the active branch as selected', async () => {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideRouter([{ path: '', component: BlankComponent }]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const auth = TestBed.inject(AuthService);
+    auth.me.set({
+      userId: 'u', email: 'a@b.c', companyId: 'co', branchIds: ['b1', 'b2', 'b3'], roles: [],
+      permissions: [], permissionsByBranch: { b1: [], b2: [], b3: [] },
+    });
+    auth.setActiveBranch('b2');
+    const fixture = TestBed.createComponent(ShellComponent);
+    const branch = (id: string, name: string) => ({ id, companyId: 'co', name, code: id.toUpperCase(), active: true });
+    TestBed.inject(HttpTestingController).expectOne((r) => r.url.endsWith('/branches'))
+      .flush({ content: [branch('b1', 'One'), branch('b2', 'Two'), branch('b3', 'Three')], page: 0, size: 20, totalElements: 3, totalPages: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const select = (fixture.nativeElement as HTMLElement).querySelector('select[aria-label="Active branch"]') as HTMLSelectElement;
+    expect(select.selectedOptions[0].textContent?.trim()).toBe('Two · B2');
+  });
+});

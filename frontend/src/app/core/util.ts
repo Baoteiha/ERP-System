@@ -32,3 +32,13 @@ export class ShortIdPipe implements PipeTransform {
     return value ? '#' + value.slice(0, 6) : '—';
   }
 }
+
+/** Turns a SNAKE_CASE enum value into sentence case, e.g. DINE_IN to "Dine in". */
+@Pipe({ name: 'label' })
+export class LabelPipe implements PipeTransform {
+  transform(value: string | null | undefined): string {
+    if (!value) return '—';
+    const words = value.toLowerCase().replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+}

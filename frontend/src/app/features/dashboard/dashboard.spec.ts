@@ -67,6 +67,7 @@ describe('DashboardComponent', () => {
     ctrl.expectOne((r) => r.url === '/api/v1/orders').flush(page);
     ctrl.expectOne((r) => r.url === '/api/v1/products').flush(page);
     ctrl.expectOne('/api/v1/stock/low').flush([]);
+    ctrl.expectOne('/api/v1/ingredients').flush([]);
     TestBed.tick(); f.detectChanges();
     const labels = [...text(f).querySelectorAll('.kpi-label')].map((e) => e.textContent);
     expect(labels).toEqual(['Recent orders', 'Active products', 'Low-stock items']);
@@ -102,5 +103,27 @@ describe('DashboardComponent', () => {
     expect(alert?.textContent).toContain("Couldn't load today's figures.");
     (alert!.querySelector('button') as HTMLButtonElement).click();
     expect(ctrl.match(isReport).length).toBe(3);
+  });
+
+  it('shows one hash on the order id, with the type and status as words', () => {
+    const f = start(['sales:read']);
+    const order = { id: '3bd21b99-0000', orderType: 'DINE_IN', status: 'COMPLETED', grandTotal: '10000', currency: 'VND', lines: [], payments: [] };
+    ctrl.expectOne((r) => r.url === '/api/v1/orders').flush({ ...page, content: [order] });
+    TestBed.tick(); f.detectChanges();
+    const row = text(f).querySelector('tbody tr')!.textContent!;
+    expect(row).toContain('#3bd21b');
+    expect(row).not.toContain('##');
+    expect(row).toContain('Dine in');
+    expect(row).toContain('Completed');
+  });
+
+  it('names the ingredient in a low-stock row, with its unit', () => {
+    const f = start(['inventory:read']);
+    ctrl.expectOne('/api/v1/stock/low').flush([{ ingredientId: 'abcdef123', branchId: 'b1', quantityOnHand: '500', reorderLevel: '1000', avgUnitCost: { amount: '1', currency: 'VND' }, belowReorderLevel: true }]);
+    ctrl.expectOne('/api/v1/ingredients').flush([{ id: 'abcdef123', companyId: 'c', name: 'Arabica beans', baseUnit: 'g', active: true, version: 0 }]);
+    TestBed.tick(); f.detectChanges();
+    const row = text(f).querySelector('.low-row')!.textContent!;
+    expect(row).toContain('Arabica beans');
+    expect(row).toContain('500 g on hand');
   });
 });

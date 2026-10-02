@@ -61,10 +61,10 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
           </button>
           <div class="spacer"></div>
           <div class="branch-switch">
-            <select class="select" [value]="auth.activeBranchId() || ''" (change)="onBranchChange($event)" aria-label="Active branch">
+            <select class="select" (change)="onBranchChange($event)" aria-label="Active branch">
               @if (!branches().length) { <option value="">No branches</option> }
               @for (b of branches(); track b.id) {
-                <option [value]="b.id">{{ b.name }} · {{ b.code }}</option>
+                <option [value]="b.id" [selected]="b.id === auth.activeBranchId()">{{ b.name }} · {{ b.code }}</option>
               }
             </select>
           </div>
