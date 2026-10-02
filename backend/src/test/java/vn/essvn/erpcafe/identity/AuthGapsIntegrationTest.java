@@ -17,6 +17,11 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -482,7 +487,8 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
     void aPasswordResetByEmail_setsThePassword_andItsLinkWorksOnce(CapturedOutput output) throws Exception {
         String admin = adminToken();
         NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
-        String old = accessToken(user.email(), PASSWORD);
+        String session = loginBody(user.email(), PASSWORD);
+        String old = JsonPath.read(session, "$.accessToken");
 
         requestReset(user.email().toUpperCase()).andExpect(status().isAccepted());
         String token = mailedToken(output, user.email());
@@ -491,6 +497,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         assertThat(login(user.email(), "reset-pass-1", uniqueAddress())).isEqualTo(200);
         assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(401);
         expectStale(send(get("/api/v1/auth/me"), old, null, null));
+        refresh(JsonPath.read(session, "$.refreshToken")).andExpect(status().isUnprocessableEntity());
         confirmReset(token, "reset-pass-2")
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));
@@ -566,6 +573,90 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
 
         confirmReset(token, "reset-pass-6").andExpect(status().isUnprocessableEntity());
         assertThat(login(user.email(), "set-by-admin-1", uniqueAddress())).isEqualTo(200);
+    }
+
+    // --- the reset link's limits and races ---
+
+    private long openLinks(NewUser user) {
+        return owner().queryForObject("SELECT count(*) FROM password_reset_token WHERE user_id = ? AND used_at IS NULL",
+                Long.class, UUID.fromString(user.id()));
+    }
+
+    @Test
+    void anAccountGetsAtMostThreeOpenLinks(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+
+        for (int i = 0; i < 4; i++) {
+            requestReset(user.email()).andExpect(status().isAccepted());
+        }
+
+        assertThat(openLinks(user)).isEqualTo(3);
+        assertThat(output.getOut().split(Pattern.quote("Mail to " + user.email()), -1)).hasSize(4);
+    }
+
+    @Test
+    void confirmingOneLink_closesTheAccountsOthers(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String first = mailedToken(output, user.email());
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String second = mailedToken(output, user.email());
+
+        confirmReset(second, "reset-pass-7").andExpect(status().isNoContent());
+
+        confirmReset(first, "reset-pass-8").andExpect(status().isUnprocessableEntity());
+        assertThat(openLinks(user)).isZero();
+        assertThat(login(user.email(), "reset-pass-7", uniqueAddress())).isEqualTo(200);
+    }
+
+    @Test
+    void aLinkConfirmedForADisabledAccount_isRefused_andStaysOpen(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+        // disabled behind the app's back: disabling through it would close the link as well
+        owner().update("UPDATE app_user SET status = 'DISABLED' WHERE id = ?", UUID.fromString(user.id()));
+
+        confirmReset(token, "reset-pass-10").andExpect(status().isUnprocessableEntity());
+
+        assertThat(openLinks(user)).isEqualTo(1);
+        owner().update("UPDATE app_user SET status = 'ACTIVE' WHERE id = ?", UUID.fromString(user.id()));
+        assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(200);
+    }
+
+    @Test
+    void twoConfirmationsOfOneLinkAtOnce_exactlyOneSetsThePassword(CapturedOutput output) throws Exception {
+        String admin = adminToken();
+        NewUser user = userWithRole(admin, "CASHIER", firstBranch(admin));
+        requestReset(user.email()).andExpect(status().isAccepted());
+        String token = mailedToken(output, user.email());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Integer> statuses;
+        try {
+            List<Future<Integer>> confirmations = List.of(
+                    pool.submit(() -> {
+                        start.await(10, TimeUnit.SECONDS);
+                        return confirmReset(token, "race-pass-1").andReturn().getResponse().getStatus();
+                    }),
+                    pool.submit(() -> {
+                        start.await(10, TimeUnit.SECONDS);
+                        return confirmReset(token, "race-pass-2").andReturn().getResponse().getStatus();
+                    }));
+            start.countDown();
+            statuses = List.of(confirmations.get(0).get(30, TimeUnit.SECONDS),
+                    confirmations.get(1).get(30, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(statuses).containsExactlyInAnyOrder(204, 422);
+        String winner = statuses.get(0) == 204 ? "race-pass-1" : "race-pass-2";
+        assertThat(login(user.email(), winner, uniqueAddress())).isEqualTo(200);
     }
 }
 
