@@ -6,7 +6,8 @@ import { ReportingService } from '../../core/api.services';
 import { BranchPerformance, DailySales, PeriodSummary } from '../../core/models';
 import { MoneyPipe } from '../../core/util';
 import { IconComponent } from '../../shared/icon';
-import { SteamComponent } from '../../shared/steam';
+import { AvatarComponent } from '../../shared/avatar';
+import { KpiTileComponent } from '../../shared/kpi-tile';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type RangeDays = 7 | 30 | 90;
@@ -55,7 +56,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
 @Component({
   selector: 'app-reports',
   standalone: true,
-  imports: [DatePipe, MoneyPipe, IconComponent, SteamComponent],
+  imports: [DatePipe, MoneyPipe, IconComponent, AvatarComponent, KpiTileComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -69,16 +70,18 @@ function barPath(x: number, y: number, w: number, h: number): string {
 
       <!-- headline tiles -->
       @if (summaryState() === 'loading') {
-        <div class="card"><div class="brewing"><span class="brew-cup cup-steamed"><app-icon name="cup" [size]="20" /><app-steam /></span> Brewing numbers…</div></div>
+        <div class="tiles">
+          @for (n of [1, 2, 3, 4, 5]; track n) { <div class="card skeleton tile-skel"></div> }
+        </div>
       } @else if (summaryState() === 'error') {
         <div class="card"><div class="load-error" role="alert">Couldn't load the summary. <button type="button" class="btn btn-sm btn-outline" (click)="load()">Retry</button></div></div>
       } @else if (summary(); as s) {
         <div class="tiles">
-          <div class="tile grain"><div class="t-lbl">Net sales</div><div class="t-val">{{ s.netSales | money }}</div><div class="t-sub">{{ s.orderCount }} orders · {{ s.grandTotal | money }} with tax</div></div>
-          <div class="tile grain"><div class="t-lbl">COGS</div><div class="t-val">{{ s.cogs | money }}</div><div class="t-sub">stock used, net of reversals</div></div>
-          <div class="tile grain"><div class="t-lbl">Labor</div><div class="t-val">{{ s.laborCost | money }}</div><div class="t-sub">completed shifts</div></div>
-          <div class="tile grain"><div class="t-lbl">Gross margin</div><div class="t-val">{{ s.grossMargin | money }}</div><div class="t-sub">net sales − COGS</div></div>
-          <div class="tile grain"><div class="t-lbl">Net margin</div><div class="t-val" [class.neg]="isNeg(s.netMargin)">{{ s.netMargin | money }}</div><div class="t-sub">− labor</div></div>
+          <app-kpi-tile label="Net sales" icon="banknote" [value]="s.netSales | money" [trend]="trend()" />
+          <app-kpi-tile label="COGS" icon="package" [value]="s.cogs | money" [trend]="trend()" />
+          <app-kpi-tile label="Labor" icon="users" [value]="s.laborCost | money" [trend]="trend()" />
+          <app-kpi-tile label="Gross margin" icon="percent" [value]="s.grossMargin | money" [trend]="trend()" />
+          <app-kpi-tile label="Net margin" icon="trending-up" [value]="s.netMargin | money" [trend]="trend()" />
         </div>
       }
 
@@ -167,7 +170,7 @@ function barPath(x: number, y: number, w: number, h: number): string {
               <tbody>
                 @for (o of outlets(); track o.branchId) {
                   <tr>
-                    <td><span class="name-cell"><span class="mini-coin" aria-hidden="true"><app-icon name="store" [size]="14" /></span><b>{{ o.name }}</b></span></td>
+                    <td><span class="name-with-avatar"><app-avatar [name]="o.name" /><b>{{ o.name }}</b></span></td>
                     <td class="num">{{ o.summary.orderCount }}</td>
                     <td class="num">{{ o.summary.netSales | money }}</td>
                     <td class="num">{{ o.summary.cogs | money }}</td>
@@ -180,31 +183,27 @@ function barPath(x: number, y: number, w: number, h: number): string {
           </div>
         }
       </div>
-      <p class="soft asof">Period: last {{ rangeDays() }} days · {{ from() | date:'mediumDate' }} – {{ to() | date:'mediumDate' }}</p>
+      <p class="soft asof">@if (summary(); as s) { {{ s.orderCount }} orders · {{ s.grandTotal | money }} with tax · }Period: last {{ rangeDays() }} days · {{ from() | date:'mediumDate' }} – {{ to() | date:'mediumDate' }}</p>
     </div>
   `,
   styles: [`
-    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
-    .tile { padding: 1.1rem 1.2rem; background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); box-shadow: var(--shadow-sm), inset 0 0 0 6px color-mix(in srgb, var(--wood-mid) 20%, var(--surface)); }
-    .t-lbl { font-size: 12px; color: var(--text-muted); font-weight: 600; }
-    .t-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; margin-top: .2rem; }
-    .t-sub { font-size: 11.5px; color: var(--text-muted); margin-top: .15rem; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
+    .tile-skel { height: 118px; }
     .neg { color: var(--red); }
     .chart-card { margin-bottom: 1.2rem; }
     .chart-card .card-head h2 { font-size: 16px; }
-    .chart-wrap { position: relative; padding: .4rem 1.2rem 0; }
-    .chart { width: 100%; height: auto; display: block; }
+    .chart-wrap { position: relative; padding: .4rem 1.2rem 0; overflow-x: auto; }
+    .chart { width: 100%; min-width: 640px; max-width: 860px; margin: 0 auto; height: auto; display: block; }
     .grid { stroke: var(--border); stroke-width: 1; }
-    .tick { font-size: 10px; fill: var(--text-muted); font-family: var(--font-mono); }
+    .tick { font-size: 9px; fill: var(--text-muted); font-family: var(--font-mono); }
     .bar { transition: opacity var(--dur-1); cursor: default; }
     .bar.s1 { fill: var(--chart-1); }
     .bar.s2 { fill: var(--chart-2); }
     .chart-wrap:hover .bar:not(:hover) { opacity: .75; }
     .tip { position: absolute; transform: translate(-50%, -110%); pointer-events: none;
       display: flex; flex-direction: column; align-items: center; gap: 1px;
-      background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px;
-      padding: .3rem .55rem; box-shadow: var(--shadow-md); white-space: nowrap; z-index: 5; }
+      background: var(--surface-1); border: 1px solid var(--border-strong); border-radius: 8px;
+      padding: .3rem .55rem; box-shadow: var(--shadow-pop); white-space: nowrap; z-index: 5; }
     .tip b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; }
     .tip span { font-size: 10.5px; color: var(--text-muted); }
     .legend { display: flex; gap: .9rem; }
@@ -236,6 +235,7 @@ export class ReportsComponent {
   to = signal<Date>(new Date());
 
   private reload$ = new Subject<{ from: string; to: string; days: string[] }>();
+  trend = computed(() => this.days().map((d) => Number(d.netSales)));
   hasSales = computed(() => this.days().some((d) => d.orderCount > 0));
 
   constructor() {
