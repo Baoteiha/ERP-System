@@ -6,6 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { firstValueFrom } from 'rxjs';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from './auth.service';
+import { SUPPRESS_ERROR_TOAST } from './http.interceptors';
 import { MeResponse } from './models';
 
 describe('AuthService', () => {
@@ -119,17 +120,42 @@ describe('AuthService', () => {
       expect(localStorage.getItem('erpcafe.access')).toBe('fresh');
     });
 
-    it('clears the flag and stays signed out when the cookie refresh fails', async () => {
+    it.each([401, 422])('clears the flag and stays signed out when the server refuses the cookie with %i', async (status) => {
       localStorage.setItem('erpcafe.session', '1');
       const auth = setup();
 
       const done = auth.restoreSession();
-      ctrl.expectOne('/api/v1/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
+      ctrl.expectOne('/api/v1/auth/refresh').flush({}, { status, statusText: 'Refused' });
       await done;
 
       expect(auth.isAuthenticated()).toBe(false);
       expect(localStorage.getItem('erpcafe.session')).toBeNull();
       ctrl.expectNone('/api/v1/auth/logout');
+    });
+
+    it.each([0, 500, 503])('keeps the flag when the refresh fails with %i, so a later start can try again', async (status) => {
+      localStorage.setItem('erpcafe.session', '1');
+      const auth = setup();
+
+      const done = auth.restoreSession();
+      const req = ctrl.expectOne('/api/v1/auth/refresh');
+      if (status === 0) req.error(new ProgressEvent('error'));
+      else req.flush({}, { status, statusText: 'Down' });
+      await done;
+
+      expect(auth.isAuthenticated()).toBe(false);
+      expect(localStorage.getItem('erpcafe.session')).toBe('1');
+    });
+
+    it('asks the interceptor for no error toast', async () => {
+      localStorage.setItem('erpcafe.session', '1');
+      const auth = setup();
+
+      const done = auth.restoreSession();
+      const req = ctrl.expectOne('/api/v1/auth/refresh');
+      expect(req.request.context.get(SUPPRESS_ERROR_TOAST)).toBe(true);
+      req.flush({ accessToken: 'fresh', tokenType: 'Bearer' });
+      await done;
     });
   });
 
@@ -258,7 +284,7 @@ describe('AuthService', () => {
       it('refreshes inside the erpcafe-refresh lock', async () => {
         const request = stubLocks();
         localStorage.setItem('erpcafe.access', 'old');
-          const auth = setup();
+        const auth = setup();
 
         const done = firstValueFrom(auth.refresh());
         ctrl.expectOne('/api/v1/auth/refresh').flush({ accessToken: 'new', tokenType: 'Bearer' });
@@ -276,7 +302,7 @@ describe('AuthService', () => {
         });
         vi.stubGlobal('navigator', { locks: { request } });
         localStorage.setItem('erpcafe.access', 'old');
-          const auth = setup();
+        const auth = setup();
 
         const res = await firstValueFrom(auth.refresh());
 

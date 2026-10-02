@@ -1,8 +1,9 @@
 import { DestroyRef, Injectable, Injector, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, defer, firstValueFrom, from, of, tap, timeout } from 'rxjs';
 import { LoginRequest, MeResponse, TokenResponse } from './models';
+import { SUPPRESS_ERROR_TOAST } from './http.interceptors';
 import { COMPANY_LEVEL_PERMISSIONS } from './permissions';
 
 const ACCESS_KEY = 'erpcafe.access';
@@ -78,14 +79,15 @@ export class AuthService {
 
   /**
    * On app start: keep a stored access token, else try the cookie once, but only if this browser signed in
-   * before. Never rejects; a failed refresh leaves the visitor signed out.
+   * before. Never rejects; a failed refresh leaves the visitor signed out. Only a definitive refusal
+   * (401, 422) forgets the session: an offline or failing server keeps the flag for the next start.
    */
   async restoreSession(): Promise<void> {
     if (this.accessToken() || !this.canRefresh()) return;
     try {
-      await firstValueFrom(this.refresh());
-    } catch {
-      await this.logout(false);
+      await firstValueFrom(this.refresh(true));
+    } catch (e) {
+      if (e instanceof HttpErrorResponse && (e.status === 401 || e.status === 422)) await this.logout(false);
     }
   }
 
@@ -112,12 +114,12 @@ export class AuthService {
   }
 
   /** Rotates the tokens; tabs queue on one lock so a rotated refresh cookie is never replayed. */
-  refresh(): Observable<TokenResponse> {
+  refresh(quiet = false): Observable<TokenResponse> {
     const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    if (!locks) return this.callRefresh();
+    if (!locks) return this.callRefresh(quiet);
     const before = this.accessToken();
     return defer(() =>
-      from(locks.request(REFRESH_LOCK, () => firstValueFrom(this.refreshUnlessRotated(before)))),
+      from(locks.request(REFRESH_LOCK, () => firstValueFrom(this.refreshUnlessRotated(before, quiet)))),
     );
   }
 
@@ -125,19 +127,23 @@ export class AuthService {
    * Inside the lock: a different access token in storage than the one this call began with means another
    * tab already refreshed (the cookie is shared, so replaying it would look like theft); adopt that result.
    */
-  private refreshUnlessRotated(before: string | null): Observable<TokenResponse> {
+  private refreshUnlessRotated(before: string | null, quiet: boolean): Observable<TokenResponse> {
     const storedAccess = localStorage.getItem(ACCESS_KEY);
     if (storedAccess && storedAccess !== before) {
       this.syncTokensFromStorage();
       return of({ accessToken: storedAccess, tokenType: 'Bearer' });
     }
-    return this.callRefresh();
+    return this.callRefresh(quiet);
   }
 
   /** The refresh token rides in the cookie, so there is no body; the header is the CSRF guard the server demands. */
-  private callRefresh(): Observable<TokenResponse> {
+  private callRefresh(quiet: boolean): Observable<TokenResponse> {
     return this.http
-      .post<TokenResponse>(`${this.base}/refresh`, null, { withCredentials: true, headers: CSRF_HEADERS })
+      .post<TokenResponse>(`${this.base}/refresh`, null, {
+        withCredentials: true,
+        headers: CSRF_HEADERS,
+        context: new HttpContext().set(SUPPRESS_ERROR_TOAST, quiet),
+      })
       .pipe(tap((res) => this.storeTokens(res)));
   }
 

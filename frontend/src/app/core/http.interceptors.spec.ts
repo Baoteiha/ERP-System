@@ -81,6 +81,14 @@ describe('errorInterceptor', () => {
     expect(ok).toBe(true);
   });
 
+  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])('sends %s without an Authorization header, whatever is stored', (url) => {
+    expect(auth.accessToken()).toBe('old');
+
+    http.post(url, null).subscribe();
+
+    expect(ctrl.expectOne(url).request.headers.has('Authorization')).toBe(false);
+  });
+
   it('triggers exactly one refresh for concurrent 401s', () => {
     const done: string[] = [];
     http.get('/api/v1/a').subscribe(() => done.push('a'));

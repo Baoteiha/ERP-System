@@ -182,6 +182,8 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
                 .andReturn();
         String newRefresh = refreshCookieOf(refreshed);
         assertThat(newRefresh).isNotBlank().isNotEqualTo(refresh);
+        assertThat(refreshed.getResponse().getHeader(HttpHeaders.SET_COOKIE))
+                .contains("HttpOnly", "SameSite=Strict", "Path=/api/v1/auth");
 
         // the old (rotated) token can no longer be used
         mockMvc.perform(refreshRequest(refresh)).andExpect(status().isUnprocessableEntity());
