@@ -46,6 +46,7 @@ describe('LazyStage', () => {
     expect(hooks.build).toHaveBeenCalledWith(expect.objectContaining({ Scene: expect.any(Function) }), lazy.stage);
     expect(hooks.started).toHaveBeenCalledWith(lazy.scene, lazy.stage);
     expect(lazy.scene).toEqual({ stage: lazy.stage });
+    lazy.unmount(); // spec files share one document: a live stage would answer the next file's visibilitychange
   });
 
   it('keeps the stage while the host stays, and destroys it when the host goes', async () => {
@@ -73,6 +74,7 @@ describe('LazyStage', () => {
     expect(renderers[0].dispose).toHaveBeenCalled();
     expect(next.querySelector('canvas')).not.toBeNull();
     expect(lazy.host).toBe(next);
+    lazy.unmount();
     next.remove();
   });
 
