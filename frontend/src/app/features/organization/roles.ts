@@ -84,7 +84,7 @@ import { RoleResponse } from '../../core/models';
         <div class="perm-groups">
           @for (g of groups; track g.label) {
             <div class="perm-group">
-              <div class="pg-title">{{ g.label }}</div>
+              <h3 class="pg-title">{{ g.label }}</h3>
               @for (p of g.perms; track p.key) {
                 <label class="checkbox perm-item" [class.on]="selected().has(p.key)">
                   <input type="checkbox" [checked]="selected().has(p.key)" (change)="toggle(p.key)" />
@@ -107,9 +107,9 @@ import { RoleResponse } from '../../core/models';
     .role-name { display: flex; flex-direction: column; line-height: 1.3; }
     .role-desc { font-size: 12.5px; }
     .edit-note { margin-bottom: 1rem; }
-    .perm-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: 1rem; }
+    .perm-chips { display: flex; flex-wrap: wrap; gap: .45rem; min-width: 16rem; }
     .perm-chip { display: inline-flex; align-items: center; gap: .45rem; padding: .32rem .7rem;
-      border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; }
+      border-radius: 999px; white-space: nowrap; max-width: 100%; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; }
     .pc-domain { font-weight: 650; color: var(--text-soft); }
     .pc-act { font-weight: 600; }
     .pc-act + .pc-act::before { content: "·"; margin-right: .45rem; color: var(--border-strong); font-weight: 400; }
@@ -118,8 +118,9 @@ import { RoleResponse } from '../../core/models';
     .pc-refund { color: var(--red); }
     .perm-note { font-size: 12px; color: var(--text-muted); margin: 0 0 .9rem; }
     .perm-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.5rem; }
-    .pg-title { position: sticky; top: 0; z-index: 1; background: var(--surface-1); padding: .4rem 0; border-bottom: 1px solid var(--border);
-      font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; margin-bottom: .35rem; }
+    .pg-title { margin: 0 0 .35rem; position: sticky; top: 0; z-index: 1; background: var(--surface-1); padding: .4rem 0; border-bottom: 1px solid var(--border);
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 700; }
+    .perm-item input { margin-top: 2px; }
     .perm-item { display: flex; align-items: flex-start; padding: .35rem .5rem; border-radius: var(--radius); }
     .perm-item.on { background: var(--accent-soft); }
     .perm-item > span { display: flex; flex-direction: column; line-height: 1.3; }
@@ -165,7 +166,7 @@ export class RolesComponent {
    */
   permSummary(r: RoleResponse): { chips: { domain: string; actions: string[] }[]; extras: string[] } {
     const domains = [...new Set(ALL_PERMISSIONS.map((k) => k.split(':')[0]))];
-    const rank: Record<string, number> = { read: 0, write: 1, refund: 2 };
+    const rank: Record<string, number> = { read: 0, write: 1, refund: 2, clock: 3 };
     const byDomain = new Map<string, string[]>();
     const extras: string[] = [];
     for (const p of r.permissions ?? []) {

@@ -42,6 +42,13 @@ describe('BranchesComponent row actions', () => {
     expect(rowActions(fixture)).toEqual([['Edit', 'Delete Main'], []]);
   });
 
+  it('opens the editor from the name only on the branches where Edit is offered', () => {
+    const fixture = render(['MANAGER'], { b1: ['branch:read', 'branch:write'], b2: ['branch:read'] });
+    const rows = [...fixture.nativeElement.querySelectorAll('table.data tbody tr')] as HTMLElement[];
+
+    expect(rows.map((r) => !!r.querySelector('button.row-open'))).toEqual([true, false]);
+  });
+
   it('offers them on every branch to an owner', () => {
     const fixture = render(['OWNER'], { b1: ['branch:read'], b2: ['branch:read'] });
 

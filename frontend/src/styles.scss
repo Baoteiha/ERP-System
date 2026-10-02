@@ -216,7 +216,7 @@ textarea.input { padding: .6rem .8rem; resize: vertical; min-height: 88px; line-
   background-repeat: no-repeat; background-position: right .8rem center;
 }
 .checkbox { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; user-select: none; min-height: 32px; }
-.checkbox input { width: 18px; height: 18px; accent-color: var(--accent-fill); }
+.checkbox input { flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--accent-fill); }
 
 /* ---- panels (.card is the panel) -------------------------------------- */
 .card {
