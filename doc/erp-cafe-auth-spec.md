@@ -287,8 +287,10 @@ because the startup reconciliation matches them by name. A role still granted to
 someone cannot be deleted.
 
 There is deliberately **no hard delete** for users: orders, shifts and audit
-columns reference them, and the email unique constraint covers soft-deleted rows,
-so disabling is the correct primitive for offboarding.
+columns reference them, so disabling is the correct primitive for offboarding.
+An email is unique among live users only: the index (`uk_user_email_lower`,
+partial since V28_002) and the service's check agree, so a soft delete, should
+one be added, frees the address (`SchemaHygieneIntegrationTest`).
 
 ### AUTH-104 — Logout
 

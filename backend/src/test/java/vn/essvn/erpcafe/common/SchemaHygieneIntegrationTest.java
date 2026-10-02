@@ -39,7 +39,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: SchemaHygieneIntegrationTest
- * Purpose: Proves deleted names and codes can be reused, purchase orders list newest first, sales rows obey their constraints and V21 applies over legacy rows.
+ * Purpose: Proves deleted names, codes and emails can be reused, purchase orders list newest first, sales rows obey their constraints and V21 applies over legacy rows.
  */
 class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
 
@@ -152,6 +152,24 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
         String second = JsonPath.read(createOk("/api/v1/branches", body), "$.id");
         createdBranches.add(UUID.fromString(second));
         assertThat(second).isNotEqualTo(first);
+    }
+
+    @Test
+    void deletedUsersEmail_canBeUsedAgain_butALiveOnesCannot() throws Exception {
+        String email = "hyg-user%d@t.test".formatted(SEQ.incrementAndGet());
+        String body = "{\"email\":\"%s\",\"password\":\"password123\",\"fullName\":\"Hyg\"}";
+        String first = JsonPath.read(createOk("/api/v1/users", body.formatted(email)), "$.id");
+        // no endpoint deletes a user; soft-deleted as User's @SQLDelete would
+        jdbc.update("UPDATE app_user SET deleted = TRUE WHERE id = ?", UUID.fromString(first));
+
+        String again = JsonPath.read(createOk("/api/v1/users", body.formatted(email.toUpperCase())), "$.id");
+
+        assertThat(again).isNotEqualTo(first);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO app_user (id, version, company_id, email, password_hash,"
+                + " status, created_at, updated_at) SELECT ?, 0, company_id, upper(email), 'x', 'ACTIVE', now(), now()"
+                + " FROM app_user WHERE id = ?", UUID.randomUUID(), UUID.fromString(again)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("uk_user_email_lower");
     }
 
     @Test
