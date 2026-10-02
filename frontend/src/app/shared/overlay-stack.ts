@@ -10,6 +10,9 @@ export class OverlayStack {
   /** The top overlay as it was when each event first arrived. */
   private readonly topAtEvent = new WeakMap<Event, object | undefined>();
 
+  /** How many overlays are open. */
+  get size(): number { return this.open.length; }
+
   push(overlay: object) { if (!this.open.includes(overlay)) this.open.push(overlay); }
   remove(overlay: object) {
     const i = this.open.indexOf(overlay);

@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
@@ -231,7 +231,11 @@ export class PurchaseOrdersComponent {
 
   selectedTotal = computed(() => this.selected() ? this.total(this.selected()!) : '0');
 
+  /** `?new=1` from the command palette opens the create dialog */
+  new = input<string>();
+
   constructor() {
+    effect(() => { if (this.new() === '1' && this.auth.can('purchasing:write')) untracked(() => this.openNew()); });
     // runs once at start and again whenever the till switches branch, so no other branch's orders linger
     effect(() => {
       this.auth.activeBranchId();

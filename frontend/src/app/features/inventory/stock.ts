@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
@@ -93,29 +93,29 @@ type StockMode = 'adjust' | 'waste' | 'reorder';
       <app-modal [title]="modalTitle()" (close)="mode.set(null)">
         <div class="field">
           <label for="stock-ingredient">Ingredient <span class="req" aria-hidden="true">*</span></label>
-          <select id="stock-ingredient" class="select" [(ngModel)]="action.ingredientId" (ngModelChange)="onIngredientChange()" required>
+          <select id="stock-ingredient" class="select" [(ngModel)]="form.ingredientId" (ngModelChange)="onIngredientChange()" required>
             <option value="">Select ingredient</option>
             @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }} ({{ i.baseUnit }})</option> }
           </select>
         </div>
         @if (mode() === 'adjust') {
-          <div class="field"><label for="stock-qty-delta">Quantity delta</label><input id="stock-qty-delta" class="input" type="number" step="0.001" [(ngModel)]="action.quantityDelta" placeholder="-2.5 or 10" /></div>
+          <div class="field"><label for="stock-qty-delta">Quantity delta</label><input id="stock-qty-delta" class="input" type="number" step="0.001" [(ngModel)]="form.quantityDelta" placeholder="-2.5 or 10" /></div>
           <div class="field"><label for="stock-unit-adjust">Unit</label>
-            <select id="stock-unit-adjust" class="select" [(ngModel)]="action.unit">
+            <select id="stock-unit-adjust" class="select" [(ngModel)]="form.unit">
               @for (u of unitOptions(); track u.value) { <option [value]="u.value">{{ u.label }}</option> }
             </select></div>
-          <div class="field"><label for="stock-note-adjust">Note</label><input id="stock-note-adjust" class="input" [(ngModel)]="action.note" /></div>
+          <div class="field"><label for="stock-note-adjust">Note</label><input id="stock-note-adjust" class="input" [(ngModel)]="form.note" /></div>
         }
         @if (mode() === 'waste') {
-          <div class="field"><label for="stock-qty-waste">Quantity wasted</label><input id="stock-qty-waste" class="input" type="number" min="0" step="0.001" [(ngModel)]="action.quantity" /></div>
+          <div class="field"><label for="stock-qty-waste">Quantity wasted</label><input id="stock-qty-waste" class="input" type="number" min="0" step="0.001" [(ngModel)]="form.quantity" /></div>
           <div class="field"><label for="stock-unit-waste">Unit</label>
-            <select id="stock-unit-waste" class="select" [(ngModel)]="action.unit">
+            <select id="stock-unit-waste" class="select" [(ngModel)]="form.unit">
               @for (u of unitOptions(); track u.value) { <option [value]="u.value">{{ u.label }}</option> }
             </select></div>
-          <div class="field"><label for="stock-note-waste">Note</label><input id="stock-note-waste" class="input" [(ngModel)]="action.note" /></div>
+          <div class="field"><label for="stock-note-waste">Note</label><input id="stock-note-waste" class="input" [(ngModel)]="form.note" /></div>
         }
         @if (mode() === 'reorder') {
-          <div class="field"><label for="stock-reorder">Reorder level</label><input id="stock-reorder" class="input" type="number" min="0" step="0.001" [(ngModel)]="action.reorderLevel" /></div>
+          <div class="field"><label for="stock-reorder">Reorder level</label><input id="stock-reorder" class="input" type="number" min="0" step="0.001" [(ngModel)]="form.reorderLevel" /></div>
         }
         <div footer>
           <button class="btn btn-outline" (click)="mode.set(null)">Cancel</button>
@@ -167,11 +167,15 @@ export class StockComponent {
   saving = signal(false);
   view = signal<'all' | 'low'>('all');
   mode = signal<StockMode | null>(null);
-  action = { ingredientId: '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
+  form = { ingredientId: '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
 
   filtered = computed(() => this.view() === 'low' ? this.stock().filter((s) => s.belowReorderLevel) : this.stock());
 
+  /** `?action=adjust` from the command palette opens the adjust dialog */
+  action = input<string>();
+
   constructor() {
+    effect(() => { if (this.action() === 'adjust' && this.auth.can('inventory:write')) untracked(() => this.openAction('adjust')); });
     // runs once at start and again whenever the till switches branch, so no other branch's rows linger
     effect(() => {
       this.auth.activeBranchId();
@@ -231,13 +235,13 @@ export class StockComponent {
 
   openAction(mode: StockMode) {
     this.mode.set(mode);
-    this.action = { ingredientId: this.selectedIngredientId() ?? '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
+    this.form = { ingredientId: this.selectedIngredientId() ?? '', quantityDelta: '', quantity: '', reorderLevel: '', unit: '', note: '' };
     this.onIngredientChange();
   }
 
   /** Only units of the ingredient's own dimension; the base unit is the default. */
-  unitOptions() { return unitsFor(this.baseUnitOf(this.action.ingredientId)); }
-  onIngredientChange() { this.action.unit = this.baseUnitOf(this.action.ingredientId) ?? ''; }
+  unitOptions() { return unitsFor(this.baseUnitOf(this.form.ingredientId)); }
+  onIngredientChange() { this.form.unit = this.baseUnitOf(this.form.ingredientId) ?? ''; }
   private baseUnitOf(id: string) { return this.ingredients().find((i) => i.id === id)?.baseUnit; }
 
   modalTitle() {
@@ -247,13 +251,13 @@ export class StockComponent {
   }
 
   saveAction() {
-    if (!this.action.ingredientId) { this.toast.error('Select an ingredient'); return; }
+    if (!this.form.ingredientId) { this.toast.error('Select an ingredient'); return; }
     this.saving.set(true);
     const mode = this.mode();
     const req =
-      mode === 'adjust' ? this.api.adjust({ ingredientId: this.action.ingredientId, quantityDelta: this.action.quantityDelta, unit: this.action.unit || undefined, note: this.action.note }) :
-      mode === 'waste' ? this.api.waste({ ingredientId: this.action.ingredientId, quantity: this.action.quantity, unit: this.action.unit || undefined, note: this.action.note }) :
-      this.api.setReorderLevel({ ingredientId: this.action.ingredientId, reorderLevel: this.action.reorderLevel });
+      mode === 'adjust' ? this.api.adjust({ ingredientId: this.form.ingredientId, quantityDelta: this.form.quantityDelta, unit: this.form.unit || undefined, note: this.form.note }) :
+      mode === 'waste' ? this.api.waste({ ingredientId: this.form.ingredientId, quantity: this.form.quantity, unit: this.form.unit || undefined, note: this.form.note }) :
+      this.api.setReorderLevel({ ingredientId: this.form.ingredientId, reorderLevel: this.form.reorderLevel });
     req.subscribe(afterSave(this.saving, () => { this.mode.set(null); this.toast.success('Stock updated'); this.load(); this.loadMovements(); }));
   }
 }

@@ -9,13 +9,14 @@ import { DensityService } from '../core/density.service';
 import { ThemeService } from '../core/theme.service';
 import { readPref, writePref } from '../core/prefs';
 import { NAV_SECTIONS } from './nav';
+import { CommandPaletteComponent, PaletteService } from './command-palette';
 
 const SIDEBAR_KEY = 'erpcafe.sidebar';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, CommandPaletteComponent],
   template: `
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="shell" [class.nav-open]="mobileNav()" [class.railed]="railed()">
@@ -53,7 +54,7 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
               <span class="crumb-section">{{ pageTitle().section }}</span><span class="crumb-sep" aria-hidden="true">/</span><b>{{ pageTitle().label }}</b>
             }
           </div>
-          <button type="button" class="palette-trigger" (click)="openPalette()" aria-label="Search or jump to (Control K)">
+          <button type="button" class="palette-trigger" (click)="palette.open()" aria-label="Search or jump to (Control K)">
             <app-icon name="search" [size]="15" /><span class="pt-txt">Search or jump to…</span><kbd>⌘K</kbd>
           </button>
           <div class="spacer"></div>
@@ -73,7 +74,7 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
             <button type="button" class="avatar-btn" (click)="toggleUserMenu()" aria-haspopup="menu"
                     [attr.aria-expanded]="userMenu()" aria-label="Account menu"><span class="avatar">{{ initials() }}</span></button>
             @if (userMenu()) {
-              <div class="menu glass" role="menu" (keydown)="onMenuKey($event)">
+              <div class="menu glass" role="menu" tabindex="-1" (keydown)="onMenuKey($event)">
                 <div class="menu-who"><b class="truncate">{{ auth.me()?.email || 'User' }}</b><small class="truncate">{{ (auth.me()?.roles || []).join(', ') || '—' }}</small></div>
                 <button type="button" role="menuitemcheckbox" [attr.aria-checked]="density.pref() === 'compact'" class="menu-item" (click)="density.toggle()">
                   <app-icon name="table" [size]="15" /> Compact tables
@@ -85,6 +86,7 @@ const SIDEBAR_KEY = 'erpcafe.sidebar';
         </header>
         <main class="content" id="main-content" tabindex="-1"><router-outlet /></main>
       </div>
+      <app-command-palette [branches]="branches()" />
       @if (mobileNav()) { <div class="scrim" (click)="mobileNav.set(false)" aria-hidden="true"></div> }
     </div>
   `,
@@ -98,6 +100,7 @@ export class ShellComponent {
   private host = inject(ElementRef<HTMLElement>);
   theme = inject(ThemeService);
   density = inject(DensityService);
+  palette = inject(PaletteService);
 
   mobileNav = signal(false);
   private allBranches = signal<BranchResponse[]>([]);
@@ -206,9 +209,6 @@ export class ShellComponent {
     this.collapsed.update((c) => !c);
     writePref(SIDEBAR_KEY, this.collapsed() ? 'rail' : 'expanded');
   }
-
-  /** placeholder until the command palette lands */
-  openPalette() { /* wired up when the palette lands */ }
 
   private loadBranches() {
     this.org.listBranches().subscribe({
