@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.Valid;
@@ -86,10 +87,13 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
             @Min(1) int maxFailuresPerAddress) {
     }
 
-    /** How long a mailed reset link works, and the page it opens; the link adds {@code ?token=...}. */
+    /**
+     * How long a mailed reset link works, and the page it opens; the link adds {@code ?token=...}. Each
+     * setting has its own default, so a profile may set one without the other.
+     */
     public record PasswordReset(
-            @NotNull Duration ttl,
-            @NotBlank String link) {
+            @DefaultValue("30m") @NotNull Duration ttl,
+            @DefaultValue("http://localhost:4200/reset-password") @NotBlank String link) {
     }
 
     public record Bootstrap(
