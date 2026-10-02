@@ -7,7 +7,7 @@ import { CatalogService, SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { CategoryResponse, CreateOrderRequest, MenuModifierGroup, MenuProduct, Money, OrderResponse, OrderType, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
-import { MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
+import { LabelPipe, MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 
@@ -21,7 +21,7 @@ interface CartLine {
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, MoneyPipe, ShortIdPipe, LabelPipe, ModalComponent, IconComponent],
   template: `
     <div class="pos">
       <section class="menu">
@@ -153,7 +153,7 @@ interface CartLine {
     }
 
     @if (createdOrder(); as order) {
-      <app-modal [title]="'Order ' + order.status" (close)="createdOrder.set(null)">
+      <app-modal [title]="'Order ' + (order.status | label)" (close)="createdOrder.set(null)">
         <div class="receipt">
           @if (order.status === 'PAID' || order.status === 'COMPLETED') {
             <div class="paid-row" role="status">
@@ -161,7 +161,7 @@ interface CartLine {
               <div><b>Paid</b><div class="mono paid-total">{{ order.grandTotal | money:order.currency }}</div></div>
             </div>
           }
-          <div class="r-head"><b class="mono">{{ order.id | shortId }}</b><span>{{ order.orderType }}</span></div>
+          <div class="r-head"><b class="mono">{{ order.id | shortId }}</b><span>{{ order.orderType | label }}</span></div>
           <div><span>Paid</span><b class="mono">{{ order.amountPaid | money:order.currency }}</b></div>
           <div><span>Total</span><b class="mono">{{ order.grandTotal | money:order.currency }}</b></div>
         </div>
