@@ -125,7 +125,11 @@ either scope.
   runs the system scope on a BYPASSRLS owner connection. Database work outside
   a transaction therefore sees no tenant rows, so every repository interface is
   `@Transactional(readOnly = true)`: a query called from outside a service
-  (the grant cache in the JWT filter) still begins in its company.
+  (the grant cache in the JWT filter) still begins in its company. Each table's
+  policy follows one ownership path, and foreign keys are checked past
+  row-level security, so a row naming another company's row in some other
+  column stays guarded by the application's checks. `erp_app` is a
+  cluster-wide role: one PostgreSQL cluster per environment.
 - The remaining `CurrentUser` uses outside identity are for the user id and
   permissions, not the company (`IdentityApi.currentCompanyId` already reads
   `TenantContext`); Task 32 moves them behind `IdentityApi`.

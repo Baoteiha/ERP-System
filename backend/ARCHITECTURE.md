@@ -195,8 +195,25 @@ docker compose up -d
 #    Base URL:    http://localhost:8090/api/v1
 ```
 
-**Local DB (dev only):** host `localhost`, port `5433`, db/user/password all `erpcafe`.
-Production reads `DB_URL` / `DB_USER` / `DB_PASSWORD` from the environment instead.
+**Local DB (dev only):** host `localhost`, port `5433`, db `erpcafe`. The app connects as `erp_app` /
+`erp_app`, a role row-level security binds; migrations and the system work (login, refresh, logout,
+startup) run as the schema owner `erpcafe` / `erpcafe`. The compose init script creates `erp_app` on a
+fresh volume; on an existing volume migration V22 creates it.
+
+**Production database settings** (environment):
+
+| Variable | Used as |
+|---|---|
+| `DB_URL` | JDBC URL for both connections |
+| `DB_APP_PASSWORD` | password of `erp_app`, the role every request runs as (NOSUPERUSER, NOBYPASSRLS) |
+| `DB_OWNER_USER` / `DB_OWNER_PASSWORD` | the schema owner: runs Flyway and the system work |
+
+The owner must own the schema and its tables and hold `BYPASSRLS` (or be a superuser), and needs
+`CREATEROLE` unless `erp_app` already exists; V22 checks this before it does anything else. `erp_app`
+is a cluster-wide role, so run one PostgreSQL cluster per environment. A Flyway run outside the app
+must supply the `appRolePassword` placeholder (the password `erp_app` is created with; the app passes
+`spring.datasource.password`). The owner's pool is sized by `app.datasource.owner.maximum-pool-size`
+and `app.datasource.owner.connection-timeout`; `spring.datasource.hikari.*` sizes only the app's.
 
 **Authenticating (dev):** on first startup the app seeds a bootstrap admin.
 
