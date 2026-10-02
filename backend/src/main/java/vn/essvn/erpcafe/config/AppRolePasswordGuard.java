@@ -7,18 +7,15 @@ import org.springframework.stereotype.Component;
 /**
  * Class: AppRolePasswordGuard
  * Purpose: Refuses, before Flyway runs, an app-role password that would end V22's dollar quotes early.
- *
- * <p>V22 creates erp_app inside a {@code DO $$ … $$} block, with the password between {@code $pw$}
- * quotes. A password containing {@code $$} or {@code $pw$}, or ending in {@code $}, would close a quote
- * early: the statement would fail, and PostgreSQL logs a failed statement in full, password included.
- * To keep the password out of the migration altogether, give the placeholder a SCRAM verifier
- * ({@code SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>}), which PostgreSQL stores as given.
  */
 @Component
 public class AppRolePasswordGuard implements FlywayConfigurationCustomizer {
 
     private static final String PLACEHOLDER = "appRolePassword";
 
+    // A broken quote fails the statement, and PostgreSQL logs a failed statement in full, password included.
+    // To keep the password out of the migration altogether, the placeholder may be a SCRAM verifier
+    // (SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>), which PostgreSQL stores as given.
     @Override
     public void customize(FluentConfiguration configuration) {
         String password = configuration.getPlaceholders().get(PLACEHOLDER);

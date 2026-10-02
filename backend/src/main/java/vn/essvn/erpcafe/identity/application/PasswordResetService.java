@@ -32,9 +32,6 @@ import vn.essvn.erpcafe.identity.security.Sha256;
 /**
  * Class: PasswordResetService
  * Purpose: Lets a signed-out user set a new password through a single-use link mailed to their account's email.
- *
- * <p>Runs as the system, on the schema owner's connection: the user is signed out, so no company is in force
- * until the email or the token is looked up. Only a token's SHA-256 is stored.
  */
 @Service
 public class PasswordResetService {
@@ -52,6 +49,8 @@ public class PasswordResetService {
     private final MailSender mailSender;
     private final AuthVersions authVersions;
     private final AuthEventLog events;
+    // Runs as the system, on the schema owner's connection: the user is signed out, so no company is in force
+    // until the email or the token is looked up. Only a token's SHA-256 is stored.
     private final SystemTransactions system;
     private final boolean enabled;
     private final Duration ttl;

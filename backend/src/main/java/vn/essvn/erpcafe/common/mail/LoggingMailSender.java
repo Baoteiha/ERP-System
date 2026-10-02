@@ -7,12 +7,11 @@ import org.springframework.stereotype.Component;
 
 /**
  * Class: LoggingMailSender
- * Purpose: Writes each email to the application log instead of sending it, until a real mail adapter exists.
- *
- * <p>A mailed password-reset link is a credential, so whoever reads this log can reset that password.
- * Replace this adapter with one that sends mail before offering self-service reset to real users.
+ * Purpose: Writes each email to the application log instead of sending it, in the dev and test profiles.
  */
 @Component
+// A mailed password-reset link is a credential: whoever reads a log holding one can reset that password.
+// So no other profile gets this adapter, and one that sends mail must be plugged in to offer reset there.
 @Profile({"dev", "test"})
 public class LoggingMailSender implements MailSender {
 

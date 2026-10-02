@@ -23,9 +23,6 @@ import vn.essvn.erpcafe.identity.domain.AuthEventType;
 /**
  * Class: AuthEventStore
  * Purpose: Appends to the auth_event audit trail and pages through one company's entries, newest first.
- *
- * <p>SQL rather than an entity: a row is never updated, and a failed sign-in for an unknown email is
- * written with no company, which a tenant-owned entity cannot be.
  */
 @Component
 public class AuthEventStore {
@@ -34,6 +31,8 @@ public class AuthEventStore {
     };
     private static final String COLUMNS = "id, user_id, type, ip, occurred_at, detail::text AS detail";
 
+    // SQL rather than an entity: a row is never updated, and a failed sign-in for an unknown email is written
+    // with no company, which a tenant-owned entity cannot be.
     private final JdbcTemplate jdbc;
     private final JsonMapper json;
 

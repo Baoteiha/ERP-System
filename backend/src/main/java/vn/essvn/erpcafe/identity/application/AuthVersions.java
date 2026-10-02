@@ -10,11 +10,7 @@ import vn.essvn.erpcafe.identity.security.UserGrantCache;
 
 /**
  * Class: AuthVersions
- * Purpose: Ends the access tokens and open reset links of users whose access changed, by moving their auth version on.
- *
- * <p>Used for what the grant and role caches cannot follow: a status change, a password change or
- * reset, and a branch closing. A grant, a revoke or a role edit reaches issued tokens through those
- * caches and leaves the token itself valid (ADR-0007).
+ * Purpose: Ends the access tokens and open reset links of users whose access changed, by moving their auth version.
  */
 @Component
 class AuthVersions {
@@ -29,7 +25,12 @@ class AuthVersions {
         this.resetLinks = resetLinks;
     }
 
-    /** In the caller's transaction; this instance sees it once that commits, another within the cache's TTL. */
+    /**
+     * For what the grant and role caches cannot follow: a status change, a password change or reset, a branch
+     * closing. A grant, a revoke or a role edit reaches issued tokens through those caches and leaves the token
+     * valid (ADR-0007). In the caller's transaction; this instance sees it once that commits, another within the
+     * cache's TTL.
+     */
     void bump(UUID companyId, Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return;
