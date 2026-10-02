@@ -26,8 +26,11 @@ app:
           secret: ${JWT_SECRET}
           active: true
     password-reset:
-      # the frontend's reset page, which the mailed link opens with ?token=...
-      link: ${APP_PUBLIC_URL}/reset-password
+      # Off until a real MailSender adapter is plugged in: the logging one serves only dev and test.
+      # Turning it on (APP_SECURITY_PASSWORDRESET_ENABLED=true) also needs APP_PUBLIC_URL, the frontend's
+      # base URL, for the reset page the mailed link opens with ?token=...
+      enabled: false
+      link: ${APP_PUBLIC_URL:}/reset-password
     bootstrap:
       admin-email: ${ADMIN_EMAIL}
       admin-password: ${ADMIN_PASSWORD:}

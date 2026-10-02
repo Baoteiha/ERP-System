@@ -30,7 +30,7 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
             login = new Login(10, Duration.ofMinutes(15), 20);
         }
         if (passwordReset == null) {
-            passwordReset = new PasswordReset(Duration.ofMinutes(30), "http://localhost:4200/reset-password");
+            passwordReset = new PasswordReset(true, Duration.ofMinutes(30), "http://localhost:4200/reset-password");
         }
     }
 
@@ -92,6 +92,7 @@ public record SecurityProperties(@Valid @NotNull Jwt jwt, Bootstrap bootstrap, @
      * setting has its own default, so a profile may set one without the other.
      */
     public record PasswordReset(
+            @DefaultValue("true") boolean enabled,
             @DefaultValue("30m") @NotNull Duration ttl,
             @DefaultValue("http://localhost:4200/reset-password") @NotBlank String link) {
     }

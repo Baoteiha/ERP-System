@@ -73,6 +73,19 @@ describe('ResetPasswordComponent', () => {
     expect(page.expired()).toBe(true);
   });
 
+  it('says plainly when password reset is switched off', () => {
+    const page = open('abc123');
+    page.password = 'new-pass-1';
+    page.confirm = 'new-pass-1';
+
+    page.submit();
+    ctrl.expectOne('/api/v1/auth/password-reset/confirm')
+      .flush({ code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });
+
+    expect(page.error()).toBe("Password reset isn't available here. Ask your manager or the owner to reset your password.");
+    expect(page.expired()).toBe(false);
+  });
+
   it('without a token, calls nothing', () => {
     const page = open(null);
     page.password = 'new-pass-1';

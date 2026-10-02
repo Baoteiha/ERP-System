@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,8 @@ class ProfileBindingTest {
 
         SecurityProperties security = bind(prod, "app.security", SecurityProperties.class);
         assertThat(security.jwt().activeKey().kid()).isEqualTo("primary");
+        // off until a real mail adapter exists (the logging one serves dev and test only)
+        assertThat(security.passwordReset().enabled()).isFalse();
         assertThat(security.passwordReset().ttl()).isEqualTo(Duration.ofMinutes(30));
         assertThat(security.passwordReset().link()).isEqualTo("https://erp.cafe.example.test/reset-password");
         assertThat(bind(prod, "app.datasource.owner", OwnerPoolProperties.class).maximumPoolSize()).isEqualTo(10);
@@ -74,11 +77,21 @@ class ProfileBindingTest {
     }
 
     @Test
+    void theProdProfile_needsNoPublicUrl_whilePasswordResetIsOff() throws IOException {
+        Map<String, Object> withoutPublicUrl = new HashMap<>(PROD_ENVIRONMENT);
+        withoutPublicUrl.remove("APP_PUBLIC_URL");
+
+        assertThat(bind(binder("prod", withoutPublicUrl), "app.security", SecurityProperties.class)
+                .passwordReset().enabled()).isFalse();
+    }
+
+    @Test
     void theDevProfile_bindsEverySetting() throws IOException {
         Binder dev = binder("dev", Map.of());
 
         SecurityProperties security = bind(dev, "app.security", SecurityProperties.class);
         assertThat(security.jwt().activeKey().kid()).isEqualTo("dev-1");
+        assertThat(security.passwordReset().enabled()).isTrue();
         assertThat(security.passwordReset().ttl()).isEqualTo(Duration.ofMinutes(30));
         assertThat(bind(dev, "app.datasource.owner", OwnerPoolProperties.class).maximumPoolSize()).isEqualTo(10);
     }

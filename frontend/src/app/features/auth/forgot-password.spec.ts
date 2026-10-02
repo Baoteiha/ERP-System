@@ -62,6 +62,17 @@ describe('ForgotPasswordComponent', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
+  it('says plainly when password reset is switched off', () => {
+    page.email = 'cashier@esscafe.vn';
+    page.submit();
+
+    ctrl.expectOne('/api/v1/auth/password-reset/request')
+      .flush({ code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });
+
+    expect(page.sent()).toBe(false);
+    expect(page.error()).toBe("Password reset isn't available here. Ask your manager or the owner to reset your password.");
+  });
+
   it('reports an unreachable server', () => {
     page.email = 'cashier@esscafe.vn';
     page.submit();

@@ -13,12 +13,14 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
+import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.mail.MailMessage;
 import vn.essvn.erpcafe.common.mail.MailSender;
 import vn.essvn.erpcafe.common.persistence.SystemTransactions;
@@ -53,22 +55,35 @@ public class PasswordResetService {
     private final AuthVersions authVersions;
     private final AuthEventLog events;
     private final SystemTransactions system;
+    private final boolean enabled;
     private final Duration ttl;
     private final String link;
 
     PasswordResetService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder, JdbcTemplate jdbc, MailSender mailSender, AuthVersions authVersions,
+            PasswordEncoder passwordEncoder, JdbcTemplate jdbc, ObjectProvider<MailSender> mailSenders,
+            AuthVersions authVersions,
             AuthEventLog events, SystemTransactions system, SecurityProperties properties) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jdbc = jdbc;
-        this.mailSender = mailSender;
+        this.mailSender = mailSenders.getIfAvailable();
         this.authVersions = authVersions;
         this.events = events;
         this.system = system;
+        this.enabled = properties.passwordReset().enabled();
         this.ttl = properties.passwordReset().ttl();
         this.link = properties.passwordReset().link();
+        // switched on, it must be able to mail a link a user can open: refuse to start otherwise
+        if (enabled && mailSender == null) {
+            throw new IllegalStateException("app.security.password-reset.enabled is true but no MailSender adapter"
+                    + " is configured (the logging one serves only the dev and test profiles): plug in a real"
+                    + " adapter, or set app.security.password-reset.enabled=false");
+        }
+        if (enabled && !link.startsWith("https://") && !link.startsWith("http://")) {
+            throw new IllegalStateException("app.security.password-reset.link must be an absolute URL of the"
+                    + " frontend's reset page (set APP_PUBLIC_URL in prod), not: " + link);
+        }
     }
 
     /**
@@ -76,6 +91,7 @@ public class PasswordResetService {
      * fails to send is only logged, so the answer never reveals which emails have an account.
      */
     public void request(String rawEmail) {
+        requireEnabled();
         String email = User.normalizeEmail(rawEmail);
         Optional<String> token = system.run(() -> userRepository.findByEmail(email)
                 .filter(User::isActive)
@@ -95,6 +111,7 @@ public class PasswordResetService {
      * the account's other links close with it, and its sessions and access tokens end.
      */
     public void confirm(String rawToken, String newPassword) {
+        requireEnabled();
         // hashed before the transaction, which then holds an owner connection only for the writes
         String passwordHash = passwordEncoder.encode(newPassword);
         system.run(() -> {
@@ -124,6 +141,13 @@ public class PasswordResetService {
         int deleted = system.run(() -> jdbc.update(
                 "DELETE FROM password_reset_token WHERE expires_at < now() - interval '1 day'"));
         log.info("Purged {} password reset tokens expired over a day ago", deleted);
+    }
+
+    // switched off, as in prod until a real mail adapter exists: the endpoints are as good as absent
+    private void requireEnabled() {
+        if (!enabled) {
+            throw new ResourceNotFoundException("Password reset is not available");
+        }
     }
 
     private int openLinks(UUID userId) {

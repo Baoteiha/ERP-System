@@ -3,9 +3,13 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { IdentityService } from '../../core/api.services';
 
+/** The server answers 404 while password reset is switched off (prod, until mail can be sent). */
+export const RESET_UNAVAILABLE = "Password reset isn't available here. Ask your manager or the owner to reset your password.";
+
 function requestErrorMessage(status: number | undefined): string {
   switch (status) {
     case 400: return 'Enter a valid email address.';
+    case 404: return RESET_UNAVAILABLE;
     case 0: return 'Cannot reach the server. Check your connection and try again.';
     default: return 'Unable to send the link. Try again.';
   }

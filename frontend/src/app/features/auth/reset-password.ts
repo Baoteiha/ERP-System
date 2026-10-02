@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { IdentityService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { IconComponent } from '../../shared/icon';
+import { RESET_UNAVAILABLE } from './forgot-password';
 
 /** Sets a new password with the token of a mailed reset link (?token=...). */
 @Component({
@@ -88,6 +89,8 @@ export class ResetPasswordComponent {
         if (err?.status === 422) {
           this.expired.set(true);
           this.error.set('This link is invalid, already used or expired.');
+        } else if (err?.status === 404) {
+          this.error.set(RESET_UNAVAILABLE);
         } else if (err?.status === 400) {
           this.error.set('That password is not accepted. Use 8 to 72 characters.');
         } else if (err?.status === 0) {

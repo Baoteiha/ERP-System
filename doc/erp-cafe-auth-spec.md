@@ -39,7 +39,7 @@ origin of most defects in §9.
 | Failed-login throttling | ✅ shared by every instance (`login_attempt`) |
 | Company scoping below the service layer | ⚠️ convention, applied in every module today |
 | MFA / passwordless / SSO federation | ⬜ none |
-| Forgotten-password self-service (email flow) | ✅ single-use emailed link; mail is only logged until a real adapter exists |
+| Forgotten-password self-service (email flow) | ✅ single-use emailed link; off in prod until a real mail adapter exists |
 | Key rotation | ✅ a key set with key ids; any configured key verifies, the active one signs |
 | Login/session audit trail | ✅ `auth_event`, read at `GET /api/v1/auth-events` |
 
@@ -267,9 +267,18 @@ The frontend's sign-in page links to *Forgot password*, which asks for the
 email; the mailed link opens *Choose a new password*, which signs the browser
 out and returns to sign-in.
 
-The only mail adapter, `LoggingMailSender`, writes each mail to the
-application log. A reset link there is a credential: a real adapter must
-replace it before self-service reset is offered to real users.
+**Switched on or off** by `app.security.password-reset.enabled` (default
+true; false in `application-prod.yml`). While off, both endpoints answer
+**404** `NOT_FOUND`, and the *Forgot password* page tells the user to ask a
+manager or the owner, who can reset it (AUTH-106). While on, the app refuses
+to start unless a `MailSender` bean exists and `link` is an absolute URL. The
+only adapter today, `LoggingMailSender`, writes each mail to the log, and a
+reset link there is a credential, so it serves only the `dev` and `test`
+profiles. **Turning reset on in prod needs a real `MailSender` adapter** (and
+`APP_PUBLIC_URL`). That adapter must send after the request's transaction
+commits and off the request thread: an account that exists already costs a
+token insert more than one that does not, and a synchronous send would make
+the difference large enough to tell which emails have an account.
 
 ## 7. Request authorization pipeline
 
@@ -320,6 +329,7 @@ app:
       admin-email: <seed admin>
       admin-password: <seed password>
     password-reset:
+      enabled: true        # optional, default true; false in prod until a real MailSender exists
       ttl: 30m             # optional, default 30 minutes
       link: <frontend base URL>/reset-password
     login:
@@ -368,7 +378,7 @@ MANAGER and CASHIER.
 |---|---|---|
 | AUTH-G07 | **Permissions union across branches.** A user who is MANAGER at branch A and CASHIER at branch B carries the manager permission set at *both*, because `perms` is a flat union and is not re-evaluated per active branch | 🟠 medium |
 | AUTH-G13 | **Email is globally unique**, so one person cannot hold accounts at two companies. **Deferred (ruling, Task 36):** one email across companies needs a company choice at sign-in, and conflicts with the planned move to an identity provider (§10), where an account is the IdP's subject rather than a company's row; it is settled there | 🟡 low |
-| AUTH-G12 (rest) | No password complexity policy beyond an 8-character floor. The emailed reset (AUTH-108) closed the recovery half; its mail is only logged until a real adapter exists | 🟡 low |
+| AUTH-G12 (rest) | No password complexity policy beyond an 8-character floor. The emailed reset (AUTH-108) closed the recovery half; it is off in prod until a real mail adapter exists | 🟡 low |
 | AUTH-G19 | **A new branch has no one who can reach it.** All access is per branch, so creating a branch grants nobody access to it, including the owner who created it. Harmless today because permissions are unioned, but it is a hard blocker for AUTH-G07 | 🟠 medium |
 
 ## 10. Migration notes
