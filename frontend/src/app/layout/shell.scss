@@ -26,8 +26,7 @@
 .topbar.glass { background: var(--glass); }
 .hamburger { display: none; }
 .crumbs { display: flex; align-items: baseline; gap: .45rem; min-width: 0; font-size: 13.5px; white-space: nowrap; }
-.crumb-section { color: var(--text-muted); }
-.crumb-sep { color: var(--text-muted); }
+.crumb-section, .crumb-sep { color: var(--text-muted); }
 .palette-trigger { display: inline-flex; align-items: center; gap: .55rem; min-height: 36px; padding: 0 .55rem 0 .75rem; margin-left: 1rem;
   width: min(360px, 32vw); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1);
   color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
@@ -63,6 +62,12 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: .1rem .4rem; bord
   .rail-toggle { display: none; }
   .hamburger { display: inline-flex; }
   .crumbs .crumb-section, .crumbs .crumb-sep { display: none; }
+  .crumbs { flex: 1; overflow: hidden; }
+  .crumbs b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .palette-trigger { width: auto; margin-left: 0; }
   .pt-txt, .palette-trigger kbd { display: none; }
+}
+@media (max-width: 480px) {
+  .crumbs { display: none; }
+  .branch-switch .select { max-width: 140px; text-overflow: ellipsis; }
 }
