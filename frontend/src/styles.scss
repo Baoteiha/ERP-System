@@ -52,7 +52,7 @@
   --text-muted:    #8A91AE;
   --accent:        #7C83FF;
   --accent-fill:   #5B62F0;
-  --accent-fill-hover: #6A71F5;
+  --accent-fill-hover: #4E55E6;
   --accent-soft:   #1B1D3A;
   --accent-text:   #9AA0FF;
   --green: #34D399;  --green-soft: #0F2A22;
@@ -144,10 +144,10 @@ h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 600; 
     transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --glass: var(--surface-1); --blur: none; }
+  :root, :root[data-theme="light"], :root:not([data-theme]) { --glass: var(--surface-1); --blur: none; }
 }
 @media (prefers-contrast: more) {
-  :root { --border: var(--border-input); --border-strong: var(--border-input); --text-muted: var(--text-soft); }
+  :root, :root[data-theme="light"], :root:not([data-theme]) { --border: var(--border-input); --border-strong: var(--border-input); --text-muted: var(--text-soft); }
 }
 
 /* ---- glass (floating things only: top bar, dialogs, drawers, palette, toasts) */
@@ -212,7 +212,7 @@ textarea.input { padding: .6rem .8rem; resize: vertical; min-height: 88px; line-
 .input::placeholder, textarea.input::placeholder { color: var(--text-muted); }
 .select {
   appearance: none; cursor: pointer; padding-right: 2.1rem;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A91AE' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7290' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
   background-repeat: no-repeat; background-position: right .8rem center;
 }
 .checkbox { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; user-select: none; min-height: 32px; }
@@ -331,7 +331,6 @@ app-icon { line-height: 0; }
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); background-clip: content-box; }
-
 /* ==========================================================================
    lively: physical materials
    Objects (paper, wood) keep their own color in both schemes via --paper-*
