@@ -50,12 +50,36 @@ export class RefreshCoordinator {
   }
 }
 
-/** Transparently refresh on 401, surface API errors as toasts. */
+/** One re-read of the user however many requests the server refused for the active branch at once. */
+@Injectable({ providedIn: 'root' })
+export class BranchRecovery {
+  private auth = inject(AuthService);
+  private router = inject(Router);
+  private toast = inject(ToastService);
+  private inFlight = false;
+
+  /** The active branch was revoked or closed: /auth/me ignores it, and loading it moves to a branch still held. */
+  recover(): void {
+    if (this.inFlight) return;
+    this.inFlight = true;
+    this.auth.loadMe().pipe(finalize(() => (this.inFlight = false))).subscribe({
+      next: () => {
+        this.toast.error('Your access to that branch has changed.');
+        // the page in view belonged to the lost branch
+        void this.router.navigateByUrl('/');
+      },
+      error: () => {},
+    });
+  }
+}
+
+/** Transparently refresh on 401, recover from a lost branch, surface API errors as toasts. */
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
   const toast = inject(ToastService);
   const coordinator = inject(RefreshCoordinator);
+  const branchRecovery = inject(BranchRecovery);
 
   const surface = (err: HttpErrorResponse) => {
     if (!req.context.get(SUPPRESS_ERROR_TOAST)) {
@@ -88,6 +112,11 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         }
         void auth.logout(false);
         router.navigate(['/login']);
+        return throwError(() => err);
+      }
+      if (err.status === 403 && (err.error as ProblemDetail | null)?.code === 'BRANCH_FORBIDDEN') {
+        // never retried: the request was meant for the branch that is gone
+        branchRecovery.recover();
         return throwError(() => err);
       }
       return surface(err);

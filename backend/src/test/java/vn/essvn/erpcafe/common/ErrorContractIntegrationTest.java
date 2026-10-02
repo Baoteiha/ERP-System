@@ -160,6 +160,6 @@ class ErrorContractIntegrationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(adminToken()))
                         .header("X-Branch-Id", "00000000-0000-0000-0000-000000000000"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value("BRANCH_FORBIDDEN"));
     }
 }

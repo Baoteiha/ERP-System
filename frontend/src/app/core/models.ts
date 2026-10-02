@@ -19,6 +19,8 @@ export interface ProblemDetail {
   status?: number;
   detail?: string;
   instance?: string;
+  /** machine-readable, on every error the API returns (e.g. BRANCH_FORBIDDEN) */
+  code?: string;
   [key: string]: unknown;
 }
 

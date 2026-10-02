@@ -452,9 +452,9 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         send(delete("/api/v1/users/" + userAccount.id() + "/access/" + branchB), admin, null, null)
                 .andExpect(status().isNoContent());
 
-        send(get("/api/v1/auth/me"), user, branchB, null)
+        send(get("/api/v1/orders"), user, branchB, null)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value("BRANCH_FORBIDDEN"));
         String me = json(send(get("/api/v1/auth/me"), user, null, null));
         assertThat(JsonPath.<List<String>>read(me, "$.branchIds")).containsExactly(branchA);
     }
@@ -492,7 +492,7 @@ class PerBranchPermissionTest extends AbstractIntegrationTest {
         // 6. the old token still names the role at B
         send(post("/api/v1/orders/" + atB + "/refund"), old, branchB, null)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(jsonPath("$.code").value("BRANCH_FORBIDDEN"));
         assertThat(statusOf(atB)).isEqualTo(OrderStatus.COMPLETED);
     }
 

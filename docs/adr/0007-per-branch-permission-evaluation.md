@@ -11,7 +11,8 @@ branch → role pair only while the user still holds that grant
 (`UserGrantCache`: the user's current grants on live branches, one read per
 user every 30 seconds, dropped after a grant or revoke commits and when a branch
 is deleted or deactivated); a pair no longer granted gives nothing, and its
-branch is refused as `X-Branch-Id` (403). A branch the header names that the
+branch is refused as `X-Branch-Id` (403, code `BRANCH_FORBIDDEN`; the
+branchless `/auth/me`, `/auth/refresh` and `/auth/logout` ignore the header). A branch the header names that the
 user still holds, but under another role than the token says, answers 401
 instead: a refresh brings the token up to date. Otherwise a token could keep a revoked grant
 for its lifetime — and with it whatever a role it names is later given. The

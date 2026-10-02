@@ -220,8 +220,14 @@ For every request, in order:
    `av` is no longer the user's auth version, and one naming another role at
    the `X-Branch-Id` branch than the user now holds there.
 2. **Branch resolution.** If `X-Branch-Id` is present: malformed UUID → **400**;
-   a branch not in the principal's granted set → **403**; otherwise it is placed
-   in `BranchContext` (a thread-local) for the request.
+   a branch not in the principal's granted set → **403** with the code
+   `BRANCH_FORBIDDEN`; otherwise it is placed in `BranchContext` (a
+   thread-local) for the request. `/auth/me`, `/auth/refresh` and `/auth/logout`
+   act in no branch and ignore the header, so a user whose active branch was
+   revoked or closed can still read who they are, refresh and sign out. The
+   frontend answers `BRANCH_FORBIDDEN` by re-reading `/auth/me`, which moves
+   it to a branch the user still holds, and returning to the dashboard; the
+   refused request is never retried.
 3. **Authorities** are built as the permission strings verbatim, plus each role
    name prefixed `ROLE_`.
 4. **`@PreAuthorize("hasAuthority('x:y')")`** on controller methods enforces the

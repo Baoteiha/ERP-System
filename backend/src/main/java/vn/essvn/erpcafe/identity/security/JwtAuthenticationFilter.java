@@ -27,6 +27,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.identity.domain.Permissions;
 import vn.essvn.erpcafe.identity.security.RolePermissionCache.RoleGrant;
 import vn.essvn.erpcafe.identity.security.UserGrantCache.Grants;
@@ -40,9 +41,14 @@ import vn.essvn.erpcafe.identity.security.UserGrantCache.Grants;
  *   <li>A token whose auth version is no longer the user's (their status or password changed, or a
  *       branch they held closed since it was issued) → 401, as is one naming another role at the
  *       {@code X-Branch-Id} branch than the user now holds there: a refresh brings either up to date.</li>
- *   <li>Valid token but {@code X-Branch-Id} not among the token's branches still granted → 403.</li>
+ *   <li>Valid token but {@code X-Branch-Id} not among the token's branches still granted → 403, with the
+ *       code {@code BRANCH_FORBIDDEN} so a client can tell a lost branch from a missing permission.</li>
  *   <li>No token → request continues unauthenticated (protected routes then 401).</li>
  * </ul>
+ *
+ * <p>{@code /auth/me}, {@code /auth/refresh} and {@code /auth/logout} act in no branch, so they ignore
+ * {@code X-Branch-Id}: a user who loses the branch they are working in can still read who they are,
+ * refresh and sign out, and pick another branch.
  *
  * <p>Authorities are what the user's role at the active branch permits, plus the
  * company-level permissions they hold at any branch; a request naming no branch
@@ -58,6 +64,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     public static final String BRANCH_HEADER = "X-Branch-Id";
     private static final String BEARER = "Bearer ";
+    private static final Set<String> BRANCHLESS_PATHS = Set.of(
+            ApiVersions.V1 + "/auth/me", ApiVersions.V1 + "/auth/refresh", ApiVersions.V1 + "/auth/logout");
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
@@ -102,7 +110,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // A token naming no real company (one of the persistence identifiers) is as bad as a forged one.
             TenantContext.startRequest(claims.companyId());
         } catch (Exception ex) {
-            writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
+            writeError(response, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid or expired token");
             return;
         }
 
@@ -113,7 +121,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 grants = grantCache.reload(claims.userId(), claims.companyId());
             }
             if (grants.isEmpty() || grants.get().authVersion() != claims.authVersion()) {
-                writeError(response, HttpStatus.UNAUTHORIZED, "Access has changed since this token was issued");
+                writeError(response, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED",
+                        "Access has changed since this token was issued");
                 return;
             }
 
@@ -128,21 +137,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // Resolve the active branch, if one was requested.
             UUID activeBranch = null;
-            String branchHeader = request.getHeader(BRANCH_HEADER);
+            String path = request.getRequestURI().substring(request.getContextPath().length());
+            String branchHeader = BRANCHLESS_PATHS.contains(path) ? null : request.getHeader(BRANCH_HEADER);
             if (branchHeader != null && !branchHeader.isBlank()) {
                 try {
                     activeBranch = UUID.fromString(branchHeader.trim());
                 } catch (IllegalArgumentException ex) {
-                    writeError(response, HttpStatus.BAD_REQUEST, "Malformed " + BRANCH_HEADER);
+                    writeError(response, HttpStatus.BAD_REQUEST, "BAD_REQUEST", "Malformed " + BRANCH_HEADER);
                     return;
                 }
                 UUID named = claims.roleByBranch().get(activeBranch);
                 if (named != null && current.containsKey(activeBranch) && !named.equals(current.get(activeBranch))) {
-                    writeError(response, HttpStatus.UNAUTHORIZED, "Your role at branch " + activeBranch + " changed");
+                    writeError(response, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED",
+                            "Your role at branch " + activeBranch + " changed");
                     return;
                 }
                 if (!roleByBranch.containsKey(activeBranch)) {
-                    writeError(response, HttpStatus.FORBIDDEN, "No access to branch " + activeBranch);
+                    writeError(response, HttpStatus.FORBIDDEN, "BRANCH_FORBIDDEN",
+                            "No access to branch " + activeBranch);
                     return;
                 }
                 BranchContext.set(activeBranch);
@@ -186,19 +198,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return new UsernamePasswordAuthenticationToken(principal, null, authorities);
     }
 
-    private void writeError(HttpServletResponse response, HttpStatus status, String detail) throws IOException {
+    private void writeError(HttpServletResponse response, HttpStatus status, String code, String detail)
+            throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.getWriter().write(
                 "{\"status\":%d,\"code\":\"%s\",\"title\":\"%s\",\"detail\":\"%s\"}"
-                        .formatted(status.value(), codeFor(status), status.getReasonPhrase(), detail));
-    }
-
-    private static String codeFor(HttpStatus status) {
-        return switch (status) {
-            case UNAUTHORIZED -> "UNAUTHORIZED";
-            case FORBIDDEN -> "FORBIDDEN";
-            default -> "BAD_REQUEST";
-        };
+                        .formatted(status.value(), code, status.getReasonPhrase(), detail));
     }
 }

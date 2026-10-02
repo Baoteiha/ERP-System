@@ -133,7 +133,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
         String fresh = accessToken(email, "password123");
         assertThat(meBranches(fresh)).doesNotContain(branchId);
         assertThat(meBranches(adminToken())).doesNotContain(branchId);
-        mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
+        mockMvc.perform(get("/api/v1/products").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
                 .header("X-Branch-Id", branchId)).andExpect(status().isForbidden());
     }
 
@@ -152,7 +152,7 @@ class BranchLifecycleIntegrationTest extends AbstractIntegrationTest {
 
         String fresh = accessToken(email, "password123");
         assertThat(meBranches(fresh)).doesNotContain(branchId);
-        mockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
+        mockMvc.perform(get("/api/v1/products").header(HttpHeaders.AUTHORIZATION, authHeader(fresh))
                 .header("X-Branch-Id", branchId)).andExpect(status().isForbidden());
     }
 

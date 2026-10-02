@@ -92,7 +92,12 @@ export class ShellComponent {
   private router = inject(Router);
 
   mobileNav = signal(false);
-  branches = signal<BranchResponse[]>([]);
+  private allBranches = signal<BranchResponse[]>([]);
+  /** the company's branches the user holds; follows /auth/me, so a branch lost mid-session drops out */
+  branches = computed(() => {
+    const mine = this.auth.me()?.branchIds ?? [];
+    return this.allBranches().filter((b) => mine.includes(b.id));
+  });
 
   private readonly sections: NavSection[] = [
     { title: 'Overview', items: [
@@ -164,8 +169,7 @@ export class ShellComponent {
   private loadBranches() {
     this.org.listBranches().subscribe({
       next: (page) => {
-        const mine = this.auth.me()?.branchIds ?? [];
-        this.branches.set(page.content.filter((b) => mine.includes(b.id)));
+        this.allBranches.set(page.content);
         if (!this.auth.activeBranchId() && this.branches().length) {
           this.auth.setActiveBranch(this.branches()[0].id);
         }

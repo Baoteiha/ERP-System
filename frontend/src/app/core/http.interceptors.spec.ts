@@ -94,4 +94,47 @@ describe('errorInterceptor', () => {
 
     expect(done.sort()).toEqual(['a', 'b']);
   });
+
+  describe('a refused active branch', () => {
+    const me = { branchIds: ['kept'], permissions: [], permissionsByBranch: {} };
+
+    it('re-reads the user, which moves to a branch they still hold, and leaves the page', () => {
+      const navigateByUrl = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      auth.setActiveBranch('gone');
+      let status = 0;
+      http.get('/api/v1/x').subscribe({ error: (e) => (status = e.status) });
+
+      const refused = ctrl.expectOne('/api/v1/x');
+      expect(refused.request.headers.get('X-Branch-Id')).toBe('gone');
+      refused.flush({ code: 'BRANCH_FORBIDDEN' }, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/auth/me').flush(me);
+
+      expect(status).toBe(403);
+      expect(auth.activeBranchId()).toBe('kept');
+      expect(navigateByUrl).toHaveBeenCalledWith('/');
+    });
+
+    it('re-reads the user once for refusals arriving together', () => {
+      auth.setActiveBranch('gone');
+      http.get('/api/v1/a').subscribe({ error: () => {} });
+      http.get('/api/v1/b').subscribe({ error: () => {} });
+
+      ctrl.expectOne('/api/v1/a').flush({ code: 'BRANCH_FORBIDDEN' }, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/b').flush({ code: 'BRANCH_FORBIDDEN' }, { status: 403, statusText: 'Forbidden' });
+      ctrl.expectOne('/api/v1/auth/me').flush(me);
+
+      expect(auth.activeBranchId()).toBe('kept');
+    });
+
+    it('leaves the user alone on a missing permission', () => {
+      auth.setActiveBranch('b1');
+      http.get('/api/v1/x').subscribe({ error: () => {} });
+
+      ctrl.expectOne('/api/v1/x').flush({ code: 'FORBIDDEN' }, { status: 403, statusText: 'Forbidden' });
+
+      ctrl.expectNone('/api/v1/auth/me');
+      expect(auth.activeBranchId()).toBe('b1');
+    });
+  });
 });
+

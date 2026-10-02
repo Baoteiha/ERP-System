@@ -2,7 +2,7 @@ import { stubLocalStorage } from '../core/test-storage';
 import { TestBed } from '@angular/core/testing';
 import { Component, provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { ShellComponent } from './shell';
@@ -49,5 +49,17 @@ describe('ShellComponent branch switch', () => {
   it('stays on a page the new branch role opens', async () => {
     await switchTo('b3');
     expect(router.url).toBe('/reports');
+  });
+
+  it('drops a branch from the selector once the user no longer holds it', () => {
+    const branch = (id: string) => ({ id, companyId: 'co', name: id, code: id, active: true });
+    TestBed.inject(HttpTestingController).expectOne((r) => r.url.endsWith('/branches'))
+      .flush({ content: ['b1', 'b2', 'b3'].map(branch), page: 0, size: 20, totalElements: 3, totalPages: 1 });
+    expect(shell.branches().map((b) => b.id)).toEqual(['b1', 'b2', 'b3']);
+
+    const auth = TestBed.inject(AuthService);
+    auth.me.set({ ...auth.me()!, branchIds: ['b1', 'b3'] });
+
+    expect(shell.branches().map((b) => b.id)).toEqual(['b1', 'b3']);
   });
 });

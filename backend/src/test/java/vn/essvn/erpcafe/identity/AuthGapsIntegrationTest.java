@@ -241,4 +241,42 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         json(send(get("/api/v1/auth/me"), newer, null, null));
         expectStale(send(get("/api/v1/auth/me"), old, null, null));
     }
+
+    // --- R36: a branch lost while it is the active one ---
+
+    @Test
+    void aRefusedBranch_isToldApartFromAMissingPermission() throws Exception {
+        String admin = adminToken();
+        String branch = firstBranch(admin);
+        NewUser user = userWithRole(admin, "CASHIER", branch);
+        String token = accessToken(user.email(), PASSWORD);
+
+        send(delete("/api/v1/users/" + user.id() + "/access/" + branch), admin, null, null)
+                .andExpect(status().isNoContent());
+
+        send(get("/api/v1/products"), token, branch, null)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("BRANCH_FORBIDDEN"));
+    }
+
+    @Test
+    void theBranchlessAuthEndpoints_ignoreAnActiveBranchNoLongerHeld() throws Exception {
+        String admin = adminToken();
+        String branch = firstBranch(admin);
+        NewUser user = userWithRole(admin, "CASHIER", branch);
+        String session = loginBody(user.email(), PASSWORD);
+        String token = JsonPath.read(session, "$.accessToken");
+        String refresh = JsonPath.read(session, "$.refreshToken");
+
+        send(delete("/api/v1/users/" + user.id() + "/access/" + branch), admin, null, null)
+                .andExpect(status().isNoContent());
+
+        send(get("/api/v1/auth/me"), token, branch, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.branchIds").isEmpty());
+        String rotated = JsonPath.read(json(send(post("/api/v1/auth/refresh"), token, branch,
+                "{\"refreshToken\":\"%s\"}".formatted(refresh))), "$.refreshToken");
+        send(post("/api/v1/auth/logout"), token, branch, "{\"refreshToken\":\"%s\"}".formatted(rotated))
+                .andExpect(status().isNoContent());
+    }
 }
