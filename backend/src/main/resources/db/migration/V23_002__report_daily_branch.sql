@@ -9,8 +9,9 @@
 --   * a void or refund takes the sale's money back on the day of the reversal; order_count stays
 --     the number of sales made;
 --   * net sales are gross less discounts, tax excluded; the grand total (net + tax) is not stored;
---   * COGS is the stock ledger's sale-depletion cost less its sale-reversal cost, on the day of the
---     movement, which the sale or reversal writes in its own transaction (so the events book it there);
+--   * COGS is the cost of the stock the sales took (-quantity x unit cost of each SALE_DEPLETION and
+--     SALE_REVERSAL movement, with the ledger's own sign, so stock a sale returns is a negative cost),
+--     on the day of the movement, which the sale or reversal writes in its own transaction;
 --   * labour is a COMPLETED shift's cost, on the day it clocked out. report_shift_labor holds each
 --     shift's current share, so an adjusted shift moves its labour instead of adding to it.
 -- report_applied_event lists the events the projection has applied, so one delivered twice
@@ -19,11 +20,14 @@
 -- report_rebuild_branch recomputes one branch's rows from those sources and marks every event
 -- already written about the branch as applied, so one still on its way is not counted twice. It
 -- rounds a day's ledger cost once, half to even, at the Money scale; every other figure is a sum
--- of stored amounts. This migration runs it for every branch (the backfill), in the zone of the
--- reportingZone placeholder, which the app takes from app.reporting.zone; a Flyway run outside the
--- app must supply it. After changing app.reporting.zone, run it again for every branch, as the
--- schema owner, in a REPEATABLE READ transaction, so the sources it reads and the events it marks
--- are one snapshot.
+-- of stored amounts. Its COGS can differ from the events' only immaterially: an event carries its
+-- sale's cost rounded line by line (at most 0.00005 a line from one rounding of the day), and a
+-- movement is stamped within milliseconds of its sale's completion or reversal, which moves it to
+-- another day only within those milliseconds of midnight. This migration runs it for every branch
+-- (the backfill), in the zone of the reportingZone placeholder, which the app takes from
+-- app.reporting.zone; a Flyway run outside the app must supply it. After changing
+-- app.reporting.zone, run it again for every branch, as the schema owner, in a REPEATABLE READ
+-- transaction, so the sources it reads and the events it marks are one snapshot.
 CREATE TABLE report_daily_branch (
     company_id     UUID          NOT NULL,
     branch_id      UUID          NOT NULL,
@@ -119,9 +123,9 @@ BEGIN
             FROM sales_order o
             WHERE o.branch_id = p_branch_id AND o.status IN ('VOID', 'REFUNDED') AND o.reversed_at IS NOT NULL
             UNION ALL
-            SELECT (m.created_at AT TIME ZONE p_zone)::date, 0, 0, 0, 0, 0,
-                   CASE m.type WHEN 'SALE_DEPLETION' THEN 1 ELSE -1 END * ABS(m.quantity) * COALESCE(m.unit_cost, 0),
-                   0
+            -- the cost with the ledger's own sign: a sale's movement takes stock out (negative quantity,
+            -- positive cost) unless a modifier made the net consumption negative; a reversal undoes it
+            SELECT (m.created_at AT TIME ZONE p_zone)::date, 0, 0, 0, 0, 0, -m.quantity * COALESCE(m.unit_cost, 0), 0
             FROM stock_movement m
             WHERE m.branch_id = p_branch_id AND m.type IN ('SALE_DEPLETION', 'SALE_REVERSAL')
             UNION ALL

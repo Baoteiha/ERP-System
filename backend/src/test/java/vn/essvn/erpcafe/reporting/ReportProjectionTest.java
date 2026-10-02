@@ -2,6 +2,7 @@ package vn.essvn.erpcafe.reporting;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
@@ -20,6 +21,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
@@ -177,6 +180,34 @@ class ReportProjectionTest extends ReportFixtures {
 
         assertThat(labor(figures(firstDay))).isZero();
         assertThat(labor(figures(dayOf(out)))).isEqualByComparingTo("144000");
+        List<Map<String, Object>> fed = bookedDays();
+        rebuildFigures();
+        assertThat(bookedDays()).isEqualTo(fed);
+    }
+
+    @Test
+    void aSaleThatReturnsAnIngredient_isCostedWithTheLedgersOwnSign_byTheEventsAndTheRebuildAlike() throws Exception {
+        freshTenant(1, "0");
+        String productId = sellableProduct();
+        String beanId = jdbc.queryForObject("SELECT l.ingredient_id::text FROM recipe_line l"
+                + " JOIN recipe r ON r.id = l.recipe_id WHERE r.product_id = ?::uuid", String.class, productId);
+        // the drink's recipe takes 50 g; this modifier takes 60 g off it, so a sale returns 10 g to stock
+        String groupId = JsonPath.read(create("/api/v1/modifier-groups",
+                "{\"name\":\"Strength-%s\",\"minSelect\":0,\"maxSelect\":1}".formatted(uniq())), "$.id");
+        String lighterId = JsonPath.read(create("/api/v1/modifier-groups/" + groupId + "/modifiers",
+                ("{\"name\":\"Lighter\",\"priceDelta\":0,\"displayOrder\":1,"
+                        + "\"recipeDeltas\":[{\"ingredientId\":\"%s\",\"quantity\":-60,\"unit\":\"g\"}]}")
+                        .formatted(beanId)), "$.id");
+        mockMvc.perform(authed(put("/api/v1/products/" + productId + "/modifier-groups"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"modifierGroupIds\":[\"%s\"]}".formatted(groupId)))
+                .andExpect(status().isOk());
+        String orderId = paidOrder(("{\"orderType\":\"DINE_IN\",\"lines\":[{\"productId\":\"%s\",\"quantity\":1,"
+                + "\"modifierIds\":[\"%s\"]}]}").formatted(productId, lighterId), 25000);
+        dispatcher.dispatchPending();
+
+        // 10 g back at 100 each: the sale's cost is -1,000, as the order recorded it
+        assertSales(figures(dayOf(orderTime("completed_at", orderId))), 1, "25000", "0", "25000", "0", "-1000");
         List<Map<String, Object>> fed = bookedDays();
         rebuildFigures();
         assertThat(bookedDays()).isEqualTo(fed);

@@ -68,15 +68,21 @@ in that zone.
 
 **Backfill and rebuild.** `report_rebuild_branch(branch, zone)` (V23) recomputes
 a branch's rows and shift shares from orders, the stock ledger and shifts under
-the same rules — COGS from the ledger's sale depletions less reversals by
-movement time, rounded once a day, half to even, at the Money scale — and marks
+the same rules — COGS as −quantity × unit cost of each sale depletion and
+reversal, with the ledger's own sign (stock a sale returns is a negative
+cost, as on the events), by movement time, rounded once a day, half to even,
+at the Money scale — and marks
 every event already written about the branch as applied, so one still on its
 way is not counted twice. The migration runs it for every branch in the zone
 of the `reportingZone` placeholder (application.yml passes
 `app.reporting.zone`; a Flyway run outside the app must supply it). After
 changing the zone, run it again for every branch as the schema owner, in a
 `REPEATABLE READ` transaction so the sources and the events it marks are one
-snapshot. Tests that rewrite a row's timestamps after the fact — which no
+snapshot. A rebuild and the events can differ only immaterially: an event
+carries its sale's cost rounded line by line (at most 0.00005 a line from one
+rounding of the day), and a movement is stamped within milliseconds of its
+sale's completion or reversal, which moves it to another day only within
+those milliseconds of midnight. Tests that rewrite a row's timestamps after the fact — which no
 event announces — call it too.
 
 **Branch lifecycle events stay synchronous.** `BranchCreated`,
@@ -121,10 +127,12 @@ another service once one is extracted.
   stay readable by the record that reads it: add components, never rename
   them.
 - COGS on the events is what the sale recorded (`Order.cogsTotal`, the cost
-  the reversal returned), which is the ledger's cost for every ordinary sale.
-  The two differ only when a modifier makes an ingredient's net consumption
-  negative: the old ledger query counted that movement's |quantity| as cost;
-  the event counts it as returned stock.
+  the reversal returned), the ledger's cost with its own sign, and the rebuild
+  costs the movements the same way. The old live query
+  (`StockMovementRepository.costOfType`, no longer used by reports) took
+  |quantity|, so where a modifier made an ingredient's net consumption
+  negative, the read model now shows that stock as returned, where the old
+  reports showed it as a cost.
 - `SalesApi.summary`/`salesByDay`, `InventoryApi.depletionCost` and
   `StaffApi.laborCost`/`laborCostByBranch` no longer feed reports.
 - New SQL outside the tenant seam, each naming its company or running in it,
