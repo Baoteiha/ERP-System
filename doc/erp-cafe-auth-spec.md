@@ -233,7 +233,9 @@ the branch and role of a grant or revoke, the new status, the token family
 of a failed sign-in, and `actorUserId` on a change someone made to another
 user (a grant, revoke, status change, administrative reset, branch closing),
 passed by the code that made it. The user's own sign-in, refresh, sign-out or
-password change names no actor, whatever access token the request carried.
+password change names no actor, whatever access token the request carried, and
+nor does a change someone makes to themselves (an owner closing a branch they
+held, an administrator resetting their own password).
 An access change is recorded in the transaction that makes it; a sign-in,
 refresh or sign-out is written as the schema owner, since no company is in
 force yet, and a failed one in a transaction of its own so it outlives the
@@ -271,9 +273,11 @@ alone issues and claims links.
 An open link also closes whenever the account's access or email changes: a
 status change, a password change or reset and a branch closing (wherever the
 auth version moves), and an email change, so a link mailed to an old address
-cannot reset the account afterwards. Those changes run as the app role, which
-may set `used_at` on its company's links but cannot read a token's hash, add a
-link or delete one.
+cannot reset the account afterwards. Each closes them in its own transaction.
+A reset by email does so as the schema owner, like the rest of the
+confirmation; every other change runs as the app role, which may only close its
+company's links (set `used_at`, never clear it, so a used link cannot be
+reopened) and cannot read a token's hash, add a link or delete one.
 
 The frontend's sign-in page links to *Forgot password*, which asks for the
 email; the mailed link opens *Choose a new password*, which signs the browser
