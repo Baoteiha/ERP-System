@@ -1,7 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 
 /** Builds the SVG path of a sparkline: x spans the width, y is flipped (bigger is higher) with a 1px inset. */
-export function sparkPath(values: number[], w: number, h: number): string {
+export function sparkPath(raw: number[], w: number, h: number): string {
+  const values = raw.filter(Number.isFinite);
   if (values.length < 2) return '';
   const min = Math.min(...values);
   const max = Math.max(...values);

@@ -23,4 +23,19 @@ describe('KpiTileComponent', () => {
   it('hides the change line when there is no comparison', () => {
     expect(render(null).querySelector('.kpi-delta')).toBeNull();
   });
+  it('rounds before choosing the sign', () => {
+    const el = render(-0.0004);
+    expect(el.querySelector('.kpi-delta.up')?.textContent).toContain('+0.0%');
+    expect(el.querySelector('.kpi-delta.down')).toBeNull();
+  });
+  it('hides the change line for a non-finite delta', () => {
+    expect(render(NaN).querySelector('.kpi-delta')).toBeNull();
+  });
+  it('announces the comparison and shows the arrow only with a delta', () => {
+    const el = render(0.1);
+    expect(el.querySelector('.sr-only')).not.toBeNull();
+    expect(el.querySelector('.kpi-delta app-icon')).not.toBeNull();
+    const none = render(null);
+    expect(none.querySelector('.sr-only')).toBeNull();
+  });
 });

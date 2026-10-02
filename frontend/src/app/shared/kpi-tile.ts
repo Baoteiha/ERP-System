@@ -12,9 +12,9 @@ import { SparklineComponent } from './sparkline';
       <div class="kpi-top"><span class="kpi-label">{{ label() }}</span><span class="kpi-ic" aria-hidden="true"><app-icon [name]="icon()" [size]="16" /></span></div>
       <div class="kpi-value">{{ value() }}</div>
       <div class="kpi-foot">
-        @if (delta() !== null) {
-          <span class="kpi-delta" [class.up]="delta()! >= 0" [class.down]="delta()! < 0">
-            <app-icon [name]="delta()! >= 0 ? 'arrow-up' : 'arrow-down'" [size]="12" aria-hidden="true" />{{ deltaText() }}
+        @if (change(); as c) {
+          <span class="kpi-delta" [class.up]="c.up" [class.down]="!c.up">
+            <app-icon [name]="c.up ? 'arrow-up' : 'arrow-down'" [size]="12" aria-hidden="true" />{{ c.text }}
           </span>
           <span class="sr-only">compared with the previous period</span>
         }
@@ -42,8 +42,12 @@ export class KpiTileComponent {
   delta = input<number | null>(null);
   trend = input<number[]>([]);
   icon = input('banknote');
-  deltaText = computed(() => {
-    const d = this.delta() ?? 0;
-    return (d >= 0 ? '+' : '−') + Math.abs(d * 100).toFixed(1) + '%';
+  /** The change line, rounded before the sign is chosen; null for a missing or non-finite delta. */
+  change = computed(() => {
+    const d = this.delta();
+    if (d === null || !Number.isFinite(d)) return null;
+    const pct = Math.round(d * 1000) / 10;
+    const up = pct >= 0;
+    return { up, text: (up ? '+' : '−') + Math.abs(pct).toFixed(1) + '%' };
   });
 }

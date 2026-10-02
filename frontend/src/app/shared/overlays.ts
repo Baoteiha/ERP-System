@@ -41,6 +41,7 @@ import { OverlayStack } from './overlay-stack';
     .ti-success { background: var(--green-soft); color: var(--green); }
     .ti-error   { background: var(--red-soft); color: var(--red); }
     .ti-info    { background: var(--accent-soft); color: var(--accent-text); }
+    @media (prefers-reduced-transparency: reduce) { .toast { backdrop-filter: none; -webkit-backdrop-filter: none; } }
     @keyframes slide { from { opacity: 0; transform: translateX(24px) scale(.96); } }
   `],
 })
