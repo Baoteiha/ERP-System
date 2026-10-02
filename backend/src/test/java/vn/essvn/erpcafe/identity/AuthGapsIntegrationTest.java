@@ -439,7 +439,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         NewUser user = userWithRole(admin, "CASHIER", branch);
         String first = refreshTokenOf(user.email(), PASSWORD);
         refresh(first).andExpect(status().isOk());
-        refresh(first).andExpect(status().isUnprocessableEntity());
+        refresh(first).andExpect(status().isUnauthorized());
         MvcResult session = loginResult(user.email(), PASSWORD);
         mockMvc.perform(logoutRequest(refreshCookieOf(session)))
                 .andExpect(status().isNoContent());
@@ -575,7 +575,7 @@ class AuthGapsIntegrationTest extends AbstractIntegrationTest {
         assertThat(login(user.email(), "reset-pass-1", uniqueAddress())).isEqualTo(200);
         assertThat(login(user.email(), PASSWORD, uniqueAddress())).isEqualTo(401);
         expectStale(send(get("/api/v1/auth/me"), old, null, null));
-        refresh(refreshCookieOf(session)).andExpect(status().isUnprocessableEntity());
+        expectStale(refresh(refreshCookieOf(session)));
         confirmReset(token, "reset-pass-2")
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE"));

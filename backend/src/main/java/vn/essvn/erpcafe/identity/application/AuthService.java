@@ -125,8 +125,7 @@ public class AuthService {
                         AuthEventType.REFRESH_REUSE_DETECTED, user.getCompanyId(), user.getId(),
                         Map.of("session", rotation.replayedFamily(), "revoked", revoked)));
             });
-            throw new BusinessRuleException(
-                    "Refresh token has already been used; all sessions have been revoked");
+            throw new UnauthorizedException("Refresh token has already been used; all sessions have been revoked");
         }
         return rotation.tokens();
     }
@@ -139,20 +138,23 @@ public class AuthService {
         // We store only the SHA-256 hash, so look up by hash — a DB leak never exposes usable tokens.
         String hash = Sha256.hex(rawRefreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
-                .orElseThrow(() -> new BusinessRuleException("Invalid refresh token"));
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
 
         // Reuse detection: this token was already rotated away, so either it was stolen and
         // replayed, or the legitimate holder's copy was. Either way the family is compromised.
         // Revoke every live token descended from that login and force a fresh sign-in.
-        if (stored.isRevoked()) {
+        if (stored.wasRotated()) {
             return new Rotation(null, stored.getFamilyId(), stored.getUserId());
         }
-        if (!stored.isActive(Instant.now())) {
-            throw new BusinessRuleException("Refresh token expired or revoked");
+        // Expired, or revoked without a replacement (a logout, an account change, V27): the session was
+        // ended on purpose, which is no sign of theft, so the rest of the family is left alone.
+        Instant now = Instant.now();
+        if (!stored.isActive(now)) {
+            throw new UnauthorizedException("Refresh token expired or revoked");
         }
 
         // Rotation: each refresh token is single-use. The replacement stays in the same family.
-        stored.revoke();
+        stored.rotate(now);
         User user = userRepository.findById(stored.getUserId())
                 .orElseThrow(() -> new BusinessRuleException("User no longer exists"));
         if (!user.isActive()) {

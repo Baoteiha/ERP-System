@@ -221,33 +221,47 @@ filter stays off (stateless, no session).
 `POST /api/v1/auth/refresh` with the `erpcafe_refresh` cookie and the
 `X-Requested-With: erpcafe` header; there is no request body, and one sent is
 ignored. Without the header: 403 `FORBIDDEN`. Without the cookie: 401
-`UNAUTHORIZED`. Looks up by hash (unknown: 422), rejects expired or a disabled account (422),
-**revokes the presented token**, and mints a fresh pair carrying the same family id: a new access token
+`UNAUTHORIZED`. Looks the token up by hash. A refresh token is a credential, so
+one that is unknown, expired, revoked or replayed answers 401 `UNAUTHORIZED`
+too, like a missing cookie; a disabled account answers 422 `BUSINESS_RULE`, as at
+login. Otherwise it **rotates the presented token** (revokes it and stamps its
+`rotated_at`) and mints a fresh pair carrying the same family id: a new access token
 in the body and the rotated refresh token in a new `Set-Cookie`. Single-use
 rotation, so a stolen token is invalidated the moment the legitimate client next
-refreshes.
+refreshes. The frontend never answers a 401 from `/auth/refresh` with another
+refresh: it signs out locally (`http.interceptors.spec.ts`).
 
 **Two refreshes at once.** Two tabs of one browser share the cookie, so both may
 present the same token in the same instant. Each rotation writes its row under
 `@Version`: one wins (200, rotated cookie), and the other either loses that race
 (409 `CONFLICT`, its transaction rolled back, the winner's session untouched) or,
 having read the row after the winner committed, sees a spent token and is treated
-as a replay (422, the family revoked, the winner's session with it).
+as a replay (401, the family revoked, the winner's session with it).
 `RefreshTokenReuseIntegrationTest` pins that exactly one wins and the loser fails
 cleanly, never with a 500; the 409 outcome is the one seen in practice. There is
 no reuse grace window. The frontend avoids the race itself: tabs refresh inside
 one Web Lock, and a tab that finds a different access token in storage than the
 one it began with adopts that token instead of calling the server.
 
-**Reuse detection.** Presenting a token that was *already rotated away* means
-either it was stolen and replayed, or the legitimate holder's copy was. Either
-way the family is compromised, so every live token in it is revoked and the user
+**Reuse detection.** Presenting a token that was *already rotated away* (its
+`rotated_at` set) means either it was stolen and replayed, or the legitimate
+holder's copy was. Either way the family is compromised, so every live token in
+it is revoked, `REFRESH_REUSE_DETECTED` goes on the audit trail, and the user
 must sign in again. That revocation commits in its own `REQUIRES_NEW`
 transaction: the request itself then fails, and its rollback would otherwise undo
 the revocation. It first locks the family's live tokens (`SELECT … FOR UPDATE`),
 which waits for a rotation in flight, and only then revokes them in a statement
 of its own, which sees the token that rotation committed: otherwise the
 replacement would outlive the revocation.
+
+**Revoked is not replayed.** A token revoked any other way (a logout, disabling
+the account, a password change or reset, a family revocation, or `V27_001`) was
+ended on purpose, so presenting it is refused like an expired one (401) and
+nothing else happens: no family revocation and no audit event. Otherwise every
+browser signed in before the cookie deploy, every open tab of a disabled user and
+every second tab after a logout would be logged as a token theft. `V28_001` added
+`rotated_at`; rows from before it count as revoked, not rotated.
+`RefreshTokenReuseIntegrationTest` pins both sides.
 
 ### AUTH-106 — Account and role lifecycle
 

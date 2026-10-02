@@ -35,6 +35,7 @@ describe('errorInterceptor', () => {
   afterEach(() => ctrl.verify());
 
   const tokens = { accessToken: 'new', tokenType: 'Bearer' };
+  const unauthorized = { status: 401, statusText: 'Unauthorized' };
 
   it('propagates an error from the retried request without logging out', () => {
     const logout = vi.spyOn(auth, 'logout');
@@ -64,6 +65,35 @@ describe('errorInterceptor', () => {
     expect(second).toBe(401);
     expect(auth.accessToken()).toBeNull();
     expect(navigate).toHaveBeenCalledWith(['/login']);
+  });
+
+  it('signs out locally, with no second refresh, when the refresh itself answers 401', () => {
+    let status = 0;
+    http.get('/api/v1/x').subscribe({ error: (e) => (status = e.status) });
+
+    ctrl.expectOne('/api/v1/x').flush({}, unauthorized);
+    ctrl.expectOne('/api/v1/auth/refresh').flush({ code: 'UNAUTHORIZED' }, unauthorized);
+
+    ctrl.expectNone('/api/v1/auth/refresh');
+    ctrl.expectNone('/api/v1/x');
+    ctrl.expectNone('/api/v1/auth/logout');
+    expect(status).toBe(401);
+    expect(auth.accessToken()).toBeNull();
+    expect(localStorage.getItem('erpcafe.session')).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(['/login']);
+  });
+
+  it('restores no session, with a single refresh call, when the cookie is refused with 401', async () => {
+    auth.accessToken.set(null);
+
+    const done = auth.restoreSession();
+    ctrl.expectOne('/api/v1/auth/refresh').flush({ code: 'UNAUTHORIZED' }, unauthorized);
+    await done;
+
+    ctrl.expectNone('/api/v1/auth/refresh');
+    ctrl.expectNone('/api/v1/auth/logout');
+    expect(auth.isAuthenticated()).toBe(false);
+    expect(localStorage.getItem('erpcafe.session')).toBeNull();
   });
 
   it('retries with the current token, without a second refresh, when another refresh already finished', () => {

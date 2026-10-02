@@ -1,0 +1,14 @@
+-- A refresh token is revoked for one of two reasons: a rotation replaced it, or a logout, an account
+-- change (disabling, a password change or reset) or V27 ended it. Only the first makes presenting it
+-- again a replay that revokes the family and goes on the audit trail as REFRESH_REUSE_DETECTED; a token
+-- ended any other way is refused like an expired one. rotated_at records the first reason, and only a
+-- rotation sets it.
+--
+-- Existing rows keep it NULL, so a token rotated before this migration is refused as revoked, not as a
+-- replay, and V27's revocation signs everyone in again without one false theft alert each. A database
+-- deployed from this branch runs V27 in the same deploy, so no family older than this column still has
+-- a live token for a replay to protect.
+--
+-- erp_app's grants on refresh_token are table-wide (V22), so they cover the new column, and the table's
+-- row-level security policy applies unchanged.
+ALTER TABLE refresh_token ADD COLUMN rotated_at TIMESTAMPTZ;

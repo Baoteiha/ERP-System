@@ -85,7 +85,8 @@ class AccountLifecycleIntegrationTest extends AbstractIntegrationTest {
 
         // the session issued before disabling can no longer be extended
         mockMvc.perform(refreshRequest(refresh))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     @Test

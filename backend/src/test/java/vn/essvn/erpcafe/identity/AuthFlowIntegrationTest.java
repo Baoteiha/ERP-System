@@ -186,11 +186,15 @@ class AuthFlowIntegrationTest extends AbstractIntegrationTest {
                 .contains("HttpOnly", "SameSite=Strict", "Path=/api/v1/auth");
 
         // the old (rotated) token can no longer be used
-        mockMvc.perform(refreshRequest(refresh)).andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(refreshRequest(refresh))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         // logout revokes the new token
         mockMvc.perform(logoutRequest(newRefresh)).andExpect(status().isNoContent());
-        mockMvc.perform(refreshRequest(newRefresh)).andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(refreshRequest(newRefresh))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     @Test

@@ -319,7 +319,8 @@ environment listed in step 2.
    tokens handed out in a response body before the cookie existed could be replayed from a saved
    copy (`RefreshTokenRevocationMigrationTest`). Access tokens from before per-branch permissions
    or the key set carry no branch roles or `kid` and are refused with 401; a refresh would fix that,
-   but V27_001 has revoked the refresh tokens too, so the user signs in.
+   but V27_001 has revoked the refresh tokens too, so the user signs in. Those refreshes answer 401 as
+   revoked tokens, not replays (V28_001), so the audit trail records no `REFRESH_REUSE_DETECTED` for them.
 9. **Report days.** `V23` cuts the report read model's days in `app.reporting.zone` (default
    `Asia/Ho_Chi_Minh`); set it before the first start if the café is elsewhere, since the migration
    reads it once.

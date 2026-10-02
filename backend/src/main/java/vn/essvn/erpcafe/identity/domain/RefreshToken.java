@@ -31,6 +31,13 @@ public class RefreshToken extends BaseEntity {
     private boolean revoked = false;
 
     /**
+     * When a rotation replaced this token; null for a live token and for one a logout or an account
+     * change revoked. Only a rotated token presented again is a replay (AUTH-103).
+     */
+    @Column(name = "rotated_at")
+    private Instant rotatedAt;
+
+    /**
      * Groups every token descended from one login. Rotation carries the family
      * forward, so detecting a replayed token can revoke all of its siblings.
      */
@@ -70,6 +77,16 @@ public class RefreshToken extends BaseEntity {
 
     public void revoke() {
         this.revoked = true;
+    }
+
+    /** Spends the token on a refresh: revoked, and marked as replaced, so presenting it again is a replay. */
+    public void rotate(Instant now) {
+        this.revoked = true;
+        this.rotatedAt = now;
+    }
+
+    public boolean wasRotated() {
+        return rotatedAt != null;
     }
 
     public boolean isActive(Instant now) {

@@ -73,6 +73,17 @@ class RefreshTokenRevocationMigrationTest extends AbstractIntegrationTest {
                 // already revoked: not touched again
                 assertThat(row(statement, spent)).isEqualTo("true,0");
             }
+
+            flyway(url, "28.001").migrate();
+
+            try (Connection connection = DriverManager.getConnection(url, owner.getUsername(), owner.getPassword());
+                    Statement statement = connection.createStatement();
+                    ResultSet rotated = statement.executeQuery("SELECT count(*) FROM refresh_token"
+                            + " WHERE rotated_at IS NOT NULL")) {
+                // revoked, not rotated away: presenting one is refused like an expired token, never as a replay
+                rotated.next();
+                assertThat(rotated.getLong(1)).isZero();
+            }
         } finally {
             superuser.execute("DROP DATABASE IF EXISTS " + database + " WITH (FORCE)");
         }
