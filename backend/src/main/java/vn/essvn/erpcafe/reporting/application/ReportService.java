@@ -12,8 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
@@ -40,17 +39,17 @@ public class ReportService {
     private final InventoryApi inventoryApi;
     private final StaffApi staffApi;
     private final OrganizationApi organizationApi;
-    private final CurrentUser currentUser;
+    private final IdentityApi identityApi;
     private final ReportingProperties properties;
 
     public ReportService(SalesApi salesApi, InventoryApi inventoryApi,
-            StaffApi staffApi, OrganizationApi organizationApi, CurrentUser currentUser,
+            StaffApi staffApi, OrganizationApi organizationApi, IdentityApi identityApi,
             ReportingProperties properties) {
         this.salesApi = salesApi;
         this.inventoryApi = inventoryApi;
         this.staffApi = staffApi;
         this.organizationApi = organizationApi;
-        this.currentUser = currentUser;
+        this.identityApi = identityApi;
         this.properties = properties;
     }
 
@@ -69,9 +68,8 @@ public class ReportService {
     /** Side-by-side performance of the caller's active branches where their role lets them read reports. */
     public List<BranchPerformance> outletComparison(Instant from, Instant to) {
         UUID companyId = TenantContext.require();
-        AuthPrincipal caller = currentUser.require();
         List<BranchDto> branches = organizationApi.listActiveBranches(companyId).stream()
-                .filter(b -> caller.permissionsAt(b.id()).contains(REPORT_READ))
+                .filter(b -> identityApi.hasPermissionAt(b.id(), REPORT_READ))
                 .toList();
         Map<UUID, BigDecimal> labor = staffApi.laborCostByBranch(companyId,
                 branches.stream().map(BranchDto::id).toList(), from, to);

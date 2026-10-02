@@ -18,6 +18,7 @@ import vn.essvn.erpcafe.catalog.api.CatalogApi;
 import vn.essvn.erpcafe.catalog.api.IngredientConsumption;
 import vn.essvn.erpcafe.catalog.api.PricedLine;
 import vn.essvn.erpcafe.common.context.BranchContext;
+import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
@@ -130,9 +131,8 @@ public class OrderService {
 
     private Order build(CreateOrderInput input) {
         UUID branchId = activeBranch();
-        UUID cashierId = identityApi.currentUserId().orElse(null);
-        UUID companyId = identityApi.currentCompanyId()
-                .orElseThrow(() -> new BusinessRuleException("Authentication required"));
+        UUID cashierId = identityApi.requireUserId();
+        UUID companyId = TenantContext.require();
         // the rate is the branch's setting, never the client's: a till cannot undercharge tax
         BranchDto branch = organizationApi.findBranch(companyId, branchId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Branch", branchId));

@@ -16,9 +16,7 @@ import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
-import vn.essvn.erpcafe.identity.domain.DefaultRole;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.organization.api.BranchCreated;
 import vn.essvn.erpcafe.organization.api.BranchDeactivated;
@@ -40,7 +38,7 @@ public class BranchService implements OrganizationApi {
 
     private final BranchRepository branchRepository;
     private final BranchMapper branchMapper;
-    private final CurrentUser currentUser;
+    private final IdentityApi identityApi;
     private final ApplicationEventPublisher events;
     private final SalesApi salesApi;
     private final StaffApi staffApi;
@@ -48,11 +46,11 @@ public class BranchService implements OrganizationApi {
     private final ObjectProvider<InventoryApi> inventoryApi;
 
     public BranchService(BranchRepository branchRepository, BranchMapper branchMapper,
-            CurrentUser currentUser, ApplicationEventPublisher events, SalesApi salesApi,
+            IdentityApi identityApi, ApplicationEventPublisher events, SalesApi salesApi,
             StaffApi staffApi, ObjectProvider<InventoryApi> inventoryApi) {
         this.branchRepository = branchRepository;
         this.branchMapper = branchMapper;
-        this.currentUser = currentUser;
+        this.identityApi = identityApi;
         this.events = events;
         this.salesApi = salesApi;
         this.staffApi = staffApi;
@@ -72,10 +70,8 @@ public class BranchService implements OrganizationApi {
     }
 
     public Branch create(BranchRequest request) {
-        AuthPrincipal actor = currentUser.require();
         // a non-owner's grant at the new branch is copied from the branch they act from: without one there is none
-        boolean owner = actor.roles().contains(DefaultRole.OWNER.roleName());
-        if (!owner && BranchContext.current().isEmpty()) {
+        if (!identityApi.isOwner() && BranchContext.current().isEmpty()) {
             throw new BadRequestException("X-Branch-Id is required to create a branch");
         }
         if (branchRepository.existsByCode(request.code())) {
@@ -84,8 +80,8 @@ public class BranchService implements OrganizationApi {
         Branch branch = new Branch(request.name(), request.code());
         apply(branch, request);
         Branch saved = branchRepository.save(branch);
-        events.publishEvent(
-                new BranchCreated(saved.getId(), saved.getCompanyId(), actor.userId(), saved.isActive()));
+        events.publishEvent(new BranchCreated(saved.getId(), saved.getCompanyId(),
+                identityApi.requireUserId(), saved.isActive()));
         return saved;
     }
 
@@ -124,9 +120,7 @@ public class BranchService implements OrganizationApi {
      * own role there must carry branch:write; an owner passes (ADR-0007).
      */
     private void requireBranchWriteAt(UUID id) {
-        AuthPrincipal actor = currentUser.require();
-        boolean owner = actor.roles().contains(DefaultRole.OWNER.roleName());
-        if (!owner && !actor.permissionsAt(id).contains(BRANCH_WRITE)) {
+        if (!identityApi.isOwner() && !identityApi.hasPermissionAt(id, BRANCH_WRITE)) {
             throw new ForbiddenException("You need branch:write at branch " + id);
         }
     }
@@ -147,7 +141,7 @@ public class BranchService implements OrganizationApi {
     // --- OrganizationApi (published to other modules) ---
     //
     // These take an explicit companyId and are deliberately not scoped through
-    // CurrentUser: callers are other modules that already pass the caller's own
+    // the caller's identity: callers are other modules that already pass the caller's own
     // company, plus login, which reads as the system across every company. Inside a
     // tenant the seam has already narrowed the rows to that company; the companyId
     // still decides, so the answer is the same in either scope.

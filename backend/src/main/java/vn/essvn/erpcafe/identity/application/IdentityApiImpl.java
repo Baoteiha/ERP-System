@@ -1,13 +1,11 @@
 package vn.essvn.erpcafe.identity.application;
 
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-import vn.essvn.erpcafe.common.context.TenantContext;
 import vn.essvn.erpcafe.identity.api.IdentityApi;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
+import vn.essvn.erpcafe.identity.domain.DefaultRole;
 import vn.essvn.erpcafe.identity.security.CurrentUser;
 
 /** Implements the published {@link IdentityApi} over the security context. */
@@ -21,12 +19,22 @@ public class IdentityApiImpl implements IdentityApi {
     }
 
     @Override
-    public Optional<UUID> currentUserId() {
-        return currentUser.get().map(AuthPrincipal::userId);
+    public UUID requireUserId() {
+        return currentUser.require().userId();
     }
 
     @Override
-    public Optional<UUID> currentCompanyId() {
-        return TenantContext.current();
+    public boolean hasPermission(String permission) {
+        return currentUser.require().permissions().contains(permission);
+    }
+
+    @Override
+    public boolean hasPermissionAt(UUID branchId, String permission) {
+        return currentUser.require().permissionsAt(branchId).contains(permission);
+    }
+
+    @Override
+    public boolean isOwner() {
+        return currentUser.require().roles().contains(DefaultRole.OWNER.roleName());
     }
 }

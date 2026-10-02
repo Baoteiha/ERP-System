@@ -10,15 +10,13 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.context.TenantContext;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.organization.api.BranchDto;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
@@ -37,17 +35,15 @@ class ReportServiceTest {
     private final InventoryApi inventoryApi = mock(InventoryApi.class);
     private final StaffApi staffApi = mock(StaffApi.class);
     private final OrganizationApi organizationApi = mock(OrganizationApi.class);
-    private final CurrentUser currentUser = mock(CurrentUser.class);
+    private final IdentityApi identityApi = mock(IdentityApi.class);
     private final ReportService service = new ReportService(salesApi, inventoryApi, staffApi,
-            organizationApi, currentUser, new ReportingProperties(ZoneId.of("Asia/Ho_Chi_Minh"), 366));
+            organizationApi, identityApi, new ReportingProperties(ZoneId.of("Asia/Ho_Chi_Minh"), 366));
 
     private final UUID branchId = UUID.randomUUID();
     private final Instant from = Instant.parse("2026-03-01T00:00:00Z");
     private final Instant to = Instant.parse("2026-03-02T00:00:00Z");
 
     private final UUID companyId = UUID.randomUUID();
-    // the company comes from the tenant context; a principal naming another one must not matter
-    private final UUID notTheTenant = UUID.randomUUID();
 
     private void stub(UUID branch, String net, String cogs, String labor) {
         when(salesApi.summary(branch, from, to)).thenReturn(new SalesSummary(1, new BigDecimal("50000"),
@@ -62,8 +58,6 @@ class ReportServiceTest {
     void grossMarginIsNetSalesMinusCogs_netMarginSubtractsLabour() {
         stub(branchId, "42000", "10000", "7000");
         BranchContext.set(branchId);
-        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", notTheTenant,
-                Map.of(), Set.of(), Set.of()));
         try {
             PeriodSummary summary = TenantContext.runAs(companyId, () -> service.branchSummary(from, to));
             assertThat(summary.grossMargin()).isEqualByComparingTo("32000");
@@ -79,8 +73,7 @@ class ReportServiceTest {
         UUID other = UUID.randomUUID();
         UUID cashierAt = UUID.randomUUID();
         stub(branchId, "42000", "10000", "0");
-        when(currentUser.require()).thenReturn(new AuthPrincipal(UUID.randomUUID(), "a@b", notTheTenant,
-                Map.of(branchId, Set.of("report:read"), cashierAt, Set.of("sales:write")), Set.of(), Set.of()));
+        when(identityApi.hasPermissionAt(branchId, "report:read")).thenReturn(true);
         when(organizationApi.listActiveBranches(companyId)).thenReturn(java.util.List.of(
                 new BranchDto(branchId, companyId, "Mine", "M", true, BigDecimal.ZERO),
                 new BranchDto(cashierAt, companyId, "Till only", "C", true, BigDecimal.ZERO),

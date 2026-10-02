@@ -24,7 +24,7 @@ import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.exception.BadRequestException;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.application.ShiftService;
 import vn.essvn.erpcafe.staff.domain.Shift;
@@ -45,11 +45,11 @@ public class ShiftController {
 
     private final ShiftService shiftService;
     private final EmployeeService employeeService;
-    private final CurrentUser currentUser;
+    private final IdentityApi identityApi;
 
     public ShiftController(ShiftService shiftService, EmployeeService employeeService,
-            CurrentUser currentUser) {
-        this.currentUser = currentUser;
+            IdentityApi identityApi) {
+        this.identityApi = identityApi;
         this.shiftService = shiftService;
         this.employeeService = employeeService;
     }
@@ -136,7 +136,7 @@ public class ShiftController {
     }
 
     private ShiftResponse toResponse(Shift s, Map<UUID, String> names, Set<UUID> withPin) {
-        boolean canSeePay = StaffAccess.canSeePay(currentUser);
+        boolean canSeePay = StaffAccess.canSeePay(identityApi);
         return new ShiftResponse(s.getId(), s.getBranchId(), s.getEmployeeId(),
                 names.getOrDefault(s.getEmployeeId(), "—"),
                 s.getStatus().name(), s.getScheduledStart(), s.getScheduledEnd(),

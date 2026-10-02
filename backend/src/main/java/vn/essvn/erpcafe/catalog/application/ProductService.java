@@ -25,8 +25,7 @@ import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.ConflictException;
 import vn.essvn.erpcafe.common.exception.ForbiddenException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
-import vn.essvn.erpcafe.identity.security.AuthPrincipal;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.organization.api.OrganizationApi;
 
 /** Product management: CRUD, modifier-group attachment, and per-branch availability/price. */
@@ -42,19 +41,19 @@ public class ProductService {
     private final ModifierGroupRepository modifierGroupRepository;
     private final ProductBranchAvailabilityRepository availabilityRepository;
     private final OrganizationApi organizationApi;
-    private final CurrentUser currentUser;
+    private final IdentityApi identityApi;
     private final CatalogApi catalogApi;
 
     public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository,
             ModifierGroupRepository modifierGroupRepository,
             ProductBranchAvailabilityRepository availabilityRepository,
-            OrganizationApi organizationApi, CurrentUser currentUser, CatalogApi catalogApi) {
+            OrganizationApi organizationApi, IdentityApi identityApi, CatalogApi catalogApi) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.modifierGroupRepository = modifierGroupRepository;
         this.availabilityRepository = availabilityRepository;
         this.organizationApi = organizationApi;
-        this.currentUser = currentUser;
+        this.identityApi = identityApi;
         this.catalogApi = catalogApi;
     }
 
@@ -118,9 +117,8 @@ public class ProductService {
     @Transactional(readOnly = true)
     public List<ProductBranchAvailability> availabilityOf(UUID productId) {
         get(productId);
-        AuthPrincipal caller = currentUser.require();
         return availabilityRepository.findByProductId(productId).stream()
-                .filter(a -> caller.permissionsAt(a.getBranchId()).contains(CATALOG_READ))
+                .filter(a -> identityApi.hasPermissionAt(a.getBranchId(), CATALOG_READ))
                 .toList();
     }
 
@@ -157,7 +155,7 @@ public class ProductService {
         if (!organizationApi.branchExistsInCompany(branchId, TenantContext.require())) {
             throw new ResourceNotFoundException("Branch not found or inactive: " + branchId);
         }
-        if (!currentUser.require().permissionsAt(branchId).contains(permission)) {
+        if (!identityApi.hasPermissionAt(branchId, permission)) {
             throw new ForbiddenException("You need " + permission + " at branch " + branchId);
         }
     }

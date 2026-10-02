@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 import vn.essvn.erpcafe.staff.application.EmployeeService;
 import vn.essvn.erpcafe.staff.domain.Employee;
 import vn.essvn.erpcafe.staff.web.StaffDtos.EmployeeRequest;
@@ -35,11 +35,11 @@ import vn.essvn.erpcafe.staff.web.StaffDtos.EmployeeResponse;
 public class EmployeeController {
 
     private final EmployeeService employeeService;
-    private final CurrentUser currentUser;
+    private final IdentityApi identityApi;
 
-    public EmployeeController(EmployeeService employeeService, CurrentUser currentUser) {
+    public EmployeeController(EmployeeService employeeService, IdentityApi identityApi) {
         this.employeeService = employeeService;
-        this.currentUser = currentUser;
+        this.identityApi = identityApi;
     }
 
     @GetMapping
@@ -81,7 +81,7 @@ public class EmployeeController {
 
     /** Pay and contact details are for managers: readers without staff:write get them as null. */
     private EmployeeResponse toResponse(Employee e) {
-        boolean canSeePay = StaffAccess.canSeePay(currentUser);
+        boolean canSeePay = StaffAccess.canSeePay(identityApi);
         return new EmployeeResponse(e.getId(), e.getFullName(), e.getPosition(),
                 canSeePay ? MoneyDto.from(e.getHourlyRate()) : null,
                 canSeePay ? e.getPhone() : null, canSeePay ? e.getEmail() : null, e.isActive(), e.hasPin());

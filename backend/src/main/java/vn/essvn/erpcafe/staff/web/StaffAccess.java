@@ -1,6 +1,6 @@
 package vn.essvn.erpcafe.staff.web;
 
-import vn.essvn.erpcafe.identity.security.CurrentUser;
+import vn.essvn.erpcafe.identity.api.IdentityApi;
 
 /**
  * Class: StaffAccess
@@ -11,7 +11,7 @@ final class StaffAccess {
     private StaffAccess() {
     }
 
-    static boolean canSeePay(CurrentUser currentUser) {
-        return currentUser.require().permissions().contains("staff:write");
+    static boolean canSeePay(IdentityApi identityApi) {
+        return identityApi.hasPermission("staff:write");
     }
 }
