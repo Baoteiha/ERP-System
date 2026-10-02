@@ -9,8 +9,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -47,6 +49,8 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 class SalesTenantIsolationTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
+    /** Branches granted to the bootstrap admin here, which later test classes must not find in its token. */
+    private static final List<UUID> ADMIN_BRANCHES = new CopyOnWriteArrayList<>();
 
     @Autowired private CompanyRepository companyRepository;
     @Autowired private BranchRepository branchRepository;
@@ -55,6 +59,18 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
     @Autowired private OrderRepository orderRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private UserBranchAccessRepository accessRepository;
+
+    @AfterAll
+    static void releaseTheAdminsBranches(@Autowired BranchRepository branches,
+            @Autowired UserBranchAccessRepository grants) {
+        TenantContext.runAsSystem(() -> {
+            for (UUID id : ADMIN_BRANCHES) {
+                grants.deleteAll(grants.findByBranchId(id));
+                branches.findById(id).ifPresent(branches::delete);
+            }
+        });
+        ADMIN_BRANCHES.clear();
+    }
 
     private UUID seedOpenOrder(UUID companyId, UUID branchId, int n) {
         Product product = TenantContext.runAs(companyId, () -> {
@@ -120,6 +136,7 @@ class SalesTenantIsolationTest extends AbstractIntegrationTest {
                 () -> branchRepository.findById(UUID.fromString(own)).orElseThrow().getCompanyId());
         Branch second = TenantContext.runAs(companyA,
                 () -> branchRepository.save(new Branch("Second", "SLS%d".formatted(n))));
+        ADMIN_BRANCHES.add(second.getId());
         UUID adminId = TenantContext.runAsSystem(() -> userRepository.findByEmail("admin@esscafe.vn"))
                 .orElseThrow().getId();
         TenantContext.runAs(companyA, () -> {
