@@ -140,7 +140,7 @@ whiteboard's `10kg xoài — 1tr` versus `10kg xoài — 1tr5` question.
 | INV-402 | Modifier recipe lines included in depletion | ✅ |
 | INV-403 | COGS captured at depletion | ✅ |
 | INV-404 | Reversal on void and refund: one reversal per recorded movement, same quantity and unit cost, whatever the recipe says now (`ReverseDeductionIntegrationTest`) | ✅ |
-| INV-405 | Flag recipes whose ingredients are out of stock | 🟡 |
+| INV-405 | Stock guard: a sale that would take any ingredient below zero is refused (422 `INSUFFICIENT_STOCK`, with a `shortfalls` list); `POST /orders/quote` reports `stockShortfalls` and `GET /menu` flags each product `available` (`StockGuardIntegrationTest`, `QuoteShortfallIntegrationTest`, `MenuAvailabilityIntegrationTest`) | ✅ |
 | INV-406 | **Prep / sub-recipe production** — consume ingredients, produce a stockable prep item (e.g. brew a batch of tea syrup) | ⬜ |
 | INV-407 | **Yield and shrinkage factors** — 1 kg of beans does not yield 1 kg of brewed coffee | ⬜ |
 
@@ -148,8 +148,15 @@ INV-406 corresponds to the whiteboard's `1TS = 1 Trà + 1 Chanh + …` note. Eve
 cafe has prep items; without them, batch production has to be faked as waste
 plus adjustment, which corrupts both figures.
 
-INV-405 is marked partial: a sale resolves its consumption and may take stock
-negative (warn-but-allow, logged), but no recipe is flagged ahead of the sale.
+INV-405 is the stock guard. A sale is refused when any ingredient's net
+consumption is above zero and would leave on-hand below zero; an ingredient with
+no stock row at the branch counts as 0. The refusal is HTTP 422 `INSUFFICIENT_STOCK`
+with a `shortfalls` array (`ingredientId`, `ingredientName`, `unit`, `required`,
+`onHand`), and nothing moves. Only sales are refused: waste, adjustments, receipts
+and reversals are unchanged, so on-hand can still go negative through a waste or an
+adjustment. A product without a recipe always sells. `GET /menu` marks a product
+unavailable when one of it (no modifiers) exceeds stock; the quote catches the
+modifiers.
 
 ### 4.5 Accuracy control — `INV-5xx`
 
@@ -194,7 +201,7 @@ store it. For a cafe running dairy, syrups, and fruit, this is table stakes.
 
 | ID | Function | Status |
 |---|---|---|
-| INV-701 | Moving-average unit cost per stock item; a receipt after stock went negative takes the receipt's cost, not a blend with the zero-cost shortfall (`IngredientIntegrityTest`) | ✅ |
+| INV-701 | Moving-average unit cost per stock item; a receipt after stock went negative (by waste or adjustment; sales can no longer do it) takes the receipt's cost, not a blend with the zero-cost shortfall (`IngredientIntegrityTest`) | ✅ |
 | INV-702 | COGS per order | ✅ |
 | INV-703 | **Stated valuation policy** — weighted average is the chosen method; document it and make it explicit in the API | ⬜ |
 | INV-704 | **Recipe cost rollup** — current cost to produce each product, recalculated as purchase prices move | ⬜ |

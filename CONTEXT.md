@@ -39,6 +39,12 @@ The unit an ingredient's stock is counted in. One per ingredient, drawn from the
 closed unit vocabulary, and the denomination of every quantity in the ledger.
 _Avoid_: stock unit, canonical unit, stocking UOM
 
+**Stock shortfall**:
+An ingredient a sale needs more of than the branch has on hand; one with no stock
+row at the branch counts as zero on hand. A sale with any shortfall is refused,
+and the quote lists them before payment.
+_Avoid_: out of stock (for the ingredient), stockout
+
 **Dimension**:
 The physical quantity a unit measures — mass, volume, or count. Conversion is
 defined only within one dimension; there is no number of millilitres in a kilogram.
