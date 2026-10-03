@@ -369,9 +369,9 @@ kbd { font-family: var(--font-mono); font-size: 11px; padding: .1rem .4rem; bord
   color: var(--text-muted); font-size: 13px; pointer-events: none; }
 
 /* ---- screens: pos */
-/* A product the branch cannot make: muted, with the reason as text. Disabled only when no modifier could swap the missing ingredient. */
-.pos-tile.unavailable { border-style: dashed; background: var(--surface-1); color: var(--text-muted); }
-.pos-tile.unavailable b, .pos-tile.unavailable .price { color: var(--text-muted); }
+/* A product the branch cannot make: muted (the `app-pos` prefix outranks the tile's own component styles), with the reason as text. Disabled only when no modifier could swap the missing ingredient. */
+app-pos .pos-tile.unavailable { border-style: dashed; background: var(--surface-1); color: var(--text-muted); }
+app-pos .pos-tile.unavailable b, app-pos .pos-tile.unavailable .price { color: var(--text-muted); }
 button.pos-tile:disabled { cursor: not-allowed; }
 button.pos-tile:disabled:hover { border-color: var(--border); box-shadow: none; }
 button.pos-tile:disabled:active { transform: none; }

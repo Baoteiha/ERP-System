@@ -117,11 +117,11 @@ interface CartLine {
           <div class="pay-hint" role="status">Some items still need options — tap “Choose options” on the amber lines.</div>
         }
         @if (shortfalls().length) {
-          <div id="pos-stock-block" class="stock-block" role="alert">
+          <div id="pos-stock-block" class="stock-block" [attr.role]="refusal() ? 'status' : 'alert'">
             <b>Not enough stock</b>
             <ul>
               @for (s of shortfalls(); track s.ingredientId) {
-                <li>{{ s.ingredientName }}: needs {{ s.required | qty }} {{ s.unit }}, {{ s.onHand | qty }} left</li>
+                <li>{{ s.ingredientName }}: needs {{ s.required | qty }} {{ s.unit }}, {{ s.onHand | qty }} {{ s.unit }} left</li>
               }
             </ul>
           </div>
@@ -352,7 +352,11 @@ export class PosComponent {
             catchError(() => of(null)),
           )),
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe((quoted) => this.quoted.set(quoted));
+    ).subscribe((quoted) => {
+      this.quoted.set(quoted);
+      // enough stock again (a restock): the refusal no longer explains why Pay is blocked
+      if (quoted && !quoted.order.stockShortfalls?.length) this.refused.set(null);
+    });
   }
 
   load() {

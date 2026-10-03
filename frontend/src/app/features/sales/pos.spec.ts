@@ -238,7 +238,7 @@ describe('PosComponent', () => {
       addAndQuote(short);
 
       const alert = el().querySelector('[role="alert"]')!;
-      expect(alert.textContent).toContain('Bánh croissant: needs 101 pc, 51 left');
+      expect(alert.textContent).toContain('Bánh croissant: needs 101 pc, 51 pc left');
       const pay = el().querySelector<HTMLButtonElement>('.btn-primary')!;
       expect(pay.disabled).toBe(true);
       const reason = el().querySelector('#' + pay.getAttribute('aria-describedby'))!;
@@ -251,6 +251,8 @@ describe('PosComponent', () => {
         permissionsByBranch: { b1: ['sales:write'] },
       } as MeResponse);
       addAndQuote(short);
+      expect(el().querySelector('[role="alert"]')).not.toBeNull();
+      expect(el().querySelector<HTMLButtonElement>('.btn-primary')!.disabled).toBe(true);
 
       pos.setLineDiscount(0, '1000');
       nextQuote().flush(withShortfalls('27000', []));
@@ -260,6 +262,23 @@ describe('PosComponent', () => {
       const pay = el().querySelector<HTMLButtonElement>('.btn-primary')!;
       expect(pay.disabled).toBe(false);
       expect(pay.hasAttribute('aria-describedby')).toBe(false);
+    });
+
+    it('keeps Pay disabled and the block shown while a newer quote is pending', () => {
+      TestBed.inject(AuthService).me.set({
+        userId: 'u', email: 'a@b.c', companyId: 'c', branchIds: ['b1'], roles: [], permissions: ['sales:write'],
+        permissionsByBranch: { b1: ['sales:write'] },
+      } as MeResponse);
+      addAndQuote(short);
+
+      pos.changeQty(0, 1);
+      nextQuote();
+      fixture.detectChanges();
+
+      expect(el().querySelector<HTMLButtonElement>('.btn-primary')!.disabled).toBe(true);
+      expect(el().textContent).toContain('Not enough stock');
+      pos.submit();
+      ctrl.expectNone(isPost('/api/v1/orders'));
     });
 
     function expectRefreshed(detail: string) {
@@ -282,11 +301,18 @@ describe('PosComponent', () => {
       expect(el().textContent).toContain(refusal.detail);
       ctrl.expectOne('/api/v1/menu').flush([latte]);
       // the unpaid order is cancelled so it does not linger OPEN
-      ctrl.expectOne(isPost('/api/v1/orders/o1/cancel')).flush({ id: 'o1', status: 'CANCELLED' });
+      const cancel = ctrl.expectOne(isPost('/api/v1/orders/o1/cancel'));
+      expect(cancel.request.context.get(SUPPRESS_ERROR_TOAST)).toBe(true);
+      cancel.flush({ id: 'o1', status: 'CANCELLED' });
       vi.advanceTimersByTime(250);
       ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', short));
       fixture.detectChanges();
       expect(el().textContent).toContain(refusal.detail);
+      // one announcement, not two: the refusal alerts and the shortfall list is a status
+      const alerts = el().querySelectorAll('[role="alert"]');
+      expect(alerts.length).toBe(1);
+      expect(alerts[0].textContent).toContain(refusal.detail);
+      expect(el().querySelector('#pos-stock-block')?.getAttribute('role')).toBe('status');
       expect(el().querySelector<HTMLButtonElement>('.btn-primary')!.disabled).toBe(true);
     });
 
@@ -311,6 +337,18 @@ describe('PosComponent', () => {
       ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', short));
 
       pos.changeQty(0, 1);
+      fixture.detectChanges();
+
+      expect(el().textContent).not.toContain(refusal.detail);
+    });
+
+    it('drops the inline refusal when the requote finds enough stock', () => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      ctrl.expectOne('/api/v1/menu').flush([latte]);
+      vi.advanceTimersByTime(250);
+      ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', []));
       fixture.detectChanges();
 
       expect(el().textContent).not.toContain(refusal.detail);
