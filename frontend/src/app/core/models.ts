@@ -195,7 +195,12 @@ export interface MenuModifier { id: UUID; name: string; priceDelta: Money; }
 export interface MenuModifierGroup { id: UUID; name: string; minSelect: number; maxSelect: number; modifiers: MenuModifier[]; }
 export interface MenuProduct {
   id: UUID; categoryId: UUID; name: string; sku: string; effectivePrice: Money; modifierGroups: MenuModifierGroup[];
+  /** False when the branch cannot make one more with the stock on hand (modifiers are not considered here). */
+  available: boolean;
 }
+
+/** An ingredient the cart would take below zero: it needs `required` and the branch has `onHand`, both in `unit`. */
+export interface StockShortfall { ingredientId: UUID; ingredientName: string; unit: string; required: number; onHand: number; }
 
 export interface PaymentRequest { method: PaymentMethod; amount: string; }
 
@@ -210,6 +215,8 @@ export interface OrderResponse {
   currency: string; taxRate: string; subtotal: string; discountTotal: string; taxTotal: string;
   grandTotal: string; cogsTotal: string; amountPaid: string;
   lines: LineResponse[]; payments: PaymentResponse[]; createdAt: string;
+  /** Only on a quote: what the cart is short of, empty when it fits. */
+  stockShortfalls?: StockShortfall[];
 }
 
 /* ---- staff (phase 5) --------------------------------------------------- */

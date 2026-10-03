@@ -1,14 +1,15 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { catchError, debounceTime, map, of, switchMap, tap } from 'rxjs';
+import { Subject, catchError, debounceTime, map, merge, of, switchMap, tap } from 'rxjs';
 import { CatalogService, SalesService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { onBranchChange } from '../../core/branch-change';
 import { CategoryResponse, CreateOrderRequest, MenuModifierGroup, MenuProduct, Money, OrderResponse, OrderType, PaymentMethod } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
-import { LabelPipe, MoneyPipe, ShortIdPipe, formatMoney } from '../../core/util';
+import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, formatMoney } from '../../core/util';
 import { BranchSwitcher } from '../../layout/branch-switch';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
@@ -23,7 +24,7 @@ interface CartLine {
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [FormsModule, MoneyPipe, ShortIdPipe, LabelPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, MoneyPipe, QtyPipe, ShortIdPipe, LabelPipe, ModalComponent, IconComponent],
   template: `
     <div class="pos">
       <section class="menu">
@@ -52,9 +53,10 @@ interface CartLine {
         @else {
           <div class="product-grid">
             @for (p of filteredProducts(); track p.id) {
-              <button class="pos-tile" (click)="addProduct(p)">
+              <button class="pos-tile" [class.unavailable]="!p.available" [disabled]="!p.available && !p.modifierGroups.length" (click)="addProduct(p)">
                 <span class="sku">{{ p.sku }}</span>
                 <b>{{ p.name }}</b>
+                @if (!p.available) { <span class="oos">Out of stock</span> }
                 <span class="price mono">{{ p.effectivePrice | money }}</span>
               </button>
             } @empty { <div class="empty"><div class="big"><app-icon name="search" [size]="30" /></div>No products match</div> }
@@ -114,13 +116,26 @@ interface CartLine {
         @if (cart().length && !ticketValid()) {
           <div class="pay-hint" role="status">Some items still need options — tap “Choose options” on the amber lines.</div>
         }
+        @if (shortfalls().length) {
+          <div id="pos-stock-block" class="stock-block" role="alert">
+            <b>Not enough stock</b>
+            <ul>
+              @for (s of shortfalls(); track s.ingredientId) {
+                <li>{{ s.ingredientName }}: needs {{ s.required | qty }} {{ s.unit }}, {{ s.onHand | qty }} left</li>
+              }
+            </ul>
+          </div>
+        }
+        @if (refusal(); as message) {
+          <div class="stock-block" role="alert">{{ message }}</div>
+        }
         <div class="pay-strip">
           <select class="select" [(ngModel)]="paymentMethod" aria-label="Payment method">
             <option value="CASH">Cash</option>
             <option value="CARD">Card</option>
             <option value="EWALLET">E-wallet</option>
           </select>
-          <button class="btn btn-primary btn-lg btn-block" (click)="submit()" [disabled]="saving() || !payable() || !auth.can('sales:write')">
+          <button class="btn btn-primary btn-lg btn-block" (click)="submit()" [disabled]="saving() || !payable() || shortfalls().length > 0 || !auth.can('sales:write')" [attr.aria-describedby]="shortfalls().length ? 'pos-stock-block' : null">
             @if (saving()) { <span class="spinner"></span> } Pay {{ displayQuote()?.grandTotal | money }}
           </button>
         </div>
@@ -256,6 +271,14 @@ export class PosComponent {
   search = signal('');
   orderDiscount = signal('0');
   paymentMethod: PaymentMethod = 'CASH';
+  /** The server's refusal for exactly this cart (another till took the stock); a changed cart no longer shows it. */
+  private refused = signal<{ request: CreateOrderRequest | null; message: string } | null>(null);
+  refusal = computed(() => {
+    const r = this.refused();
+    return r && r.request === this.quoteRequest() ? r.message : null;
+  });
+  /** Asks for the current cart to be priced again without the cart having changed. */
+  private requote = new Subject<void>();
 
   filteredProducts = computed(() => {
     const q = this.search().trim().toLowerCase();
@@ -291,6 +314,7 @@ export class PosComponent {
     const q = this.quoted();
     return q && q.request === this.quoteRequest() ? q.order : null;
   });
+  shortfalls = computed(() => (this.cart().length ? this.displayQuote()?.stockShortfalls ?? [] : []));
   payable = computed(() => this.currentQuote() !== null);
   taxPercent = computed(() => String(Math.round(Number(this.displayQuote()?.taxRate || 0) * 10000) / 100));
 
@@ -311,7 +335,7 @@ export class PosComponent {
       this.orderDiscount.set('0');
       this.toast.info(`Cart cleared for ${this.switcher.nameOf(id) ?? 'the new branch'}`);
     });
-    toObservable(this.quoteRequest).pipe(
+    merge(toObservable(this.quoteRequest), this.requote.pipe(map(() => this.quoteRequest()))).pipe(
       // a changed cart is a different sale: it gets its own request id and order
       tap(() => {
         // the unpaid order made for the old cart must not linger OPEN at the branch
@@ -336,11 +360,28 @@ export class PosComponent {
     const branch = this.auth.activeBranchId();
     const current = () => this.auth.activeBranchId() === branch;
     this.catalog.listCategories().subscribe({ next: (items) => { if (current()) this.categories.set(items.filter((c) => c.active)); } });
+    this.reloadMenu();
+  }
+
+  /** Fetches the menu, leaving the tiles in place while it comes. */
+  private reloadMenu() {
+    const branch = this.auth.activeBranchId();
+    const current = () => this.auth.activeBranchId() === branch;
     this.catalog.menu().subscribe({
       // a slow menu for a branch the till has since left must not overwrite the current one
       next: (items) => { if (current()) { this.products.set(items); this.loading.set(false); } },
       error: () => { if (current()) this.loading.set(false); },
     });
+  }
+
+  /** Another till took the stock first: show why, then bring the menu and the quote up to date. */
+  private refuse(err: HttpErrorResponse) {
+    this.saving.set(false);
+    const problem = err.error as { code?: string; detail?: string } | null;
+    if (err.status !== 422 || problem?.code !== 'INSUFFICIENT_STOCK') return;
+    this.refused.set({ request: this.quoteRequest(), message: problem.detail ?? 'Not enough stock' });
+    this.reloadMenu();
+    this.requote.next();
   }
 
   addProduct(product: MenuProduct) {
@@ -441,14 +482,14 @@ export class PosComponent {
         this.awaitingPayment = order;
         this.pay(order);
       },
-      error: () => this.saving.set(false),
+      error: (err: HttpErrorResponse) => this.refuse(err),
     });
   }
 
   private pay(order: OrderResponse) {
     this.sales.addPayment(order.id, { method: this.paymentMethod, amount: order.grandTotal }).subscribe({
       next: (paid) => this.paid(paid),
-      error: () => this.saving.set(false),
+      error: (err: HttpErrorResponse) => this.refuse(err),
     });
   }
 
@@ -457,6 +498,7 @@ export class PosComponent {
     this.awaitingPayment = null;
     this.saving.set(false);
     this.createdOrder.set(order);
+    this.reloadMenu();
     this.toast.success(`Paid ${formatMoney(order.grandTotal, order.currency)}`);
   }
 

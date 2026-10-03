@@ -34,6 +34,16 @@ describe('errorInterceptor', () => {
 
   afterEach(() => ctrl.verify());
 
+  it('toasts the server detail of a stock refusal', () => {
+    const toastError = vi.spyOn(TestBed.inject(ToastService), 'error');
+    const detail = 'Not enough stock: Bánh croissant bơ needs 101 pc, 51 left';
+    http.post('/api/v1/orders/o1/payments', {}).subscribe({ error: () => undefined });
+
+    ctrl.expectOne('/api/v1/orders/o1/payments').flush({ code: 'INSUFFICIENT_STOCK', detail, shortfalls: [] }, { status: 422, statusText: 'Unprocessable Entity' });
+
+    expect(toastError).toHaveBeenCalledWith(detail);
+  });
+
   const tokens = { accessToken: 'new', tokenType: 'Bearer' };
   const unauthorized = { status: 401, statusText: 'Unauthorized' };
 

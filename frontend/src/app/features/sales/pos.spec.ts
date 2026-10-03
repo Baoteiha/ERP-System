@@ -6,14 +6,14 @@ import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@a
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { SUPPRESS_ERROR_TOAST } from '../../core/http.interceptors';
-import { BranchResponse, MenuProduct } from '../../core/models';
+import { BranchResponse, MeResponse, MenuProduct } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { BranchSwitcher } from '../../layout/branch-switch';
 import { PosComponent } from './pos';
 
 const money = (amount: string) => ({ amount, currency: 'VND' });
-const latte: MenuProduct = { id: 'p1', categoryId: 'c1', name: 'Latte', sku: 'LAT-1', effectivePrice: money('28000'), modifierGroups: [] };
-const mocha: MenuProduct = { id: 'p2', categoryId: 'c1', name: 'Mocha', sku: 'MOC-1', effectivePrice: money('30000'), modifierGroups: [] };
+const latte: MenuProduct = { id: 'p1', categoryId: 'c1', name: 'Latte', sku: 'LAT-1', effectivePrice: money('28000'), modifierGroups: [], available: true };
+const mocha: MenuProduct = { id: 'p2', categoryId: 'c1', name: 'Mocha', sku: 'MOC-1', effectivePrice: money('30000'), modifierGroups: [], available: true };
 
 function quoteOf(grandTotal: string) {
   return { id: null, status: 'OPEN', currency: 'VND', taxRate: '0', subtotal: grandTotal, discountTotal: '0', taxTotal: '0', grandTotal, lines: [] };
@@ -191,6 +191,151 @@ describe('PosComponent', () => {
     ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o2', status: 'OPEN', grandTotal: '58000', currency: 'VND' });
     ctrl.expectOne('/api/v1/orders/o2/payments').flush({ id: 'o2', status: 'COMPLETED', grandTotal: '58000', currency: 'VND' });
     expect(pos.createdOrder()?.id).toBe('o2');
+  });
+
+  describe('stock', () => {
+    const el = () => fixture.nativeElement as HTMLElement;
+    const croissant: MenuProduct = { id: 'p3', categoryId: 'c1', name: 'Croissant', sku: 'CRO-1', effectivePrice: money('35000'), modifierGroups: [], available: false };
+    const oatLatte: MenuProduct = {
+      ...latte, id: 'p4', name: 'Oat latte', sku: 'OAT-1', available: false,
+      modifierGroups: [{ id: 'g1', name: 'Milk', minSelect: 0, maxSelect: 1, modifiers: [{ id: 'm1', name: 'Oat', priceDelta: money('5000') }] }],
+    };
+    const short = [{ ingredientId: 'i1', ingredientName: 'Bánh croissant', unit: 'pc', required: 101, onHand: 51 }];
+    const tile = (name: string) => [...el().querySelectorAll<HTMLButtonElement>('.pos-tile')].find((t) => t.textContent?.includes(name))!;
+    const withShortfalls = (total: string, stockShortfalls: unknown[]) => ({ ...quoteOf(total), stockShortfalls });
+
+    function addAndQuote(stockShortfalls: unknown[]) {
+      pos.addProduct(latte);
+      nextQuote().flush(withShortfalls('28000', stockShortfalls));
+      fixture.detectChanges();
+    }
+
+    it('shows an unavailable product as Out of stock, disabled, and adds nothing when clicked', () => {
+      pos.products.set([latte, croissant]);
+      fixture.detectChanges();
+
+      const t = tile('Croissant');
+      expect(t.textContent).toContain('Out of stock');
+      expect(t.textContent?.toLowerCase()).toContain('out of stock');
+      expect(t.disabled).toBe(true);
+      expect(tile('Latte').disabled).toBe(false);
+      t.click();
+      expect(pos.cart()).toEqual([]);
+    });
+
+    it('keeps an unavailable product with modifiers addable, since a substitution may fit', () => {
+      pos.products.set([oatLatte]);
+      fixture.detectChanges();
+
+      const t = tile('Oat latte');
+      expect(t.textContent).toContain('Out of stock');
+      expect(t.disabled).toBe(false);
+      t.click();
+      expect(pos.cart().length).toBe(1);
+    });
+
+    it('lists the shortfalls in an alert and disables Pay with its reason linked', () => {
+      addAndQuote(short);
+
+      const alert = el().querySelector('[role="alert"]')!;
+      expect(alert.textContent).toContain('Bánh croissant: needs 101 pc, 51 left');
+      const pay = el().querySelector<HTMLButtonElement>('.btn-primary')!;
+      expect(pay.disabled).toBe(true);
+      const reason = el().querySelector('#' + pay.getAttribute('aria-describedby'))!;
+      expect(reason.textContent).toContain('Not enough stock');
+    });
+
+    it('clears the block and enables Pay when a later quote has no shortfalls', () => {
+      TestBed.inject(AuthService).me.set({
+        userId: 'u', email: 'a@b.c', companyId: 'c', branchIds: ['b1'], roles: [], permissions: ['sales:write'],
+        permissionsByBranch: { b1: ['sales:write'] },
+      } as MeResponse);
+      addAndQuote(short);
+
+      pos.setLineDiscount(0, '1000');
+      nextQuote().flush(withShortfalls('27000', []));
+      fixture.detectChanges();
+
+      expect(el().querySelector('[role="alert"]')).toBeNull();
+      const pay = el().querySelector<HTMLButtonElement>('.btn-primary')!;
+      expect(pay.disabled).toBe(false);
+      expect(pay.hasAttribute('aria-describedby')).toBe(false);
+    });
+
+    function expectRefreshed(detail: string) {
+      ctrl.expectOne('/api/v1/menu').flush([latte]);
+      vi.advanceTimersByTime(250);
+      ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', short));
+      fixture.detectChanges();
+      expect(el().textContent).toContain(detail);
+      expect(pos.saving()).toBe(false);
+    }
+    const refusal = { code: 'INSUFFICIENT_STOCK', detail: 'Not enough stock: Bánh croissant needs 101 pc, 51 left', shortfalls: short };
+
+    it('shows a refusal at payment inline, reloads the menu and quotes the cart again', () => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o1', status: 'OPEN', grandTotal: '28000', currency: 'VND' });
+      ctrl.expectOne('/api/v1/orders/o1/payments').flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      fixture.detectChanges();
+
+      expect(el().textContent).toContain(refusal.detail);
+      ctrl.expectOne('/api/v1/menu').flush([latte]);
+      // the unpaid order is cancelled so it does not linger OPEN
+      ctrl.expectOne(isPost('/api/v1/orders/o1/cancel')).flush({ id: 'o1', status: 'CANCELLED' });
+      vi.advanceTimersByTime(250);
+      ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', short));
+      fixture.detectChanges();
+      expect(el().textContent).toContain(refusal.detail);
+      expect(el().querySelector<HTMLButtonElement>('.btn-primary')!.disabled).toBe(true);
+    });
+
+    it('shows a refusal at create inline too, as a zero-total sale is completed there', () => {
+      pos.addProduct(latte);
+      nextQuote().flush(withShortfalls('0', []));
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      fixture.detectChanges();
+
+      expect(el().textContent).toContain(refusal.detail);
+      expectRefreshed(refusal.detail);
+      ctrl.expectNone('/api/v1/orders/o1/payments');
+    });
+
+    it('drops the inline refusal once the cart changes', () => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      ctrl.expectOne('/api/v1/menu').flush([latte]);
+      vi.advanceTimersByTime(250);
+      ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', short));
+
+      pos.changeQty(0, 1);
+      fixture.detectChanges();
+
+      expect(el().textContent).not.toContain(refusal.detail);
+    });
+
+    it('does not show another failure as a stock refusal', () => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush({ code: 'X', detail: 'Boom' }, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(el().textContent).not.toContain('Boom');
+      ctrl.expectNone('/api/v1/menu');
+    });
+
+    it.each(['PAID', 'COMPLETED'])('reloads the menu after a sale that ends %s', (status) => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o1', status: 'OPEN', grandTotal: '28000', currency: 'VND' });
+      ctrl.expectOne('/api/v1/orders/o1/payments').flush({ id: 'o1', status, grandTotal: '28000', currency: 'VND' });
+
+      ctrl.expectOne('/api/v1/menu').flush([croissant]);
+      expect(pos.products().map((p) => p.name)).toEqual(['Croissant']);
+      expect(pos.loading()).toBe(false);
+    });
   });
 
   describe('on a branch switch', () => {
