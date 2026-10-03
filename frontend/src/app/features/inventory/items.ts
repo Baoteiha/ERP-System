@@ -115,7 +115,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
         </div>
         @if (form.id) { <div class="hint pin">Supplier and ingredient are fixed — they define what this item is. Create a second item to point elsewhere.</div> }
 
-        <div class="field"><label for="item-name">Name <span class="req" aria-hidden="true">*</span></label><input id="item-name" class="input" [(ngModel)]="form.name" placeholder="Arabica Dak Lak" required /></div>
+        <div class="field"><label for="item-name">Name <span class="req" aria-hidden="true">*</span></label><input id="item-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Whole beans 1 kg" required /></div>
 
         <div class="two-col">
           <div class="field">

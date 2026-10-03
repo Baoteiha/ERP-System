@@ -88,6 +88,10 @@
 /* ---- base ------------------------------------------------------------- */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html { scroll-padding-top: calc(var(--topbar-h) + 8px); }
+@media (forced-colors: active) {
+  .input:focus, .select:focus, textarea.input:focus { outline: 2px solid Highlight; outline-offset: 1px; }
+}
 body {
   margin: 0;
   font-family: var(--font);
@@ -266,6 +270,7 @@ table.data th.right, table.data th.num, table.data td.right { text-align: right;
 .tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin: -.2rem 0 1.2rem; overflow-x: auto; }
 .tabs button { background: none; border: none; padding: .6rem .8rem; font: inherit; font-weight: 600; font-size: 13.5px;
   color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs button:focus-visible { outline-offset: -2px; }
 .tabs button:hover { color: var(--text); }
 .tabs button.active { color: var(--accent-text); border-bottom-color: var(--accent); }
 

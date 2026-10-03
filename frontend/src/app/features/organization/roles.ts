@@ -74,7 +74,7 @@ import { RoleResponse } from '../../core/models';
       <app-modal variant="drawer" [title]="form.id ? 'Edit role permissions' : 'New role'" [width]="640" (close)="editing.set(null)">
         @if (!form.id) {
           <div class="two-col">
-            <div class="field"><label for="role-name">Name <span class="req" aria-hidden="true">*</span></label><input id="role-name" class="input" [(ngModel)]="form.name" placeholder="Barista" required /></div>
+            <div class="field"><label for="role-name">Name <span class="req" aria-hidden="true">*</span></label><input id="role-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Shift lead" required /></div>
             <div class="field"><label for="role-desc">Description</label><input id="role-desc" class="input" [(ngModel)]="form.description" /></div>
           </div>
         } @else {

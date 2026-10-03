@@ -304,7 +304,8 @@ export class PosComponent {
     // the new branch has its own menu and prices, and an unsent ticket belonged to the old one
     onBranchChange((id) => {
       this.load();
-      if (!this.cart().length) return;
+      // a payment in flight is for this cart: clearing it now would drop the sale being paid
+      if (this.saving() || !this.cart().length) return;
       this.configuringIndex.set(null);
       this.clearCart();
       this.orderDiscount.set('0');

@@ -215,6 +215,22 @@ describe('PosComponent', () => {
       expect(toasts()).toEqual(['info: Cart cleared for Riverside']);
     });
 
+    it('keeps the cart and says nothing while a payment is saving, but still reloads the menu', () => {
+      pos.addProduct(latte);
+      nextQuote().flush(quoteOf('28000'));
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders'));
+      expect(pos.saving()).toBe(true);
+
+      switchTo('b2', 'Riverside');
+      ctrl.expectOne('/api/v1/categories').flush([]);
+      ctrl.expectOne('/api/v1/menu').flush([mocha]);
+
+      expect(pos.cart().length).toBe(1);
+      expect(pos.products().map((p) => p.name)).toEqual(['Mocha']);
+      expect(toasts()).toEqual([]);
+    });
+
     it('says nothing over an empty cart, and a late menu from the branch it left does not win', () => {
       pos.load();
       ctrl.expectOne('/api/v1/categories').flush([]);
