@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -20,6 +21,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.StockLine;
 import vn.essvn.erpcafe.inventory.application.StockLedgerService;
@@ -37,7 +39,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: LedgerConcurrencyTest
- * Purpose: Proves two simultaneous ledger calls create one stock row and one deduction or reversal per reference.
+ * Purpose: Proves two simultaneous ledger calls create one stock row, one deduction or reversal per reference, and never sell stock that is not there.
  */
 class LedgerConcurrencyTest extends AbstractIntegrationTest {
 
@@ -73,6 +75,15 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
 
     /** Runs both tasks as the seed's company in their own transactions, released together so they overlap. */
     private <T> List<T> runTogether(Seed seed, List<Supplier<T>> tasks) throws Exception {
+        List<T> results = new ArrayList<>();
+        for (Future<T> future : settleTogether(seed, tasks)) {
+            results.add(future.get());
+        }
+        return results;
+    }
+
+    /** Runs the tasks as {@link #runTogether} does, and returns their futures once all have finished, failed or not. */
+    private <T> List<Future<T>> settleTogether(Seed seed, List<Supplier<T>> tasks) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(tasks.size());
         CountDownLatch ready = new CountDownLatch(tasks.size());
         try {
@@ -89,13 +100,26 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
                     return task.get();
                 }))));
             }
-            List<T> results = new ArrayList<>();
             for (Future<T> future : futures) {
-                results.add(future.get(30, TimeUnit.SECONDS));
+                try {
+                    future.get(30, TimeUnit.SECONDS);
+                } catch (ExecutionException failed) {
+                    // the caller reads the failure from the future
+                }
             }
-            return results;
+            return futures;
         } finally {
             pool.shutdownNow();
+        }
+    }
+
+    /** "DEDUCTED" for a sale that went through, else the code of the rule that refused it (or the error itself). */
+    private static String outcome(Future<?> sale) throws InterruptedException {
+        try {
+            sale.get();
+            return "DEDUCTED";
+        } catch (ExecutionException e) {
+            return e.getCause() instanceof BusinessRuleException refusal ? refusal.getCode() : e.getCause().toString();
         }
     }
 
@@ -129,12 +153,51 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void twoFirstDeductionsOfANewIngredient_shareOneStockRow() throws Exception {
+    void twoSalesOfTheLastUnitAtOnce_oneIsRefusedAndStockEndsAtZero() throws Exception {
+        for (int round = 0; round < ROUNDS; round++) {
+            Seed seed = seed();
+            asCompany(seed, () -> ledger.receive(seed.branchId(), seed.ingredientId(), new BigDecimal("18"), null,
+                    vn.essvn.erpcafe.common.domain.Money.of(new BigDecimal("2")), "TEST", null));
+            UUID first = UUID.randomUUID();
+            UUID second = UUID.randomUUID();
+
+            List<Future<CogsResult>> sales = settleTogether(seed, List.of(
+                    () -> ledger.deduct(seed.branchId(), grams(seed, "18"), "ORDER", first),
+                    () -> ledger.deduct(seed.branchId(), grams(seed, "18"), "ORDER", second)));
+
+            assertThat(List.of(outcome(sales.get(0)), outcome(sales.get(1))))
+                    .containsExactlyInAnyOrder("DEDUCTED", "INSUFFICIENT_STOCK");
+            long depletions = asCompany(seed, () -> movements.findAll()).stream()
+                    .filter(m -> m.getType() == MovementType.SALE_DEPLETION
+                            && (first.equals(m.getRefId()) || second.equals(m.getRefId())))
+                    .count();
+            assertThat(depletions).isEqualTo(1);
+            assertThat(onHand(seed)).isEqualByComparingTo("0");
+        }
+    }
+
+    @Test
+    void twoFirstSalesOfANeverStockedIngredient_areBothRefusedAndLeaveNoRow() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
 
-            // Waste, not a sale: a sale can no longer take a never-stocked ingredient below zero, and the
-            // race here is over the stock row both writers create, which every ledger write shares.
+            List<Future<CogsResult>> sales = settleTogether(seed, List.of(
+                    () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", UUID.randomUUID()),
+                    () -> ledger.deduct(seed.branchId(), grams(seed, "50"), "ORDER", UUID.randomUUID())));
+
+            // both refused by the rule: neither trips the stock row's unique key
+            assertThat(List.of(outcome(sales.get(0)), outcome(sales.get(1))))
+                    .containsExactly("INSUFFICIENT_STOCK", "INSUFFICIENT_STOCK");
+            assertThat(asCompany(seed, () -> stockItems.findByBranchId(seed.branchId()))).isEmpty();
+        }
+    }
+
+    @Test
+    void twoFirstWastesOfANewIngredient_shareOneStockRow() throws Exception {
+        for (int round = 0; round < ROUNDS; round++) {
+            Seed seed = seed();
+
+            // Waste can take stock below zero, so both writes land in the one row they race to create.
             runTogether(seed, List.of(
                     () -> ledger.waste(seed.branchId(), seed.ingredientId(), new BigDecimal("30"), "g", null),
                     () -> ledger.waste(seed.branchId(), seed.ingredientId(), new BigDecimal("50"), "g", null)));

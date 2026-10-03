@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.common.exception;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Thrown when a business rule / invariant is violated. Maps to HTTP 422 with its {@code code}
@@ -17,7 +18,7 @@ public class BusinessRuleException extends RuntimeException {
 
     public BusinessRuleException(String code, String message, Map<String, Object> properties) {
         super(message);
-        this.code = code;
+        this.code = Objects.requireNonNull(code);
         this.properties = Map.copyOf(properties);
     }
 

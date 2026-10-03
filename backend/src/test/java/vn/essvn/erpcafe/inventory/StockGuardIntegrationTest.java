@@ -316,6 +316,26 @@ class StockGuardIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void zeroTotalTicketThatIsShort_isRefusedAtCreateAndNoOrderRemains() throws Exception {
+        String croissant = ingredient("Croissant-" + uniq(), "pc");
+        adjust(croissant, "1");
+        String product = product(uses(croissant, "1", "pc"));
+        UUID requestId = UUID.randomUUID();
+
+        // fully discounted: nothing to collect, so the ticket completes, and takes its stock, as it is created
+        mockMvc.perform(authed(post("/api/v1/orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content(("{\"orderType\":\"TAKEAWAY\",\"orderDiscount\":20000,\"clientRequestId\":\"%s\","
+                                + "\"lines\":[{\"productId\":\"%s\",\"quantity\":2}]}").formatted(requestId, product)))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_STOCK"))
+                .andExpect(jsonPath("$.shortfalls[0].ingredientId").value(croissant));
+
+        assertThat(db.queryForObject("SELECT count(*) FROM sales_order WHERE client_request_id = ?::uuid",
+                Integer.class, requestId.toString())).isZero();
+        assertThat(onHand(croissant)).isEqualByComparingTo("1");
+    }
+
+    @Test
     void lineThatGivesStockBack_isNeverRefused_evenBelowZero() throws Exception {
         String beans = ingredient("Beans-" + uniq(), "g");
         adjust(beans, "-50"); // a deficit left from before the guard, or a count correction
