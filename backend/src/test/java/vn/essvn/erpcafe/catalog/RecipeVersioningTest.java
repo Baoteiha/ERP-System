@@ -109,6 +109,13 @@ class RecipeVersioningTest extends AbstractIntegrationTest {
         return created("/api/v1/ingredients", "{\"name\":\"RVer%d\",\"baseUnit\":\"g\"}".formatted(SEQ.incrementAndGet()));
     }
 
+    /** Counts {@code grams} of the ingredient into the branch's stock: a sale cannot take stock below zero. */
+    private void stock(String ingredientId, int grams) throws Exception {
+        mockMvc.perform(authed(post("/api/v1/stock/adjust"))
+                        .content("{\"ingredientId\":\"%s\",\"quantityDelta\":%d}".formatted(ingredientId, grams)))
+                .andExpect(status().isOk());
+    }
+
     /** A 25,000 product with no recipe yet. */
     private String product() throws Exception {
         int n = SEQ.incrementAndGet();
@@ -148,6 +155,7 @@ class RecipeVersioningTest extends AbstractIntegrationTest {
     @Test
     void anOrderTakenUnderVersionOne_andPaidAfterVersionTwo_consumesVersionOne() throws Exception {
         String beans = ingredient();
+        stock(beans, 38); // both sales: 18 g + 20 g
         String productId = product();
         saveRecipe(productId, beans, "18", "g").andExpect(status().isOk());
         String takenUnderV1 = openOrder(productId);

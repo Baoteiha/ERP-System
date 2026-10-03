@@ -2,15 +2,16 @@ package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.StockLine;
+import vn.essvn.erpcafe.inventory.api.StockShortfall;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.MovementType;
 import vn.essvn.erpcafe.inventory.domain.StockItem;
@@ -38,7 +40,6 @@ import vn.essvn.erpcafe.organization.api.OrganizationApi;
 @Transactional
 public class StockLedgerService {
 
-    private static final Logger log = LoggerFactory.getLogger(StockLedgerService.class);
     private static final int CALC_SCALE = 10;
     // The scale of the NUMERIC(19,4) quantity columns: a converted quantity is rounded to it here, once,
     // rather than by the database on insert.
@@ -101,7 +102,8 @@ public class StockLedgerService {
 
     /**
      * Deducts ingredient quantities for an order and returns COGS. Idempotent per
-     * {@code (refType, refId)}; allows stock to go negative (warn-but-allow).
+     * {@code (refType, refId)}. Refuses (INSUFFICIENT_STOCK) when any ingredient would go below zero;
+     * nothing moves.
      */
     public CogsResult deduct(UUID branchId, List<StockLine> lines, String refType, UUID refId) {
         // Idempotency guard: if this order already deducted (e.g. a retried completion),
@@ -112,25 +114,64 @@ public class StockLedgerService {
                 || !claim(refType, refId, branchId))) {
             return new CogsResult(cogsOfExisting(refType, refId));
         }
+        // Lock every row before checking any: the check and the writes then see the same quantities,
+        // so two tills selling the last unit cannot both pass it.
+        List<StockLine> normalized = normalize(branchId, lines);
+        List<StockItem> items = new ArrayList<>();
+        for (StockLine line : normalized) {
+            items.add(getOrCreate(branchId, line.ingredientId()));
+        }
+        refuseShortfalls(normalized, items);
+
         Money total = Money.zero();
-        for (StockLine line : normalize(branchId, lines)) {
-            StockItem item = getOrCreate(branchId, line.ingredientId());
+        for (int i = 0; i < normalized.size(); i++) {
+            StockLine line = normalized.get(i);
+            StockItem item = items.get(i);
             // COGS values the depletion at the CURRENT moving-average cost.
             Money lineCost = item.getAvgUnitCost().multiply(line.quantity());
             total = total.add(lineCost);
 
-            BigDecimal newQty = item.getQuantityOnHand().subtract(line.quantity());
-            if (newQty.signum() < 0) {
-                // Warn-but-allow: a cafe shouldn't block a sale over a mis-counted gram;
-                // the negative balance is a signal to reconcile, not a hard stop.
-                log.warn("Stock for ingredient {} at branch {} went negative ({}) via {}:{}",
-                        line.ingredientId(), branchId, newQty, refType, refId);
-            }
-            item.setQuantityOnHand(newQty);
+            item.setQuantityOnHand(item.getQuantityOnHand().subtract(line.quantity()));
             record(line.ingredientId(), branchId, MovementType.SALE_DEPLETION,
                     line.quantity().negate(), item.getAvgUnitCost(), refType, refId, null);
         }
         return new CogsResult(total);
+    }
+
+    /**
+     * Throws, before anything is written, when a line would take its ingredient below zero; the
+     * exception lists every such ingredient. A line that takes nothing (a modifier can make net
+     * consumption zero or negative) is never short, even where stock is already below zero.
+     */
+    private void refuseShortfalls(List<StockLine> lines, List<StockItem> items) {
+        Map<StockLine, BigDecimal> shortLines = new LinkedHashMap<>();
+        for (int i = 0; i < lines.size(); i++) {
+            StockLine line = lines.get(i);
+            BigDecimal onHand = items.get(i).getQuantityOnHand();
+            if (line.quantity().signum() > 0 && onHand.subtract(line.quantity()).signum() < 0) {
+                shortLines.put(line, onHand);
+            }
+        }
+        if (shortLines.isEmpty()) {
+            return;
+        }
+        Map<UUID, String> names = new HashMap<>();
+        ingredientRepository.findAllById(shortLines.keySet().stream().map(StockLine::ingredientId).toList())
+                .forEach(ingredient -> names.put(ingredient.getId(), ingredient.getName()));
+        List<StockShortfall> shortfalls = shortLines.entrySet().stream()
+                .map(e -> new StockShortfall(e.getKey().ingredientId(), names.get(e.getKey().ingredientId()),
+                        e.getKey().unit(), e.getKey().quantity(), toLedgerScale(e.getValue())))
+                .toList();
+        String message = shortfalls.stream()
+                .map(s -> "%s needs %s %s, %s left".formatted(s.ingredientName(), plain(s.required()), s.unit(),
+                        plain(s.onHand())))
+                .collect(Collectors.joining("; ", "Not enough stock: ", ""));
+        throw new BusinessRuleException("INSUFFICIENT_STOCK", message, Map.of("shortfalls", shortfalls));
+    }
+
+    // "101", not "101.0000": the message is read by a cashier.
+    private static String plain(BigDecimal quantity) {
+        return quantity.stripTrailingZeros().toPlainString();
     }
 
     /**

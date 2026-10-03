@@ -64,7 +64,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(BusinessRuleException.class)
     ProblemDetail handleBusinessRule(BusinessRuleException ex) {
-        return problem(HttpStatus.UNPROCESSABLE_CONTENT, "BUSINESS_RULE", ex.getMessage());
+        ProblemDetail pd = problem(HttpStatus.UNPROCESSABLE_CONTENT, ex.getCode(), ex.getMessage());
+        ex.getProperties().forEach(pd::setProperty);
+        return pd;
     }
 
     @ExceptionHandler(TooManyRequestsException.class)

@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 import vn.essvn.erpcafe.common.context.TenantContext;
+import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
@@ -26,7 +28,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * End-to-end inventory: purchase-order receiving with moving-average cost,
- * COGS deduction (idempotent, warn-but-allow negative), and low-stock alerts.
+ * COGS deduction (idempotent, refused below zero), and low-stock alerts.
  */
 class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
 
@@ -140,14 +142,16 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void deductForOrder_allowsNegativeStock() throws Exception {
+    void deductForOrder_refusesToGoBelowZero() throws Exception {
         setUp();
         int n = SEQ.incrementAndGet();
         String ingredientId = receivePurchase(n, new BigDecimal("100"), "0.30");
 
-        // deduct 150g from 100g on hand → allowed, stock goes to -50
-        deduct(ingredientId, "150", UUID.randomUUID());
-        assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("-50");
+        // deduct 150g from 100g on hand → refused, stock stays at 100
+        assertThatThrownBy(() -> deduct(ingredientId, "150", UUID.randomUUID()))
+                .isInstanceOfSatisfying(BusinessRuleException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("INSUFFICIENT_STOCK"));
+        assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("100");
     }
 
     @Test

@@ -133,9 +133,11 @@ class LedgerConcurrencyTest extends AbstractIntegrationTest {
         for (int round = 0; round < ROUNDS; round++) {
             Seed seed = seed();
 
+            // Waste, not a sale: a sale can no longer take a never-stocked ingredient below zero, and the
+            // race here is over the stock row both writers create, which every ledger write shares.
             runTogether(seed, List.of(
-                    () -> ledger.deduct(seed.branchId(), grams(seed, "30"), "ORDER", UUID.randomUUID()),
-                    () -> ledger.deduct(seed.branchId(), grams(seed, "50"), "ORDER", UUID.randomUUID())));
+                    () -> ledger.waste(seed.branchId(), seed.ingredientId(), new BigDecimal("30"), "g", null),
+                    () -> ledger.waste(seed.branchId(), seed.ingredientId(), new BigDecimal("50"), "g", null)));
 
             List<vn.essvn.erpcafe.inventory.domain.StockItem> rows =
                     asCompany(seed, () -> stockItems.findByBranchId(seed.branchId()));

@@ -24,7 +24,8 @@ public interface InventoryApi {
      * Deducts the given ingredient quantities from stock at a branch and returns
      * the COGS (Σ quantity × moving-average unit cost). Idempotent per
      * {@code (refType, refId)} — a repeated call for the same reference is a no-op
-     * and returns the already-recorded COGS. Negative stock is allowed (warn-but-allow).
+     * and returns the already-recorded COGS. Refuses (INSUFFICIENT_STOCK) when any ingredient would go
+     * below zero; nothing moves.
      */
     CogsResult deductForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId);
 

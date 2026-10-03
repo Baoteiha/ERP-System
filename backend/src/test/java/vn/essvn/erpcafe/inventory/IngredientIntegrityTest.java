@@ -130,8 +130,9 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
     @Test
     void receipt_afterOversellTakesTheReceiptCostNotABlendWithTheZeroCost() throws Exception {
         String id = ingredient("g");
-        // Sold 100 g that were never received: on hand -100 at cost 0.
-        deduct(id, "100", "g", "TEST_OVERSELL");
+        // 100 g owed that were never received: on hand -100 at cost 0. A sale can no longer oversell,
+        // but a count correction can still leave a deficit, as can sales made before the stock guard.
+        adjust(id, -100);
 
         receiveAll(sentPurchaseOrder(id, "1000", "0.24"), "1000");
 

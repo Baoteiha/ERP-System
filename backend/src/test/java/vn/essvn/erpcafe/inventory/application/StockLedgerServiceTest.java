@@ -68,9 +68,16 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
         return TenantContext.runAs(companyId, work);
     }
 
+    /** Puts {@code grams} of the ingredient in stock at the branch. */
+    private void receiveGrams(UUID ingredientId, String grams) {
+        asCompany(() -> ledger.receive(branchId, ingredientId, new BigDecimal(grams), null,
+                Money.of(new BigDecimal("0.20")), "TEST_PO", null));
+    }
+
     @Test
     void deduct_convertsEachLineToTheBaseUnitBeforeMerging() throws Exception {
         UUID ingredientId = seedGramIngredient();
+        receiveGrams(ingredientId, "1500"); // a sale cannot take stock below zero
         UUID refId = UUID.randomUUID();
 
         // 500 g + 1 kg of the same ingredient: must merge to 1500 g, not 501 of anything.
@@ -133,6 +140,7 @@ class StockLedgerServiceTest extends AbstractIntegrationTest {
     @Test
     void deduct_roundsTheMergedSumOnce_soTinyLinesStillAddUp() throws Exception {
         UUID ingredientId = seedGramIngredient();
+        receiveGrams(ingredientId, "1"); // a sale cannot take stock below zero
         UUID refId = UUID.randomUUID();
 
         // 0.03 mg is 0.00003 g: each line alone rounds to 0.0000, together they are 0.00006 g, i.e. 0.0001.
