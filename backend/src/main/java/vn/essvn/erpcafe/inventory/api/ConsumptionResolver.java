@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.inventory.api;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -25,4 +27,11 @@ public interface ConsumptionResolver {
      */
     List<StockLine> consumptionFor(UUID companyId, UUID productId, int quantity, Set<UUID> modifierIds,
             UUID recipeVersionId);
+
+    /**
+     * What one of each product consumes at its recipe version in force, with no modifiers, netted per
+     * ingredient and unit as {@link #consumptionFor} nets them. A product without a recipe is absent.
+     * The recipes are read together, never one query per product.
+     */
+    Map<UUID, List<StockLine>> oneOfEach(UUID companyId, Collection<UUID> productIds);
 }

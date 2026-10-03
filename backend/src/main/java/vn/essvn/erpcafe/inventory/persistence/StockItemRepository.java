@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.inventory.persistence;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,6 +24,11 @@ public interface StockItemRepository extends JpaRepository<StockItem, UUID> {
     List<StockItem> findByBranchId(UUID branchId);
 
     Optional<StockItem> findByIngredientIdAndBranchId(UUID ingredientId, UUID branchId);
+
+    /** The branch's stock rows for the ingredients, read without a lock; an ingredient with no row is absent. */
+    @Query("SELECT s FROM StockItem s WHERE s.branchId = :branchId AND s.ingredientId IN :ingredientIds")
+    List<StockItem> findByBranchIdAndIngredientIdIn(@Param("branchId") UUID branchId,
+            @Param("ingredientIds") Collection<UUID> ingredientIds);
 
     /**
      * Pessimistic-locking lookup used on the stock-mutation path so concurrent

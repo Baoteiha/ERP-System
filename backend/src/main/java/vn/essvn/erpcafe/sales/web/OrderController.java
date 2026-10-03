@@ -19,11 +19,13 @@ import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
 import vn.essvn.erpcafe.common.web.PageResponse;
+import vn.essvn.erpcafe.inventory.api.StockShortfall;
 import vn.essvn.erpcafe.sales.application.OrderService;
 import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PlacedOrder;
+import vn.essvn.erpcafe.sales.application.SalesInputs.QuoteResult;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
 import vn.essvn.erpcafe.sales.domain.Payment;
@@ -33,6 +35,7 @@ import vn.essvn.erpcafe.sales.web.OrderDtos.ModifierResponse;
 import vn.essvn.erpcafe.sales.web.OrderDtos.OrderResponse;
 import vn.essvn.erpcafe.sales.web.OrderDtos.PaymentRequest;
 import vn.essvn.erpcafe.sales.web.OrderDtos.PaymentResponse;
+import vn.essvn.erpcafe.sales.web.OrderDtos.StockShortfallDto;
 
 /**
  * POS orders for the active branch (requires {@code X-Branch-Id}):
@@ -71,11 +74,12 @@ public class OrderController {
                 : ResponseEntity.ok(body);
     }
 
-    /** The order the same body would create, priced and totalled but not saved. */
+    /** The order the same body would create, priced and totalled but not saved, with its stock shortfalls. */
     @PostMapping("/quote")
     @PreAuthorize("hasAuthority('sales:write')")
     public OrderResponse quote(@Valid @RequestBody CreateOrderRequest request) {
-        return toResponse(orderService.quote(toInput(request)));
+        QuoteResult quote = orderService.quote(toInput(request));
+        return toResponse(quote.order(), quote.shortfalls().stream().map(OrderController::toShortfall).toList());
     }
 
     private static CreateOrderInput toInput(CreateOrderRequest request) {
@@ -119,13 +123,21 @@ public class OrderController {
     // --- mapping ---
 
     private static OrderResponse toResponse(Order o) {
+        return toResponse(o, null);
+    }
+
+    private static OrderResponse toResponse(Order o, List<StockShortfallDto> stockShortfalls) {
         return new OrderResponse(o.getId(), o.getBranchId(), o.getCashierUserId(),
                 o.getOrderType().name(), o.getStatus().name(), o.getCurrency(), o.getTaxRate(),
                 o.getSubtotal(), o.getDiscountTotal(), o.getTaxTotal(), o.getGrandTotal(), o.getCogsTotal(),
                 o.amountPaid().getAmount(),
                 o.getLines().stream().map(OrderController::toLine).toList(),
                 o.getPayments().stream().map(OrderController::toPayment).toList(),
-                o.getCreatedAt());
+                o.getCreatedAt(), stockShortfalls);
+    }
+
+    private static StockShortfallDto toShortfall(StockShortfall s) {
+        return new StockShortfallDto(s.ingredientId(), s.ingredientName(), s.unit(), s.required(), s.onHand());
     }
 
     private static LineResponse toLine(OrderLine l) {

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import vn.essvn.erpcafe.inventory.api.StockShortfall;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderType;
 import vn.essvn.erpcafe.sales.domain.PaymentMethod;
@@ -21,6 +22,10 @@ public final class SalesInputs {
 
     /** The result of a create: the order, and whether this call made it (false when a retry found it). */
     public record PlacedOrder(Order order, boolean created) {
+    }
+
+    /** A priced, unsaved ticket and what the branch is short of to complete it now (empty when nothing). */
+    public record QuoteResult(Order order, List<StockShortfall> shortfalls) {
     }
 
     public record PaymentInput(PaymentMethod method, BigDecimal amount) {

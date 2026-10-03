@@ -36,6 +36,7 @@ import vn.essvn.erpcafe.sales.application.SalesInputs.CreateOrderInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.LineInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PaymentInput;
 import vn.essvn.erpcafe.sales.application.SalesInputs.PlacedOrder;
+import vn.essvn.erpcafe.sales.application.SalesInputs.QuoteResult;
 import vn.essvn.erpcafe.sales.domain.Order;
 import vn.essvn.erpcafe.sales.domain.OrderStatus;
 import vn.essvn.erpcafe.sales.domain.OrderLine;
@@ -133,10 +134,14 @@ public class OrderService {
         return finishIfPaid(saved);
     }
 
-    /** Prices a ticket exactly as {@link #create} would, without saving it: the till's live totals. */
+    /**
+     * Prices a ticket exactly as {@link #create} would, without saving it: the till's live totals, and
+     * the stock its completion would be refused for now. Never refuses for stock and locks nothing.
+     */
     @Transactional(readOnly = true)
-    public Order quote(CreateOrderInput input) {
-        return build(input);
+    public QuoteResult quote(CreateOrderInput input) {
+        Order order = build(input);
+        return new QuoteResult(order, inventoryApi.shortfalls(order.getBranchId(), stockLinesFor(order)));
     }
 
     private Order build(CreateOrderInput input) {

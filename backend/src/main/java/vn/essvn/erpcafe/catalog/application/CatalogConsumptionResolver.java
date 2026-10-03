@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.catalog.application;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.catalog.domain.ConsumptionLine;
 import vn.essvn.erpcafe.catalog.domain.RecipeVersion;
+import vn.essvn.erpcafe.catalog.persistence.CurrentRecipeLine;
 import vn.essvn.erpcafe.catalog.persistence.ModifierRepository;
 import vn.essvn.erpcafe.catalog.persistence.RecipeVersionRepository;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
@@ -62,6 +65,20 @@ public class CatalogConsumptionResolver implements ConsumptionResolver {
                     .forEach(modifier -> modifier.getRecipeLines().forEach(delta -> add(net, delta, times)));
         }
         return List.copyOf(net.values());
+    }
+
+    @Override
+    public Map<UUID, List<StockLine>> oneOfEach(UUID companyId, Collection<UUID> productIds) {
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Map<String, StockLine>> netByProduct = new HashMap<>();
+        for (CurrentRecipeLine row : versionRepository.findCurrentLines(companyId, productIds)) {
+            add(netByProduct.computeIfAbsent(row.productId(), id -> new LinkedHashMap<>()), row.line(), BigDecimal.ONE);
+        }
+        Map<UUID, List<StockLine>> consumption = new HashMap<>();
+        netByProduct.forEach((productId, net) -> consumption.put(productId, List.copyOf(net.values())));
+        return consumption;
     }
 
     private static void add(Map<String, StockLine> net, ConsumptionLine line, BigDecimal times) {

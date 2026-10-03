@@ -1,6 +1,8 @@
 package vn.essvn.erpcafe.inventory.api;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -28,6 +30,19 @@ public interface InventoryApi {
      * below zero; nothing moves.
      */
     CogsResult deductForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId);
+
+    /**
+     * What {@link #deductForOrder} would refuse the lines for right now, by the same rule, read without a
+     * lock and without writing anything: empty when every line fits. An ingredient the branch never
+     * stocked holds 0; one that is missing or another company's is refused as {@link #deductForOrder} does.
+     */
+    List<StockShortfall> shortfalls(UUID branchId, List<StockLine> lines);
+
+    /**
+     * The keys whose lines the branch cannot make from its stock right now, each key judged on its own and
+     * by the same rule as {@link #deductForOrder}. One stock read covers every key; nothing is written.
+     */
+    Set<UUID> unavailable(UUID branchId, Map<UUID, List<StockLine>> linesByKey);
 
     /**
      * Reverses what a past deduction recorded: one reversal per SALE_DEPLETION movement of

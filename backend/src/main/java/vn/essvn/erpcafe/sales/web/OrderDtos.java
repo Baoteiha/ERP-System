@@ -73,7 +73,17 @@ public final class OrderDtos {
             BigDecimal amountPaid,
             List<LineResponse> lines,
             List<PaymentResponse> payments,
-            Instant createdAt) {
+            Instant createdAt,
+            // set by the price check only; null, so left out, everywhere else
+            List<StockShortfallDto> stockShortfalls) {
+    }
+
+    public record StockShortfallDto(
+            UUID ingredientId,
+            String ingredientName,
+            String unit,
+            BigDecimal required,
+            BigDecimal onHand) {
     }
 
     private OrderDtos() {

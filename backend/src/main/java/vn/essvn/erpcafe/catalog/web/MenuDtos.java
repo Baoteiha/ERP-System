@@ -19,7 +19,8 @@ public final class MenuDtos {
             String name,
             String sku,
             MoneyDto effectivePrice,
-            List<MenuModifierGroup> modifierGroups) {
+            List<MenuModifierGroup> modifierGroups,
+            boolean available) {
     }
 
     private MenuDtos() {

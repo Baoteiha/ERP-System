@@ -1,5 +1,7 @@
 package vn.essvn.erpcafe.catalog.persistence;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +26,16 @@ public interface RecipeVersionRepository extends Repository<RecipeVersion, UUID>
     @Query("select v.id from Product p, Recipe r join r.versions v where r.productId = p.id"
             + " and p.id = :productId and p.companyId = :companyId and v.versionNo = r.currentVersionNo")
     Optional<UUID> findCurrentId(@Param("companyId") UUID companyId, @Param("productId") UUID productId);
+
+    /** Every line of the version in force for each of the company's live products among the ids, in one read. */
+    @Query("""
+            select new vn.essvn.erpcafe.catalog.persistence.CurrentRecipeLine(r.productId, l.ingredientId, l.quantity, l.unit)
+            from Product p, Recipe r join r.versions v join v.lines l
+            where r.productId = p.id and p.companyId = :companyId and p.id in :productIds
+              and v.versionNo = r.currentVersionNo
+            """)
+    List<CurrentRecipeLine> findCurrentLines(@Param("companyId") UUID companyId,
+            @Param("productIds") Collection<UUID> productIds);
 
     /**
      * A version of the company's product's recipe, whether or not the product has since been deleted:

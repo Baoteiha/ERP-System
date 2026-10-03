@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -15,6 +16,7 @@ import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.inventory.api.CogsResult;
 import vn.essvn.erpcafe.inventory.api.InventoryApi;
 import vn.essvn.erpcafe.inventory.api.StockLine;
+import vn.essvn.erpcafe.inventory.api.StockShortfall;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.StockItemRepository;
@@ -78,6 +80,18 @@ public class InventoryApiImpl implements InventoryApi {
     @Transactional
     public CogsResult deductForOrder(UUID branchId, List<StockLine> lines, String refType, UUID refId) {
         return ledger.deduct(branchId, lines, refType, refId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StockShortfall> shortfalls(UUID branchId, List<StockLine> lines) {
+        return ledger.shortfalls(branchId, lines);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Set<UUID> unavailable(UUID branchId, Map<UUID, List<StockLine>> linesByKey) {
+        return ledger.unavailable(branchId, linesByKey);
     }
 
     @Override

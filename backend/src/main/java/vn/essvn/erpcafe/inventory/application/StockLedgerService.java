@@ -2,12 +2,13 @@ package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -117,16 +118,20 @@ public class StockLedgerService {
         // Lock every row before checking any: the check and the writes then see the same quantities,
         // so two tills selling the last unit cannot both pass it.
         List<StockLine> normalized = normalize(branchId, lines);
-        List<StockItem> items = new ArrayList<>();
+        Map<UUID, StockItem> items = new HashMap<>();
         for (StockLine line : normalized) {
-            items.add(getOrCreate(branchId, line.ingredientId()));
+            items.put(line.ingredientId(), getOrCreate(branchId, line.ingredientId()));
         }
-        refuseShortfalls(normalized, items);
+        Map<UUID, BigDecimal> onHand = new HashMap<>();
+        items.forEach((ingredientId, item) -> onHand.put(ingredientId, item.getQuantityOnHand()));
+        List<StockShortfall> shortfalls = describe(shortLines(normalized, onHand));
+        if (!shortfalls.isEmpty()) {
+            throw insufficientStock(shortfalls);
+        }
 
         Money total = Money.zero();
-        for (int i = 0; i < normalized.size(); i++) {
-            StockLine line = normalized.get(i);
-            StockItem item = items.get(i);
+        for (StockLine line : normalized) {
+            StockItem item = items.get(line.ingredientId());
             // COGS values the depletion at the CURRENT moving-average cost.
             Money lineCost = item.getAvgUnitCost().multiply(line.quantity());
             total = total.add(lineCost);
@@ -139,34 +144,92 @@ public class StockLedgerService {
     }
 
     /**
-     * Throws, before anything is written, when a line would take its ingredient below zero; the
-     * exception lists every such ingredient. A line that takes nothing (a modifier can make net
-     * consumption zero or negative) is never short, even where stock is already below zero.
+     * What the lines would be short of at the branch now, read without a lock and without creating a
+     * row: the price check's answer to "would this sale be refused for stock". Same conversion and same
+     * rule as {@link #deduct}; an ingredient with no stock row holds 0. Empty when every line fits.
      */
-    private void refuseShortfalls(List<StockLine> lines, List<StockItem> items) {
+    @Transactional(readOnly = true)
+    public List<StockShortfall> shortfalls(UUID branchId, List<StockLine> lines) {
+        List<StockLine> normalized = normalize(branchId, lines);
+        return describe(shortLines(normalized, onHand(branchId, normalized)));
+    }
+
+    /**
+     * The keys whose lines could not be made from the branch's stock now, each key judged on its own.
+     * One ingredient read and one stock read serve every key. A key naming an ingredient the ledger
+     * cannot convert is unavailable rather than failing the rest, since its sale would be refused.
+     */
+    @Transactional(readOnly = true)
+    public Set<UUID> unavailable(UUID branchId, Map<UUID, List<StockLine>> linesByKey) {
+        Map<UUID, Unit> baseUnits = baseUnitsOf(branchId,
+                linesByKey.values().stream().flatMap(List::stream).map(StockLine::ingredientId).toList());
+        Set<UUID> unavailable = new HashSet<>();
+        Map<UUID, List<StockLine>> normalizedByKey = new HashMap<>();
+        linesByKey.forEach((key, lines) -> {
+            try {
+                normalizedByKey.put(key, normalize(baseUnits, lines));
+            } catch (BusinessRuleException unconvertible) {
+                unavailable.add(key);
+            }
+        });
+        Map<UUID, BigDecimal> onHand = onHand(branchId,
+                normalizedByKey.values().stream().flatMap(List::stream).toList());
+        normalizedByKey.forEach((key, lines) -> {
+            if (!shortLines(lines, onHand).isEmpty()) {
+                unavailable.add(key);
+            }
+        });
+        return unavailable;
+    }
+
+    /**
+     * The one shortage rule that the payment, the price check and the menu all apply: a line is short
+     * when it takes some of its ingredient and on-hand minus that is below zero. A line that takes
+     * nothing (a modifier can make net consumption zero or negative) is never short, even where stock
+     * is already below zero. Maps each short line to what is on hand (0 when the branch has no row).
+     */
+    private static Map<StockLine, BigDecimal> shortLines(List<StockLine> normalized, Map<UUID, BigDecimal> onHand) {
         Map<StockLine, BigDecimal> shortLines = new LinkedHashMap<>();
-        for (int i = 0; i < lines.size(); i++) {
-            StockLine line = lines.get(i);
-            BigDecimal onHand = items.get(i).getQuantityOnHand();
-            if (line.quantity().signum() > 0 && onHand.subtract(line.quantity()).signum() < 0) {
-                shortLines.put(line, onHand);
+        for (StockLine line : normalized) {
+            BigDecimal held = onHand.getOrDefault(line.ingredientId(), BigDecimal.ZERO);
+            if (line.quantity().signum() > 0 && held.subtract(line.quantity()).signum() < 0) {
+                shortLines.put(line, held);
             }
         }
+        return shortLines;
+    }
+
+    // On-hand per ingredient in one unlocked read; an ingredient the branch never stocked is absent.
+    private Map<UUID, BigDecimal> onHand(UUID branchId, List<StockLine> normalized) {
+        Map<UUID, BigDecimal> onHand = new HashMap<>();
+        Set<UUID> ids = normalized.stream().map(StockLine::ingredientId).collect(Collectors.toSet());
+        if (!ids.isEmpty()) {
+            stockItemRepository.findByBranchIdAndIngredientIdIn(branchId, ids)
+                    .forEach(item -> onHand.put(item.getIngredientId(), item.getQuantityOnHand()));
+        }
+        return onHand;
+    }
+
+    // Names the short ingredients in one read, which happens only when something is short.
+    private List<StockShortfall> describe(Map<StockLine, BigDecimal> shortLines) {
         if (shortLines.isEmpty()) {
-            return;
+            return List.of();
         }
         Map<UUID, String> names = new HashMap<>();
         ingredientRepository.findAllById(shortLines.keySet().stream().map(StockLine::ingredientId).toList())
                 .forEach(ingredient -> names.put(ingredient.getId(), ingredient.getName()));
-        List<StockShortfall> shortfalls = shortLines.entrySet().stream()
+        return shortLines.entrySet().stream()
                 .map(e -> new StockShortfall(e.getKey().ingredientId(), names.get(e.getKey().ingredientId()),
                         e.getKey().unit(), e.getKey().quantity(), toLedgerScale(e.getValue())))
                 .toList();
+    }
+
+    private static BusinessRuleException insufficientStock(List<StockShortfall> shortfalls) {
         String message = shortfalls.stream()
                 .map(s -> "%s needs %s %s, %s left".formatted(s.ingredientName(), plain(s.required()), s.unit(),
                         plain(s.onHand())))
                 .collect(Collectors.joining("; ", "Not enough stock: ", ""));
-        throw new BusinessRuleException("INSUFFICIENT_STOCK", message, Map.of("shortfalls", shortfalls));
+        return new BusinessRuleException("INSUFFICIENT_STOCK", message, Map.of("shortfalls", shortfalls));
     }
 
     // "101", not "101.0000": the message is read by a cashier.
@@ -259,7 +322,11 @@ public class StockLedgerService {
      * collapsing them means one lock and one movement row instead of two.
      */
     private List<StockLine> normalize(UUID branchId, List<StockLine> lines) {
-        Map<UUID, Unit> baseUnits = baseUnitsOf(branchId, lines.stream().map(StockLine::ingredientId).toList());
+        return normalize(baseUnitsOf(branchId, lines.stream().map(StockLine::ingredientId).toList()), lines);
+    }
+
+    // The same, against base units already read: the menu reads them once for every product.
+    private static List<StockLine> normalize(Map<UUID, Unit> baseUnits, List<StockLine> lines) {
         Map<UUID, StockLine> merged = new TreeMap<>();
         for (StockLine line : lines) {
             Unit base = requireBase(baseUnits, line.ingredientId());

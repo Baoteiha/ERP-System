@@ -43,7 +43,8 @@ public class MenuController {
                 entry.product().getSku(), MoneyDto.from(entry.effectivePrice()),
                 entry.product().getModifierGroups().stream()
                         .sorted(Comparator.comparing(ModifierGroup::getName))
-                        .map(MenuController::toGroup).toList());
+                        .map(MenuController::toGroup).toList(),
+                entry.available());
     }
 
     private static MenuModifierGroup toGroup(ModifierGroup g) {
