@@ -14,7 +14,10 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
@@ -30,6 +33,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
  * Class: StockCheckAgreementTest
  * Purpose: Proves the price check, the menu and the payment call the same lines short, so they can never disagree.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class StockCheckAgreementTest extends AbstractIntegrationTest {
 
     @Autowired
@@ -111,7 +115,8 @@ class StockCheckAgreementTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void unknownIngredient_failsThePriceCheckLikeThePayment_butOnlyMarksItsMenuEntryUnavailable() throws Exception {
+    void unknownIngredient_failsThePriceCheckLikeThePayment_butOnlyMarksItsMenuEntryUnavailable(CapturedOutput output)
+            throws Exception {
         UUID stocked = gramsIngredient("100");
         List<StockLine> unknown = List.of(new StockLine(UUID.randomUUID(), BigDecimal.ONE, "g"));
         List<StockLine> fine = List.of(new StockLine(stocked, BigDecimal.TEN, "g"));
@@ -127,5 +132,8 @@ class StockCheckAgreementTest extends AbstractIntegrationTest {
         assertThat(TenantContext.runAs(companyId,
                 () -> inventoryApi.unavailable(branchId, Map.of(broken, unknown, sellable, fine))))
                 .containsExactly(broken);
+        // logged as a data problem, so an operator can tell it from a stock problem
+        assertThat(output.getOut()).contains("Counting " + broken + " unavailable")
+                .doesNotContain("Counting " + sellable + " unavailable");
     }
 }

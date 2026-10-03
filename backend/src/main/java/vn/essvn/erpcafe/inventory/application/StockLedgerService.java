@@ -13,6 +13,8 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,8 @@ import vn.essvn.erpcafe.organization.api.OrganizationApi;
 @Service
 @Transactional
 public class StockLedgerService {
+
+    private static final Logger log = LoggerFactory.getLogger(StockLedgerService.class);
 
     private static final int CALC_SCALE = 10;
     // The scale of the NUMERIC(19,4) quantity columns: a converted quantity is rounded to it here, once,
@@ -169,6 +173,9 @@ public class StockLedgerService {
             try {
                 normalizedByKey.put(key, normalize(baseUnits, lines));
             } catch (BusinessRuleException unconvertible) {
+                // a data problem, not a stock one: say so, or it reads as plain "out of stock"
+                log.warn("Counting {} unavailable: its consumption cannot be converted: {}", key,
+                        unconvertible.getMessage());
                 unavailable.add(key);
             }
         });

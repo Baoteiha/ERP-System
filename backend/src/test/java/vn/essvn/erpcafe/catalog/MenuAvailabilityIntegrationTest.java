@@ -8,37 +8,74 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
-import org.hibernate.SessionFactory;
-import org.hibernate.stat.Statistics;
+import javax.sql.DataSource;
+
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.jayway.jsonpath.JsonPath;
 
-import jakarta.persistence.EntityManagerFactory;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: MenuAvailabilityIntegrationTest
  * Purpose: Proves the menu marks a product unavailable exactly when the branch cannot make one of it, from one stock read.
  */
-@TestPropertySource(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
+@TestPropertySource(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
+        + "vn.essvn.erpcafe.catalog.MenuAvailabilityIntegrationTest$TableReads")
 class MenuAvailabilityIntegrationTest extends AbstractIntegrationTest {
 
-    @Autowired
-    private EntityManagerFactory entityManagerFactory;
+    /**
+     * Class: TableReads
+     * Purpose: Counts every SQL statement Hibernate sends that names the stock or recipe tables, by whatever route it was built.
+     */
+    public static class TableReads implements StatementInspector {
+
+        static final AtomicInteger STOCK = new AtomicInteger();
+        static final AtomicInteger RECIPE = new AtomicInteger();
+        private static final Pattern STOCK_TABLE = Pattern.compile("(?i)\\bstock_item\\b");
+        private static final Pattern RECIPE_TABLES = Pattern.compile("(?i)\\brecipe(_version|_line)?\\b");
+
+        static void reset() {
+            STOCK.set(0);
+            RECIPE.set(0);
+        }
+
+        @Override
+        public String inspect(String sql) {
+            if (STOCK_TABLE.matcher(sql).find()) {
+                STOCK.incrementAndGet();
+            }
+            if (RECIPE_TABLES.matcher(sql).find()) {
+                RECIPE.incrementAndGet();
+            }
+            return sql;
+        }
+    }
+
+    /** The schema owner's SQL: looks for stock rows past row-level security. */
+    private JdbcTemplate db;
 
     private String token;
     private String branchId;
+
+    @Autowired
+    void ownerSql(@Qualifier("ownerDataSource") DataSource ownerDataSource) {
+        db = new JdbcTemplate(ownerDataSource);
+    }
 
     @BeforeEach
     void signIn() throws Exception {
@@ -137,6 +174,9 @@ class MenuAvailabilityIntegrationTest extends AbstractIntegrationTest {
         assertThat(available(menu, syrupShot)).isFalse();
         assertThat(available(menu, mocha)).isFalse();
         assertThat(available(menu, water)).isTrue();
+        // read-only: judging the never-stocked syrup created no stock row for it
+        assertThat(db.queryForObject("SELECT count(*) FROM stock_item WHERE ingredient_id = ?::uuid",
+                Integer.class, syrup)).isZero();
     }
 
     @Test
@@ -174,20 +214,12 @@ class MenuAvailabilityIntegrationTest extends AbstractIntegrationTest {
         for (int i = 0; i < 5; i++) {
             product(uses(beans, "18", "g"), uses(milk, "100", "ml"));
         }
-        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
-        statistics.clear();
+        TableReads.reset();
 
         menu();
 
-        assertThat(executionsOfQueriesNaming(statistics, "StockItem")).isEqualTo(1);
-        assertThat(executionsOfQueriesNaming(statistics, "Recipe")).isEqualTo(1);
-    }
-
-    /** How many times queries whose text names the entity ran since the statistics were cleared. */
-    private static long executionsOfQueriesNaming(Statistics statistics, String entity) {
-        return Arrays.stream(statistics.getQueries())
-                .filter(query -> query.contains(entity))
-                .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount())
-                .sum();
+        // counted at the JDBC statement, so JPQL, derived, entity, lazy and native reads all count alike
+        assertThat(TableReads.STOCK.get()).as("statements reading stock_item").isEqualTo(1);
+        assertThat(TableReads.RECIPE.get()).as("statements reading the recipe tables").isEqualTo(1);
     }
 }

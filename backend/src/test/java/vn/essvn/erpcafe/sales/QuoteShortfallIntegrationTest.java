@@ -234,12 +234,21 @@ class QuoteShortfallIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void createResponse_hasNoStockShortfallsKey() throws Exception {
+    void createAndPaymentResponses_haveNoStockShortfallsKey() throws Exception {
         String syrup = ingredient("Syrup-" + uniq(), "ml");
 
-        mockMvc.perform(authed(post("/api/v1/orders")).content(cart(product(uses(syrup, "15", "ml")), 1)))
+        // doesNotHaveJsonPath, not doesNotExist: an explicit "stockShortfalls": null must fail too
+        String order = mockMvc.perform(authed(post("/api/v1/orders")).content(cart(product(uses(syrup, "15", "ml")), 1)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("OPEN"))
-                .andExpect(jsonPath("$.stockShortfalls").doesNotExist());
+                .andExpect(jsonPath("$.stockShortfalls").doesNotHaveJsonPath())
+                .andReturn().getResponse().getContentAsString();
+
+        adjust(syrup, "15");
+        mockMvc.perform(authed(post("/api/v1/orders/" + JsonPath.read(order, "$.id") + "/payments"))
+                        .content("{\"method\":\"CASH\",\"amount\":%s}".formatted(num(order, "$.grandTotal").toPlainString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.stockShortfalls").doesNotHaveJsonPath());
     }
 }
