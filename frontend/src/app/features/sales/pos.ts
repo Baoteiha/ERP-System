@@ -127,7 +127,7 @@ interface CartLine {
           </div>
         }
         @if (refusal(); as message) {
-          <div class="stock-block" role="alert">{{ message }}</div>
+          <div id="pos-refusal" class="stock-block" role="alert">{{ message }}</div>
         }
         <div class="pay-strip">
           <select class="select" [(ngModel)]="paymentMethod" aria-label="Payment method">
@@ -135,7 +135,7 @@ interface CartLine {
             <option value="CARD">Card</option>
             <option value="EWALLET">E-wallet</option>
           </select>
-          <button class="btn btn-primary btn-lg btn-block" (click)="submit()" [disabled]="saving() || !payable() || shortfalls().length > 0 || !auth.can('sales:write')" [attr.aria-describedby]="shortfalls().length ? 'pos-stock-block' : null">
+          <button class="btn btn-primary btn-lg btn-block" (click)="submit()" [disabled]="saving() || !payable() || shortfalls().length > 0 || !auth.can('sales:write')" [attr.aria-describedby]="payReason()">
             @if (saving()) { <span class="spinner"></span> } Pay {{ displayQuote()?.grandTotal | money }}
           </button>
         </div>
@@ -275,10 +275,12 @@ export class PosComponent {
   private refused = signal<{ request: CreateOrderRequest | null; message: string } | null>(null);
   refusal = computed(() => {
     const r = this.refused();
-    return r && r.request === this.quoteRequest() ? r.message : null;
+    return r && r.request !== null && r.request === this.quoteRequest() ? r.message : null;
   });
   /** Asks for the current cart to be priced again without the cart having changed. */
   private requote = new Subject<void>();
+  /** Fired when the till is looked at again, so the tiles catch up with a restock made elsewhere. */
+  private returned = new Subject<void>();
 
   filteredProducts = computed(() => {
     const q = this.search().trim().toLowerCase();
@@ -315,7 +317,13 @@ export class PosComponent {
     return q && q.request === this.quoteRequest() ? q.order : null;
   });
   shortfalls = computed(() => (this.cart().length ? this.displayQuote()?.stockShortfalls ?? [] : []));
-  payable = computed(() => this.currentQuote() !== null);
+  /** Not payable while the server's refusal is on screen: the quote that fit the cart is stale until the requote lands. */
+  payable = computed(() => this.currentQuote() !== null && !this.refusal());
+  /** The ids of the blocks that explain why Pay is blocked, for aria-describedby. */
+  payReason = computed(() => {
+    const ids = [this.shortfalls().length ? 'pos-stock-block' : '', this.refusal() ? 'pos-refusal' : ''].filter(Boolean);
+    return ids.length ? ids.join(' ') : null;
+  });
   taxPercent = computed(() => String(Math.round(Number(this.displayQuote()?.taxRate || 0) * 10000) / 100));
 
   /** One id per attempt to sell the current cart: a retry of a lost create then returns the same order. */
@@ -325,6 +333,16 @@ export class PosComponent {
 
   constructor() {
     this.load();
+    // a till left idle misses restocks and other tills' sales: refresh the menu when it is looked at again
+    const onReturn = () => { if (document.visibilityState === 'visible') this.returned.next(); };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    });
+    // both events usually fire together: one request
+    this.returned.pipe(debounceTime(200), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.reloadMenu());
     // the new branch has its own menu and prices, and an unsent ticket belonged to the old one
     onBranchChange((id) => {
       this.load();
@@ -469,7 +487,7 @@ export class PosComponent {
       return;
     }
     const request = this.quoteRequest();
-    if (!request || !this.payable()) return;
+    if (!request || !this.payable() || this.shortfalls().length > 0) return;
     this.saving.set(true);
     if (this.awaitingPayment) {
       this.pay(this.awaitingPayment);

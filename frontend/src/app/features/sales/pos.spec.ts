@@ -354,6 +354,87 @@ describe('PosComponent', () => {
       expect(el().textContent).not.toContain(refusal.detail);
     });
 
+    function permit() {
+      TestBed.inject(AuthService).me.set({
+        userId: 'u', email: 'a@b.c', companyId: 'c', branchIds: ['b1'], roles: [], permissions: ['sales:write'],
+        permissionsByBranch: { b1: ['sales:write'] },
+      } as MeResponse);
+    }
+    const payButton = () => el().querySelector<HTMLButtonElement>('.btn-primary')!;
+
+    it('keeps Pay disabled between a stock refusal and the requote, with the refusal as its reason', () => {
+      permit();
+      addAndQuote([]);
+      expect(payButton().disabled).toBe(false);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      ctrl.expectOne('/api/v1/menu').flush([latte]);
+      fixture.detectChanges();
+
+      // the requote has not been sent or answered yet
+      expect(pos.payable()).toBe(false);
+      expect(payButton().disabled).toBe(true);
+      const reason = payButton().getAttribute('aria-describedby')!;
+      expect(el().querySelector('#' + reason)?.textContent).toContain(refusal.detail);
+
+      vi.advanceTimersByTime(250);
+      ctrl.expectOne(isPost('/api/v1/orders/quote')).flush(withShortfalls('28000', []));
+      fixture.detectChanges();
+      expect(payButton().disabled).toBe(false);
+      expect(payButton().getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('sends nothing from submit() while the quote shows a shortfall', () => {
+      permit();
+      addAndQuote(short);
+      pos.submit();
+      ctrl.expectNone(isPost('/api/v1/orders'));
+      expect(pos.saving()).toBe(false);
+    });
+
+    it('shows no refusal when the cart was emptied during the payment round trip', () => {
+      addAndQuote([]);
+      pos.submit();
+      ctrl.expectOne(isPost('/api/v1/orders')).flush({ id: 'o1', status: 'OPEN', grandTotal: '28000', currency: 'VND' });
+      pos.removeLine(0);
+      expect(pos.cart()).toEqual([]);
+      ctrl.expectOne('/api/v1/orders/o1/payments').flush(refusal, { status: 422, statusText: 'Unprocessable' });
+      fixture.detectChanges();
+
+      expect(pos.refusal()).toBeNull();
+      expect(el().textContent).not.toContain(refusal.detail);
+    });
+
+    describe('menu refresh on return', () => {
+      const setVisibility = (state: 'visible' | 'hidden') =>
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(state);
+      afterEach(() => vi.restoreAllMocks());
+
+      it('reloads the menu once when the page becomes visible and the window gains focus together', () => {
+        setVisibility('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+        vi.advanceTimersByTime(500);
+        ctrl.expectOne('/api/v1/menu').flush([croissant]);
+        expect(pos.products().map((p) => p.name)).toEqual(['Croissant']);
+      });
+
+      it('does not reload when the page is hidden', () => {
+        setVisibility('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(500);
+        ctrl.expectNone('/api/v1/menu');
+      });
+
+      it('stops listening once the component is destroyed', () => {
+        fixture.destroy();
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(500);
+        ctrl.expectNone('/api/v1/menu');
+      });
+    });
+
     it('does not show another failure as a stock refusal', () => {
       addAndQuote([]);
       pos.submit();
