@@ -1,6 +1,7 @@
 package vn.essvn.erpcafe.common.web;
 
 import java.util.List;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,10 +63,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
+    private static final Set<String> RESERVED_PROBLEM_FIELDS =
+            Set.of("code", "detail", "title", "status", "type", "instance");
+
     @ExceptionHandler(BusinessRuleException.class)
     ProblemDetail handleBusinessRule(BusinessRuleException ex) {
         ProblemDetail pd = problem(HttpStatus.UNPROCESSABLE_CONTENT, ex.getCode(), ex.getMessage());
-        ex.getProperties().forEach(pd::setProperty);
+        // a caller's extra properties must not shadow the standard problem fields
+        ex.getProperties().forEach((name, value) -> {
+            if (!RESERVED_PROBLEM_FIELDS.contains(name)) {
+                pd.setProperty(name, value);
+            }
+        });
         return pd;
     }
 

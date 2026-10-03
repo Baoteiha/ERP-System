@@ -168,7 +168,7 @@ class StockGuardIntegrationTest extends AbstractIntegrationTest {
         String refusal = pay(order)
                 .andExpect(status().is(422))
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_STOCK"))
-                .andExpect(jsonPath("$.detail").value("Not enough stock: %s needs 101 pc, 51 left".formatted(name)))
+                .andExpect(jsonPath("$.detail").value("Not enough stock: %s needs 101 pc, 51 pc left".formatted(name)))
                 .andExpect(jsonPath("$.shortfalls.length()").value(1))
                 .andExpect(jsonPath("$.shortfalls[0].ingredientId").value(croissant))
                 .andExpect(jsonPath("$.shortfalls[0].ingredientName").value(name))
@@ -220,7 +220,7 @@ class StockGuardIntegrationTest extends AbstractIntegrationTest {
         String refusal = pay(order)
                 .andExpect(status().is(422))
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_STOCK"))
-                .andExpect(jsonPath("$.detail").value("Not enough stock: %s needs 30 ml, 0 left".formatted(name)))
+                .andExpect(jsonPath("$.detail").value("Not enough stock: %s needs 30 ml, 0 ml left".formatted(name)))
                 .andExpect(jsonPath("$.shortfalls[0].ingredientName").value(name))
                 .andExpect(jsonPath("$.shortfalls[0].unit").value("ml"))
                 .andReturn().getResponse().getContentAsString();
@@ -264,8 +264,8 @@ class StockGuardIntegrationTest extends AbstractIntegrationTest {
                 .containsExactlyInAnyOrder("Beans-" + s, "Milk-" + s);
         assertThat((String) JsonPath.read(refusal, "$.detail"))
                 .startsWith("Not enough stock: ")
-                .contains("Beans-%s needs 18 g, 10 left".formatted(s))
-                .contains("Milk-%s needs 200 ml, 0 left".formatted(s))
+                .contains("Beans-%s needs 18 g, 10 g left".formatted(s))
+                .contains("Milk-%s needs 200 ml, 0 ml left".formatted(s))
                 .doesNotContain("Cup-" + s);
         expectOpenAndUnpaid(orderId);
         assertThat(onHand(beans)).isEqualByComparingTo("10");

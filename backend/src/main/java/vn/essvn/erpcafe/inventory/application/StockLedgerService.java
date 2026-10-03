@@ -226,17 +226,22 @@ public class StockLedgerService {
         ingredientRepository.findAllById(shortLines.keySet().stream().map(StockLine::ingredientId).toList())
                 .forEach(ingredient -> names.put(ingredient.getId(), ingredient.getName()));
         return shortLines.entrySet().stream()
-                .map(e -> new StockShortfall(e.getKey().ingredientId(), names.get(e.getKey().ingredientId()),
+                .map(e -> new StockShortfall(e.getKey().ingredientId(), names.getOrDefault(e.getKey().ingredientId(), "ingredient " + shortId(e.getKey().ingredientId())),
                         e.getKey().unit(), e.getKey().quantity(), toLedgerScale(e.getValue())))
                 .toList();
     }
 
     private static BusinessRuleException insufficientStock(List<StockShortfall> shortfalls) {
         String message = shortfalls.stream()
-                .map(s -> "%s needs %s %s, %s left".formatted(s.ingredientName(), plain(s.required()), s.unit(),
-                        plain(s.onHand())))
+                .map(s -> "%s needs %s %s, %s %s left".formatted(s.ingredientName(), plain(s.required()), s.unit(),
+                        plain(s.onHand()), s.unit()))
                 .collect(Collectors.joining("; ", "Not enough stock: ", ""));
         return new BusinessRuleException("INSUFFICIENT_STOCK", message, Map.of("shortfalls", shortfalls));
+    }
+
+    // The first 8 characters of an id, for naming an ingredient that vanished mid-transaction.
+    private static String shortId(UUID id) {
+        return id.toString().substring(0, 8);
     }
 
     // "101", not "101.0000": the message is read by a cashier.
