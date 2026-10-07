@@ -2,8 +2,10 @@ package vn.essvn.erpcafe.inventory.web;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort.Direction;
 import org.springframework.data.web.PageableDefault;
@@ -23,9 +25,13 @@ import vn.essvn.erpcafe.common.web.PageResponse;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseOrderService;
+import vn.essvn.erpcafe.inventory.domain.GoodsReceipt;
+import vn.essvn.erpcafe.inventory.domain.GoodsReceiptLine;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderLine;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.CreatePurchaseOrderRequest;
+import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.GoodsReceiptLineResponse;
+import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.GoodsReceiptResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.PoLineResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.PurchaseOrderResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.ReceiveRequest;
@@ -48,13 +54,22 @@ public class PurchaseOrderController {
     @PreAuthorize("hasAuthority('purchasing:read')")
     public PageResponse<PurchaseOrderResponse> list(
             @PageableDefault(sort = "createdAt", direction = Direction.DESC) Pageable pageable) {
-        return PageResponse.from(purchaseOrderService.list(pageable).map(PurchaseOrderController::toResponse));
+        Page<PurchaseOrder> page = purchaseOrderService.list(pageable);
+        Map<UUID, List<GoodsReceipt>> receipts = purchaseOrderService.receiptsOf(
+                page.getContent().stream().map(PurchaseOrder::getId).toList());
+        return PageResponse.from(page.map(o -> toResponse(o, receipts.getOrDefault(o.getId(), List.of()))));
+    }
+
+    @GetMapping("/by-receipt/{receiptId}")
+    @PreAuthorize("hasAuthority('purchasing:read')")
+    public PurchaseOrderResponse byReceipt(@PathVariable UUID receiptId) {
+        return respond(purchaseOrderService.getByReceipt(receiptId));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('purchasing:read')")
     public PurchaseOrderResponse get(@PathVariable UUID id) {
-        return toResponse(purchaseOrderService.get(id));
+        return respond(purchaseOrderService.get(id));
     }
 
     @PostMapping
@@ -63,7 +78,7 @@ public class PurchaseOrderController {
         List<LineInput> lines = request.lines().stream()
                 .map(l -> new LineInput(l.itemId(), l.ingredientId(), l.unit(), l.orderedQty(), l.unitCost()))
                 .toList();
-        PurchaseOrderResponse body = toResponse(
+        PurchaseOrderResponse body = respond(
                 purchaseOrderService.create(request.supplierId(), request.note(), lines));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/purchase-orders/" + body.id())).body(body);
     }
@@ -71,30 +86,47 @@ public class PurchaseOrderController {
     @PostMapping("/{id}/send")
     @PreAuthorize("hasAuthority('purchasing:write')")
     public PurchaseOrderResponse send(@PathVariable UUID id) {
-        return toResponse(purchaseOrderService.send(id));
+        return respond(purchaseOrderService.send(id));
     }
 
     @PostMapping("/{id}/receive")
     @PreAuthorize("hasAuthority('purchasing:write')")
     public PurchaseOrderResponse receive(@PathVariable UUID id, @Valid @RequestBody ReceiveRequest request) {
         List<ReceiptInput> receipts = request.receipts().stream()
-                .map(r -> new ReceiptInput(r.lineId(), r.receivedQty(), r.unit(), r.unitCostOverride()))
+                .map(r -> new ReceiptInput(r.lineId(), r.receivedQty(), r.unit(), r.unitCostOverride(),
+                        r.damagedQty(), r.overDeliveryKind(), r.note()))
                 .toList();
-        return toResponse(purchaseOrderService.receive(id, receipts));
+        return respond(purchaseOrderService.receive(id, receipts, request.note()));
     }
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('purchasing:write')")
     public PurchaseOrderResponse cancel(@PathVariable UUID id) {
-        return toResponse(purchaseOrderService.cancel(id));
+        return respond(purchaseOrderService.cancel(id));
     }
 
-    private static PurchaseOrderResponse toResponse(PurchaseOrder o) {
-        List<PoLineResponse> lines = o.getLines().stream()
-                .map(PurchaseOrderController::toLine)
-                .toList();
+    private PurchaseOrderResponse respond(PurchaseOrder o) {
+        return toResponse(o, purchaseOrderService.receiptsOf(List.of(o.getId())).getOrDefault(o.getId(), List.of()));
+    }
+
+    private static PurchaseOrderResponse toResponse(PurchaseOrder o, List<GoodsReceipt> receipts) {
+        List<PoLineResponse> lines = o.getLines().stream().map(PurchaseOrderController::toLine).toList();
         return new PurchaseOrderResponse(o.getId(), o.getBranchId(), o.getSupplierId(), o.getKind().name(),
-                o.getStatus().name(), o.getNote(), lines);
+                o.getStatus().name(), o.getNote(), lines,
+                receipts.stream().map(PurchaseOrderController::toReceipt).toList());
+    }
+
+    private static GoodsReceiptResponse toReceipt(GoodsReceipt r) {
+        return new GoodsReceiptResponse(r.getId(), r.getKind().name(), r.getNote(), r.getCreatedAt(),
+                r.getCreatedBy(), r.getLines().stream().map(PurchaseOrderController::toReceiptLine).toList());
+    }
+
+    private static GoodsReceiptLineResponse toReceiptLine(GoodsReceiptLine l) {
+        return new GoodsReceiptLineResponse(l.getId(), l.getPurchaseOrderLineId(), l.getDeliveredQty(),
+                l.getDamagedQty(), l.getLossQty(), l.getOverDeliveredQty(),
+                l.getOverDeliveryKind() == null ? null : l.getOverDeliveryKind().name(),
+                MoneyDto.from(l.getUnitCost()), l.getCostPerUnit(), l.getCompensatedQty(), l.getReplacementQty(),
+                l.getCompensatesLineId(), MoneyDto.from(l.lossAmount()), l.getNote());
     }
 
     private static PoLineResponse toLine(PurchaseOrderLine l) {

@@ -1,10 +1,11 @@
 package vn.essvn.erpcafe.inventory.application;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,17 +14,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
-import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
+import vn.essvn.erpcafe.inventory.domain.GoodsReceipt;
 import vn.essvn.erpcafe.inventory.domain.Ingredient;
 import vn.essvn.erpcafe.inventory.domain.Item;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderLine;
-import vn.essvn.erpcafe.inventory.domain.PurchaseOrderStatus;
 import vn.essvn.erpcafe.inventory.domain.Supplier;
+import vn.essvn.erpcafe.inventory.persistence.GoodsReceiptRepository;
 import vn.essvn.erpcafe.inventory.persistence.IngredientRepository;
 import vn.essvn.erpcafe.inventory.persistence.ItemRepository;
 import vn.essvn.erpcafe.inventory.persistence.PurchaseOrderRepository;
@@ -31,29 +32,31 @@ import vn.essvn.erpcafe.inventory.persistence.SupplierRepository;
 
 /**
  * Purchase-order lifecycle for the active branch: create (DRAFT) → send (SENT) →
- * receive (PARTIALLY_RECEIVED / RECEIVED) or cancel. Receiving raises stock and
- * updates moving-average cost via {@link StockLedgerService}.
+ * receive (PARTIALLY_RECEIVED / RECEIVED) or cancel. Receiving goes through {@link GoodsReceivingService}.
  */
 @Service
 @Transactional
 public class PurchaseOrderService {
-
-    public static final String REF_TYPE = "PURCHASE_ORDER";
 
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final SupplierRepository supplierRepository;
     private final IngredientRepository ingredientRepository;
     private final ItemRepository itemRepository;
     private final StockLedgerService ledger;
+    private final GoodsReceivingService receiving;
+    private final GoodsReceiptRepository receiptRepository;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
             SupplierRepository supplierRepository, IngredientRepository ingredientRepository,
-            ItemRepository itemRepository, StockLedgerService ledger) {
+            ItemRepository itemRepository, StockLedgerService ledger, GoodsReceivingService receiving,
+            GoodsReceiptRepository receiptRepository) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.supplierRepository = supplierRepository;
         this.ingredientRepository = ingredientRepository;
         this.itemRepository = itemRepository;
         this.ledger = ledger;
+        this.receiving = receiving;
+        this.receiptRepository = receiptRepository;
     }
 
     @Transactional(readOnly = true)
@@ -94,61 +97,30 @@ public class PurchaseOrderService {
         return order;
     }
 
-    /** Receives goods against a PO's lines: updates received quantities, raises stock, refreshes status. */
-    public PurchaseOrder receive(UUID id, List<ReceiptInput> receipts) {
+    /** Receives a delivery: the goods receipt records it, and the order's lines and status move on. */
+    public PurchaseOrder receive(UUID id, List<ReceiptInput> receipts, String note) {
         PurchaseOrder order = get(id);
-        if (order.getStatus() != PurchaseOrderStatus.SENT
-                && order.getStatus() != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
-            throw new BusinessRuleException("Order must be SENT to receive (was %s)".formatted(order.getStatus()));
-        }
         requireActiveSupplier(order.getSupplierId());
-        // Resolve every receipt to its PO line up front, then process in ingredientId
-        // order. Stock rows must be locked in the same global order on every path or a
-        // goods receipt and an order completion touching the same two ingredients can
-        // deadlock — see StockLedgerService.normalize.
-        record Resolved(ReceiptInput receipt, PurchaseOrderLine line) {
-        }
-        List<Resolved> resolved = new ArrayList<>();
-        for (ReceiptInput receipt : receipts) {
-            PurchaseOrderLine line = order.getLines().stream()
-                    .filter(l -> l.getId().equals(receipt.lineId()))
-                    .findFirst()
-                    .orElseThrow(() -> ResourceNotFoundException.of("PurchaseOrderLine", receipt.lineId()));
-            resolved.add(new Resolved(receipt, line));
-        }
-        resolved.sort(Comparator.comparing(r -> r.line().getIngredientId()));
-
-        for (Resolved entry : resolved) {
-            ReceiptInput receipt = entry.receipt();
-            PurchaseOrderLine line = entry.line();
-            requireActive(requireIngredient(line.getIngredientId()));
-            BigDecimal qty = receipt.receivedQty();
-            if (qty == null || qty.signum() <= 0) {
-                throw new BusinessRuleException("Received quantity must be positive");
-            }
-            // The line is counted and priced in its own unit; a delivery may be counted in any unit of
-            // the same dimension (ADR-0006) and defaults to the line's. The outstanding check speaks the
-            // line's unit, while the ledger takes the receipt's unit and a cost per BASE unit, so costs
-            // are re-rated through its single path (210,000 per kg is 210 per g).
-            UUID branchId = order.getBranchId();
-            Unit lineUnit = Unit.parse(line.getUnit());
-            Unit receiptUnit = receipt.unit() == null || receipt.unit().isBlank()
-                    ? lineUnit : Unit.parse(receipt.unit());
-            BigDecimal lineQty = Unit.convert(qty, receiptUnit, lineUnit);
-            if (lineQty.compareTo(line.outstandingQty()) > 0) {
-                throw new BusinessRuleException("Received quantity exceeds outstanding for line " + line.getId());
-            }
-            BigDecimal unitCost = receipt.unitCostOverride() != null
-                    ? ledger.toBaseRate(branchId, line.getIngredientId(), receipt.unitCostOverride(),
-                            receiptUnit.symbol())
-                    : ledger.toBaseRate(branchId, line.getIngredientId(), line.getUnitCost().getAmount(),
-                            lineUnit.symbol());
-            line.receive(lineQty);
-            ledger.receive(branchId, line.getIngredientId(), qty, receiptUnit.symbol(), Money.of(unitCost),
-                    REF_TYPE, order.getId());
-        }
-        order.refreshReceiptStatus();
+        receiving.receive(order, receipts, note);
         return order;
+    }
+
+    /** The goods receipts of each order, oldest first; orders with none are absent from the map. */
+    @Transactional(readOnly = true)
+    public Map<UUID, List<GoodsReceipt>> receiptsOf(List<UUID> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return receiptRepository.findByPurchaseOrderIdInOrderByCreatedAtAsc(orderIds).stream()
+                .collect(Collectors.groupingBy(GoodsReceipt::getPurchaseOrderId, LinkedHashMap::new, Collectors.toList()));
+    }
+
+    /** The order a goods receipt belongs to, so a stock movement can link to it; scoped to the active branch. */
+    @Transactional(readOnly = true)
+    public PurchaseOrder getByReceipt(UUID receiptId) {
+        GoodsReceipt receipt = receiptRepository.findByIdAndBranchId(receiptId, BranchContext.require())
+                .orElseThrow(() -> ResourceNotFoundException.of("GoodsReceipt", receiptId));
+        return get(receipt.getPurchaseOrderId());
     }
 
     // Every line is a supplier item: it fixes the ingredient, the unit and the pack, so the order says
