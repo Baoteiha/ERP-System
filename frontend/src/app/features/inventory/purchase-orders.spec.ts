@@ -96,6 +96,16 @@ describe('PurchaseOrdersComponent route intent', () => {
     return { f, nav, ctrl: TestBed.inject(HttpTestingController) };
   };
 
+  it('selects the order a receipt link names, and highlights the receipt', () => {
+    const { f, ctrl } = setup(['purchasing:read'], '');
+    f.componentRef.setInput('receipt', 'r1');
+    TestBed.tick();
+    ctrl.expectOne('/api/v1/purchase-orders/by-receipt/r1').flush({ id: 'p9', branchId: 'b1', supplierId: 's1', kind: 'ORDER', status: 'RECEIVED', lines: [], receipts: [] });
+    expect(f.componentInstance.selected()?.id).toBe('p9');
+    expect(f.componentInstance.highlightReceipt()).toBe('r1');
+    ctrl.match(() => true);
+  });
+
   it('opens the dialog once with the permission, and clears the param', () => {
     const { f, nav, ctrl } = setup(['purchasing:write'], '1');
     expect(f.componentInstance.creating()).toBe(true);

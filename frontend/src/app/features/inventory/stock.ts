@@ -111,6 +111,7 @@ const VIEWS: readonly StockView[] = ['table', '3d'];
                   <div class="soft mv-sub">
                     <span>{{ m.occurredAt | date:'medium' }}</span>
                     <span class="num">{{ m.unitCost | money }}</span>
+                    @if (purchaseLink(m) && auth.can('purchasing:read')) { <button type="button" class="btn btn-sm btn-ghost mv-link" (click)="openPurchase(m)">View purchase</button> }
                   </div>
                   @if (m.note) { <div class="note">{{ m.note }}</div> }
                 </li>
@@ -281,6 +282,19 @@ export class StockComponent {
 
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
   selectIngredient(id: string) { this.selectedIngredientId.set(id); this.loadMovements(); }
+
+  /** Where a movement's purchase lives: its goods receipt, or (for movements before receipts existed) its order. */
+  purchaseLink(m: MovementResponse): { receipt: string } | { po: string } | null {
+    if (!m.refId) return null;
+    if (m.refType === 'GOODS_RECEIPT') return { receipt: m.refId };
+    if (m.refType === 'PURCHASE_ORDER') return { po: m.refId };
+    return null;
+  }
+
+  openPurchase(m: MovementResponse) {
+    const link = this.purchaseLink(m);
+    if (link) void this.router.navigate(['/inventory/purchase-orders'], { queryParams: link });
+  }
 
   /** Glyph shown inside the movement badge. */
   pinIcon(type: MovementType) {

@@ -212,6 +212,11 @@ export class PurchaseOrdersComponent {
   /** `?new=1` from the command palette opens the create dialog */
   new = input<string>();
 
+  /** `?receipt=<id>` from a stock movement: open the order it belongs to and highlight that receipt. */
+  receipt = input<string>();
+  /** `?po=<id>` from an older stock movement: open that order. */
+  po = input<string>();
+
   private router = inject(Router);
   private canWrite = computed(() => this.auth.can('purchasing:write'));
 
@@ -224,6 +229,16 @@ export class PurchaseOrdersComponent {
           void this.router.navigate([], { queryParams: { new: null }, queryParamsHandling: 'merge', replaceUrl: true });
         });
       }
+    });
+    effect(() => {
+      const receiptId = this.receipt();
+      const poId = this.po();
+      if ((!receiptId && !poId) || !this.auth.me()) return;
+      untracked(() => {
+        const found = receiptId ? this.api.purchaseOrderByReceipt(receiptId) : this.api.getPurchaseOrder(poId!);
+        found.subscribe({ next: (order) => { this.selected.set(order); this.highlightReceipt.set(receiptId ?? null); } });
+        void this.router.navigate([], { queryParams: { receipt: null, po: null }, queryParamsHandling: 'merge', replaceUrl: true });
+      });
     });
     // runs once at start and again whenever the till switches branch, so no other branch's orders linger
     effect(() => {

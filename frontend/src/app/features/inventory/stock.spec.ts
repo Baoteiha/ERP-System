@@ -77,6 +77,13 @@ describe('StockComponent', () => {
     expect(stock.typeClass('PURCHASE_RECEIPT')).toBe('badge-green');
     expect(stock.typeClass('SALE_DEPLETION')).toBe('badge-blue');
   });
+
+  it('links a receipt movement to its receipt, and an older purchase movement to its order', () => {
+    const base = { id: 'm', ingredientId: 'i', branchId: 'b', type: 'PURCHASE_RECEIPT', quantity: '1', occurredAt: '', actor: '' } as const;
+    expect(stock.purchaseLink({ ...base, refType: 'GOODS_RECEIPT', refId: 'r1' })).toEqual({ receipt: 'r1' });
+    expect(stock.purchaseLink({ ...base, refType: 'PURCHASE_ORDER', refId: 'p1' })).toEqual({ po: 'p1' });
+    expect(stock.purchaseLink({ ...base, type: 'WASTE', refType: 'WASTE' })).toBeNull();
+  });
 });
 
 describe('StockComponent route intent', () => {
