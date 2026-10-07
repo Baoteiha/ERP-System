@@ -26,7 +26,7 @@ public class PurchaseOrderLine extends BaseEntity {
     @Column(name = "ingredient_id", nullable = false)
     private UUID ingredientId;
 
-    /** The item the line was created from, or null when it was made from an ingredient and a unit. */
+    /** The item the line was created from; null only on legacy lines made from an ingredient and a unit, since new lines are always items. */
     @Column(name = "item_id")
     private UUID itemId;
 

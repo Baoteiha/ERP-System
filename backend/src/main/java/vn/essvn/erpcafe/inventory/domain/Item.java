@@ -32,7 +32,7 @@ import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
  * and receipts count it whole.
  *
  * <p>Company-scoped master data, soft-deletable. Uniqueness — one row per
- * {@code (supplier, sku)} and per {@code (supplier, ingredient, unit)} among live
+ * {@code (supplier, sku)} and per {@code (supplier, ingredient, unit, pack)} among live
  * rows — is enforced by partial unique indexes in the V9 migration rather than table
  * constraints, since {@code sku} is optional and deleted rows must not block reuse.
  */

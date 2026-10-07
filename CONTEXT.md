@@ -65,7 +65,7 @@ _Avoid_: base unit
 **Packaging**:
 A label over a quantity of a real unit — "25 kg sack", "case of 20". Never a unit,
 and never a base unit. A sack is 25 kg, and it is the kilograms that convert.
-_Avoid_: pack unit, pack size, case, container
+_Avoid_: pack unit, case, container
 
 ### Purchasing
 
@@ -91,11 +91,11 @@ or in part.
 _Avoid_: PO, requisition
 
 **Purchase order line**:
-One supplier item on a purchase
-order, at an agreed quantity and price per its pack (or per its unit when it has none). The line records
-the item it was placed against, but keeps its own copy of the pack, quantity, unit, and
-cost: master data may be edited or retired afterwards, and an order is a record of
-what was agreed at the time, not a live view of the catalogue.
+One supplier item on a purchase order, at an agreed quantity and price per its
+pack (or per its unit when it has none). The line records the item it was placed
+against, but keeps its own copy of the pack, quantity, unit, and cost: master data
+may be edited or retired afterwards, and an order is a record of what was agreed at
+the time, not a live view of the catalogue.
 _Avoid_: PO line, order item
 
 **Pack**:
@@ -126,7 +126,7 @@ _Avoid_: petty cash purchase, quick buy
 **Receiving**:
 Recording what a delivery actually contained. Converts each line's quantity from its
 purchase unit into the ingredient's base unit, and is the only way stock enters.
-_Avoid_: goods receipt, intake, delivery
+_Avoid_: intake, delivery
 
 ### Stock
 

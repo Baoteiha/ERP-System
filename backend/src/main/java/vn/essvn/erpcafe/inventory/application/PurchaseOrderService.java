@@ -43,19 +43,17 @@ public class PurchaseOrderService {
     private final SupplierRepository supplierRepository;
     private final IngredientRepository ingredientRepository;
     private final ItemRepository itemRepository;
-    private final StockLedgerService ledger;
     private final GoodsReceivingService receiving;
     private final GoodsReceiptRepository receiptRepository;
 
     public PurchaseOrderService(PurchaseOrderRepository purchaseOrderRepository,
             SupplierRepository supplierRepository, IngredientRepository ingredientRepository,
-            ItemRepository itemRepository, StockLedgerService ledger, GoodsReceivingService receiving,
+            ItemRepository itemRepository, GoodsReceivingService receiving,
             GoodsReceiptRepository receiptRepository) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.supplierRepository = supplierRepository;
         this.ingredientRepository = ingredientRepository;
         this.itemRepository = itemRepository;
-        this.ledger = ledger;
         this.receiving = receiving;
         this.receiptRepository = receiptRepository;
     }
