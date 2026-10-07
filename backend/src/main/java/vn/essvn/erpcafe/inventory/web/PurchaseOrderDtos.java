@@ -124,4 +124,24 @@ public final class PurchaseOrderDtos {
 
     private PurchaseOrderDtos() {
     }
+
+    /**
+     * Class: RetailLineRequest
+     * Purpose: One item bought at a shop, with the quantity carried in and the unit cost paid.
+     */
+    public record RetailLineRequest(
+            @NotNull UUID itemId,
+            @NotNull @Positive BigDecimal quantity,
+            @NotNull @PositiveOrZero BigDecimal unitCost) {
+    }
+
+    /**
+     * Class: RetailPurchaseRequest
+     * Purpose: The body of a retail purchase: the shop it came from, an optional note and the lines bought.
+     */
+    public record RetailPurchaseRequest(
+            @NotNull UUID supplierId,
+            @Size(max = 255) String note,
+            @NotEmpty @Valid List<RetailLineRequest> lines) {
+    }
 }

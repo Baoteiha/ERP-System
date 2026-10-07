@@ -25,6 +25,7 @@ public final class Permissions {
     public static final String INVENTORY_WRITE = "inventory:write";
     public static final String PURCHASING_READ = "purchasing:read";
     public static final String PURCHASING_WRITE = "purchasing:write";
+    public static final String PURCHASING_RETAIL = "purchasing:retail";
     public static final String SALES_READ = "sales:read";
     public static final String SALES_WRITE = "sales:write";
     public static final String SALES_REFUND = "sales:refund";
@@ -49,6 +50,7 @@ public final class Permissions {
             Map.entry(INVENTORY_WRITE, "Create/update ingredients, suppliers, stock adjustments"),
             Map.entry(PURCHASING_READ, "View purchase orders"),
             Map.entry(PURCHASING_WRITE, "Create/manage purchase orders and receiving"),
+            Map.entry(PURCHASING_RETAIL, "Record retail purchases"),
             Map.entry(SALES_READ, "View orders"),
             Map.entry(SALES_WRITE, "Create orders, take payments, complete"),
             Map.entry(SALES_REFUND, "Void and refund orders"),
@@ -72,7 +74,7 @@ public final class Permissions {
      * is offered only the permissions {@link #SINCE} dates after the version it last synced to,
      * so a permission is granted once, when it is new, and an owner's later removal sticks.
      */
-    public static final int CATALOG_VERSION = 1;
+    public static final int CATALOG_VERSION = 2;
 
     /** name → the {@link #CATALOG_VERSION} that introduced it; a new permission takes the raised version. */
     public static final Map<String, Integer> SINCE = Map.ofEntries(
@@ -90,6 +92,7 @@ public final class Permissions {
             Map.entry(INVENTORY_WRITE, 1),
             Map.entry(PURCHASING_READ, 1),
             Map.entry(PURCHASING_WRITE, 1),
+            Map.entry(PURCHASING_RETAIL, 2),
             Map.entry(SALES_READ, 1),
             Map.entry(SALES_WRITE, 1),
             Map.entry(SALES_REFUND, 1),

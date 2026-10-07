@@ -74,6 +74,18 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> ResourceNotFoundException.of("PurchaseOrder", id));
     }
 
+    /** Records a purchase already paid and carried in: an order of kind RETAIL, received in full in the same save. */
+    public PurchaseOrder retail(UUID supplierId, String note, List<LineInput> lines) {
+        PurchaseOrder order = create(supplierId, note, lines);
+        order.markRetail();
+        order.send();
+        List<ReceiptInput> everything = order.getLines().stream()
+                .map(l -> new ReceiptInput(l.getId(), l.getOrderedQty(), null, null, null, null, null))
+                .toList();
+        receiving.receive(order, everything, note);
+        return order;
+    }
+
     public PurchaseOrder create(UUID supplierId, String note, List<LineInput> lines) {
         requireActiveSupplier(supplierId);
         if (lines == null || lines.isEmpty()) {

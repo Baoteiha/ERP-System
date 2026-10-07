@@ -156,4 +156,24 @@ class DefaultRolePermissionSyncTest extends AbstractIntegrationTest {
                 .contains(Permissions.COMPANY_WRITE)
                 .containsAll(DefaultRole.CASHIER.permissions());
     }
+
+    @Test
+    void managerHoldsRetailPurchasing_cashierDoesNotByDefault() {
+        assertThat(names(role(DefaultRole.MANAGER.roleName()))).contains(Permissions.PURCHASING_RETAIL);
+        assertThat(names(role(DefaultRole.CASHIER.roleName()))).doesNotContain(Permissions.PURCHASING_RETAIL);
+    }
+
+    @Test
+    void managerSyncedBeforeRetailPurchasing_receivesItOnStartup() {
+        Role manager = role(DefaultRole.MANAGER.roleName());
+        manager.getPermissions().removeIf(p -> Permissions.PURCHASING_RETAIL.equals(p.getName()));
+        manager.setSyncedCatalogVersion(1);
+        save(manager);
+
+        dataInitializer.run(null);
+
+        Role synced = role(DefaultRole.MANAGER.roleName());
+        assertThat(names(synced)).contains(Permissions.PURCHASING_RETAIL);
+        assertThat(synced.getSyncedCatalogVersion()).isEqualTo(Permissions.CATALOG_VERSION);
+    }
 }

@@ -37,6 +37,7 @@ import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.GoodsReceiptResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.PoLineResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.PurchaseOrderResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.ReceiveRequest;
+import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.RetailPurchaseRequest;
 
 /**
  * Purchase orders for the active branch (requires {@code X-Branch-Id}):
@@ -82,6 +83,17 @@ public class PurchaseOrderController {
                 .toList();
         PurchaseOrderResponse body = respond(
                 purchaseOrderService.create(request.supplierId(), request.note(), lines));
+        return ResponseEntity.created(URI.create(ApiVersions.V1 + "/purchase-orders/" + body.id())).body(body);
+    }
+
+    /** A purchase paid and carried in: saved as an order already received (requires {@code X-Branch-Id}). */
+    @PostMapping("/retail")
+    @PreAuthorize("hasAuthority('purchasing:retail')")
+    public ResponseEntity<PurchaseOrderResponse> retail(@Valid @RequestBody RetailPurchaseRequest request) {
+        List<LineInput> lines = request.lines().stream()
+                .map(l -> new LineInput(l.itemId(), null, null, l.quantity(), l.unitCost()))
+                .toList();
+        PurchaseOrderResponse body = respond(purchaseOrderService.retail(request.supplierId(), request.note(), lines));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/purchase-orders/" + body.id())).body(body);
     }
 

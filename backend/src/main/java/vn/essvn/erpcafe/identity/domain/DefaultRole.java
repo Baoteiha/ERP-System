@@ -23,6 +23,7 @@ public enum DefaultRole {
             Permissions.INVENTORY_WRITE,
             Permissions.PURCHASING_READ,
             Permissions.PURCHASING_WRITE,
+            Permissions.PURCHASING_RETAIL,
             Permissions.SALES_READ,
             Permissions.SALES_WRITE,
             Permissions.SALES_REFUND,
