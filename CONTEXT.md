@@ -74,11 +74,11 @@ A company the café buys from.
 _Avoid_: vendor, merchant
 
 **Item**:
-What one supplier sells: their name for it, the single unit they sell it in, and
-the one ingredient it becomes once received. Several items may become the same
-ingredient — the same beans from two suppliers, or one supplier's 1 kg bag and
-25 kg sack. An item's purchase unit must share a dimension with its ingredient's
-base unit, which is what makes receiving need no decision.
+What one supplier sells: their name for it, the single unit they sell it in, the one ingredient it
+becomes once received, and optionally one pack ("hộp" of 100 pc). Several items may become the same
+ingredient: the same beans from two suppliers, or one supplier's box and loose pieces. An item's
+purchase unit must share a dimension with its ingredient's base unit, which is what makes receiving
+need no decision.
 _Avoid_: product, supplier product, purchasable, SKU
 
 **Purchase unit**:
@@ -91,11 +91,37 @@ or in part.
 _Avoid_: PO, requisition
 
 **Purchase order line**:
-One item on a purchase order, at an agreed quantity and unit cost. The line records
-the item it was placed against, but keeps its own copy of the quantity, unit, and
+One supplier item on a purchase
+order, at an agreed quantity and price per its pack (or per its unit when it has none). The line records
+the item it was placed against, but keeps its own copy of the pack, quantity, unit, and
 cost: master data may be edited or retired afterwards, and an order is a record of
 what was agreed at the time, not a live view of the catalogue.
 _Avoid_: PO line, order item
+
+**Pack**:
+A label over a quantity of an item's unit ("1 hộp = 100 pc"), declared once on the item by a person
+and copied onto each order line. Packs are ordered and received whole. A pack is not a unit: stock never
+counts in it.
+_Avoid_: packaging unit, case unit
+
+**Goods receipt**:
+One delivery confirmed against a purchase order, or a supplier's replacement for lost units: who
+received it, when, and per line what was delivered, damaged and lost, and how any extra was taken.
+_Avoid_: GRN, delivery note
+
+**Damaged on arrival**:
+Units that arrived unusable. They count toward the order but never enter stock. The units that were
+paid for are a loss at the price paid, recorded on the goods receipt against the supplier.
+_Avoid_: shrinkage, waste (waste is stock spoiled after it was received)
+
+**Compensation**:
+A supplier's replacement for lost units, received at the lost units' price. It clears that much of the
+loss.
+_Avoid_: credit note, return
+
+**Retail purchase**:
+Something bought and carried in from a shop, recorded in one step as a purchase order already received.
+_Avoid_: petty cash purchase, quick buy
 
 **Receiving**:
 Recording what a delivery actually contained. Converts each line's quantity from its

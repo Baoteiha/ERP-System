@@ -32,3 +32,7 @@ to real data entry (suppliers sell kg, staff count g).
 - Upholds ADR-0001: no per-ingredient conversion table; factors are a pure
   function of two units in one dimension, and packaging stays a label over a
   quantity of a real unit.
+
+Note (2026-10, purchase packs): a line with a pack is received in whole packs, converted to the line's
+unit before the ledger. A line without one keeps the any-unit receipt above. Damaged units never reach
+the ledger; only usable units are received.

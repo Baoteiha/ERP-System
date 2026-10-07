@@ -42,3 +42,7 @@ receiving path without a reconciliation step afterwards.
 
 Pack size stays available as a future addition on the item — a label over a
 quantity of a real unit — and is additive precisely because it is not a unit.
+
+Note (2026-10, purchase packs): packs now exist as this decision anticipated. An item may declare one
+pack, a label over a quantity of its own unit, and purchase lines copy it. The unit vocabulary and the
+pure conversion function are unchanged.
