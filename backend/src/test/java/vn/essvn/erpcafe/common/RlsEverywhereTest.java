@@ -71,7 +71,7 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
             COMPANY_OF.put(table, "t.company_id");
         }
         for (String table : List.of("user_branch_access", "product_branch_availability", "stock_item",
-                "stock_movement", "purchase_order", "sales_order", "ledger_reference")) {
+                "stock_movement", "purchase_order", "sales_order", "ledger_reference", "goods_receipt")) {
             COMPANY_OF.put(table, BRANCH_COMPANY);
         }
         COMPANY_OF.put("role_permission", "(SELECT r.company_id FROM role r WHERE r.id = t.role_id)");
@@ -88,6 +88,8 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + " JOIN product p ON p.id = r.product_id WHERE v.id = t.recipe_version_id)");
         COMPANY_OF.put("purchase_order_line", "(SELECT b.company_id FROM purchase_order o"
                 + " JOIN branch b ON b.id = o.branch_id WHERE o.id = t.purchase_order_id)");
+        COMPANY_OF.put("goods_receipt_line", "(SELECT b.company_id FROM goods_receipt r"
+                + " JOIN branch b ON b.id = r.branch_id WHERE r.id = t.goods_receipt_id)");
         COMPANY_OF.put("order_line", ORDER_COMPANY);
         COMPANY_OF.put("order_line_modifier", "(SELECT b.company_id FROM order_line l"
                 + " JOIN sales_order o ON o.id = l.order_id JOIN branch b ON b.id = o.branch_id"
@@ -196,8 +198,15 @@ class RlsEverywhereTest extends AbstractIntegrationTest {
                 + "?, 0, ?, ?, 'ADJUSTMENT', 5, now(), now())", UUID.randomUUID(), branch, ingredient);
         db.update("INSERT INTO purchase_order (id, version, branch_id, supplier_id, status, " + audit
                 + "?, 0, ?, ?, 'DRAFT', now(), now())", purchaseOrder, branch, supplier);
+        UUID purchaseLine = UUID.randomUUID();
         db.update("INSERT INTO purchase_order_line (id, version, purchase_order_id, ingredient_id, ordered_qty, unit)"
-                + " VALUES (?, 0, ?, ?, 1000, 'g')", UUID.randomUUID(), purchaseOrder, ingredient);
+                + " VALUES (?, 0, ?, ?, 1000, 'g')", purchaseLine, purchaseOrder, ingredient);
+        UUID goodsReceipt = UUID.randomUUID();
+        db.update("INSERT INTO goods_receipt (id, version, branch_id, purchase_order_id, kind, " + audit
+                + "?, 0, ?, ?, 'DELIVERY', now(), now())", goodsReceipt, branch, purchaseOrder);
+        db.update("INSERT INTO goods_receipt_line (id, version, goods_receipt_id, purchase_order_line_id,"
+                + " delivered_qty, unit_cost, cost_per_unit, currency) VALUES (?, 0, ?, ?, 1000, 1, 1, 'VND')",
+                UUID.randomUUID(), goodsReceipt, purchaseLine);
         db.update("INSERT INTO sales_order (id, version, branch_id, order_type, status, currency, " + audit
                 + "?, 0, ?, 'DINE_IN', 'PAID', 'VND', now(), now())", order, branch);
         db.update("INSERT INTO order_line (id, version, order_id, product_id, product_name, quantity, line_total)"
