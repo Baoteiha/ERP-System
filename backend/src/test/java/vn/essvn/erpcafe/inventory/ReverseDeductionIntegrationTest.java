@@ -54,8 +54,8 @@ class ReverseDeductionIntegrationTest extends AbstractIntegrationTest {
 
     private void receive(String supplierId, String ingredientId, String cost) throws Exception {
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1000,\"unitCost\":%s}]}"
-                        .formatted(supplierId, ingredientId, cost));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1000,\"unitCost\":%s}]}"
+                        .formatted(supplierId, itemFor(token, branchId, supplierId, ingredientId), cost));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());

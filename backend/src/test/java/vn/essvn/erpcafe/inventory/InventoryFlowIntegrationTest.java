@@ -71,9 +71,10 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
                 "{\"name\":\"Coffee%d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
         String supplierId = JsonPath.read(create("/api/v1/suppliers",
                 "{\"name\":\"Roaster%d\"}".formatted(n)), "$.id");
+        String itemId = itemFor(token, branchId, supplierId, ingredientId);
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":%s,\"unitCost\":%s}]}"
-                        .formatted(supplierId, ingredientId, qty.toPlainString(), unitCost));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":%s,\"unitCost\":%s}]}"
+                        .formatted(supplierId, itemId, qty.toPlainString(), unitCost));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());
@@ -109,8 +110,8 @@ class InventoryFlowIntegrationTest extends AbstractIntegrationTest {
         // second receipt at a different price → moving average = (1000*0.20 + 1000*0.24)/2000 = 0.22
         String supplierId = JsonPath.read(create("/api/v1/suppliers", "{\"name\":\"Roaster2-%d\"}".formatted(n)), "$.id");
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1000,\"unitCost\":0.24}]}"
-                        .formatted(supplierId, ingredientId));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1000,\"unitCost\":0.24}]}"
+                        .formatted(supplierId, itemFor(token, branchId, supplierId, ingredientId)));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());

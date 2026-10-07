@@ -113,9 +113,10 @@ abstract class ReportFixtures extends AbstractIntegrationTest {
         String ingredientId = JsonPath.read(create("/api/v1/ingredients",
                 "{\"name\":\"Bean-%s\",\"baseUnit\":\"g\"}".formatted(s)), "$.id");
         String supplierId = JsonPath.read(create("/api/v1/suppliers", "{\"name\":\"Roaster-%s\"}".formatted(s)), "$.id");
+        String itemId = itemFor(token, branchIds.get(0), supplierId, ingredientId);
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1000,\"unitCost\":100}]}"
-                        .formatted(supplierId, ingredientId));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1000,\"unitCost\":100}]}"
+                        .formatted(supplierId, itemId));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());

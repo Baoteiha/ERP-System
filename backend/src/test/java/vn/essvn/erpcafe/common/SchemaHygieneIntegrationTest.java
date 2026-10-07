@@ -187,7 +187,8 @@ class SchemaHygieneIntegrationTest extends AbstractIntegrationTest {
         String ingredientId = JsonPath.read(createOk("/api/v1/ingredients",
                 "{\"name\":\"Hyg PO Bean %d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
         String supplierId = JsonPath.read(createOk("/api/v1/suppliers", "{\"name\":\"Hyg PO Sup %d\"}".formatted(n)), "$.id");
-        String lines = "\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}]".formatted(ingredientId);
+        String itemId = itemFor(token, branchId, supplierId, ingredientId);
+        String lines = "\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}]".formatted(itemId);
         String older = JsonPath.read(createOk("/api/v1/purchase-orders",
                 "{\"supplierId\":\"%s\",%s}".formatted(supplierId, lines)), "$.id");
         String newer = JsonPath.read(createOk("/api/v1/purchase-orders",

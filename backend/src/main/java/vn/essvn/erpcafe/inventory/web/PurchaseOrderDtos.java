@@ -44,6 +44,8 @@ public final class PurchaseOrderDtos {
             UUID itemId,
             UUID ingredientId,
             String unit,
+            String packLabel,
+            BigDecimal packSize,
             BigDecimal orderedQty,
             BigDecimal receivedQty,
             MoneyDto unitCost) {
@@ -53,6 +55,7 @@ public final class PurchaseOrderDtos {
             UUID id,
             UUID branchId,
             UUID supplierId,
+            String kind,
             String status,
             String note,
             List<PoLineResponse> lines) {

@@ -88,9 +88,10 @@ class IngredientIntegrityTest extends AbstractIntegrationTest {
 
     /** Creates a PO for the ingredient and sends it; returns {poId, lineId}. */
     private String[] sentPurchaseOrder(String ingredientId, String qty, String cost) throws Exception {
+        String supplierId = supplier();
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":%s,\"unitCost\":%s}]}"
-                        .formatted(supplier(), ingredientId, qty, cost));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":%s,\"unitCost\":%s}]}"
+                        .formatted(supplierId, itemFor(token, branchId, supplierId, ingredientId), qty, cost));
         String poId = JsonPath.read(poJson, "$.id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());
         return new String[] {poId, JsonPath.read(poJson, "$.lines[0].id")};

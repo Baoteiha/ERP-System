@@ -31,6 +31,10 @@ public class PurchaseOrder extends BranchScopedEntity {
     @Column(name = "status", nullable = false, length = 24)
     private PurchaseOrderStatus status = PurchaseOrderStatus.DRAFT;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 16)
+    private PurchaseOrderKind kind = PurchaseOrderKind.ORDER;
+
     @Column(name = "note")
     private String note;
 
@@ -54,6 +58,15 @@ public class PurchaseOrder extends BranchScopedEntity {
 
     public PurchaseOrderStatus getStatus() {
         return status;
+    }
+
+    public PurchaseOrderKind getKind() {
+        return kind;
+    }
+
+    /** A retail purchase: paid and carried in, so it is sent and received in the same save. */
+    public void markRetail() {
+        this.kind = PurchaseOrderKind.RETAIL;
     }
 
     public String getNote() {

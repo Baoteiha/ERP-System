@@ -151,42 +151,42 @@ public class PurchaseOrderService {
         return order;
     }
 
-    // A line is an item (it fixes ingredient and unit) or an ingredient with a unit, never both: two
-    // sources could disagree. An ingredient alone keeps the old meaning, its base unit.
+    // Every line is a supplier item: it fixes the ingredient, the unit and the pack, so the order says
+    // exactly what the supplier sends. The old "ingredient + unit" line is refused with a clear message.
     private PurchaseOrderLine toLine(UUID supplierId, LineInput line) {
-        if (line.itemId() != null) {
-            if (line.ingredientId() != null) {
-                throw new BusinessRuleException("A line is an item, or an ingredient with a unit, not both");
-            }
-            if (line.unit() != null) {
-                throw new BusinessRuleException(
-                        "An item line takes its unit from the item; leave the unit out, even if blank");
-            }
-            // Items are tenant-owned, so another company's item is simply not found.
-            Item item = itemRepository.findById(line.itemId())
-                    .orElseThrow(() -> ResourceNotFoundException.of("Item", line.itemId()));
-            if (!item.isActive()) {
-                throw new BusinessRuleException("Item " + item.getName() + " is inactive");
-            }
-            requireActive(requireIngredient(item.getIngredientId()));
-            if (!item.getSupplierId().equals(supplierId)) {
-                throw new BusinessRuleException("Item " + item.getName() + " is sold by another supplier");
-            }
-            return new PurchaseOrderLine(item.getId(), item.getIngredientId(), item.getUnit(),
-                    line.orderedQty(), Money.of(line.unitCost()));
+        if (line.itemId() == null) {
+            throw new BusinessRuleException("A purchase line must be a supplier item");
         }
-        if (line.ingredientId() == null) {
-            throw new BusinessRuleException("A line needs an item, or an ingredient");
+        if (line.ingredientId() != null) {
+            throw new BusinessRuleException("A line is a supplier item; leave the ingredient out");
         }
-        Ingredient ingredient = requireActive(requireIngredient(line.ingredientId()));
-        Unit base = Unit.parse(ingredient.getBaseUnit());
-        Unit unit = line.unit() == null || line.unit().isBlank() ? base : Unit.parse(line.unit());
-        if (!unit.isCompatibleWith(base)) {
-            throw new BusinessRuleException("Cannot buy %s in %s: it is counted in %s"
-                    .formatted(ingredient.getName(), unit.symbol(), base.symbol()));
+        if (line.unit() != null) {
+            throw new BusinessRuleException(
+                    "An item line takes its unit from the item; leave the unit out, even if blank");
         }
-        return new PurchaseOrderLine(null, ingredient.getId(), unit.symbol(), line.orderedQty(),
-                Money.of(line.unitCost()));
+        // Items are tenant-owned, so another company's item is simply not found.
+        Item item = itemRepository.findById(line.itemId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Item", line.itemId()));
+        if (!item.isActive()) {
+            throw new BusinessRuleException("Item " + item.getName() + " is inactive");
+        }
+        requireActive(requireIngredient(item.getIngredientId()));
+        if (!item.getSupplierId().equals(supplierId)) {
+            throw new BusinessRuleException("Item " + item.getName() + " is sold by another supplier");
+        }
+        if (item.hasPack()) {
+            requireWholePacks(line.orderedQty(), item.getPackLabel());
+        }
+        return new PurchaseOrderLine(item.getId(), item.getIngredientId(), item.getUnit(),
+                line.orderedQty(), Money.of(line.unitCost()), item.getPackLabel(), item.getPackSize());
+    }
+
+    /** Packs are bought and received whole: 5 hộp, never 2.5. */
+    static void requireWholePacks(BigDecimal qty, String packLabel) {
+        if (qty != null && qty.stripTrailingZeros().scale() > 0) {
+            throw new BusinessRuleException("Packs are counted whole: %s %s"
+                    .formatted(qty.stripTrailingZeros().toPlainString(), packLabel));
+        }
     }
 
     private void requireActiveSupplier(UUID supplierId) {

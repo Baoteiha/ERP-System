@@ -1,11 +1,16 @@
 package vn.essvn.erpcafe.support;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -119,5 +124,42 @@ public abstract class AbstractIntegrationTest {
 
     protected String authHeader(String token) {
         return "Bearer " + token;
+    }
+
+    /**
+     * The supplier's loose item for an ingredient in {@code unit} (the ingredient's base unit when null),
+     * created on first use: purchase lines are supplier items, so a test that buys stock needs one.
+     */
+    protected String itemFor(String token, String branchId, String supplierId, String ingredientId, String unit)
+            throws Exception {
+        String buyIn = unit;
+        if (buyIn == null) {
+            List<Map<String, Object>> ingredients = JsonPath.read(mockMvc.perform(get("/api/v1/ingredients")
+                            .header(HttpHeaders.AUTHORIZATION, authHeader(token)).header("X-Branch-Id", branchId))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$");
+            buyIn = ingredients.stream().filter(i -> ingredientId.equals(i.get("id")))
+                    .map(i -> (String) i.get("baseUnit")).findFirst().orElseThrow();
+        }
+        List<Map<String, Object>> items = JsonPath.read(mockMvc.perform(get("/api/v1/items")
+                        .param("supplierId", supplierId)
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(token)).header("X-Branch-Id", branchId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$");
+        for (Map<String, Object> item : items) {
+            if (ingredientId.equals(item.get("ingredientId")) && buyIn.equals(item.get("unit"))
+                    && item.get("packLabel") == null) {
+                return (String) item.get("id");
+            }
+        }
+        String created = mockMvc.perform(post("/api/v1/items")
+                        .header(HttpHeaders.AUTHORIZATION, authHeader(token)).header("X-Branch-Id", branchId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Test item\",\"supplierId\":\"%s\",\"ingredientId\":\"%s\",\"unit\":\"%s\"}"
+                                .formatted(supplierId, ingredientId, buyIn)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return JsonPath.read(created, "$.id");
+    }
+
+    protected String itemFor(String token, String branchId, String supplierId, String ingredientId) throws Exception {
+        return itemFor(token, branchId, supplierId, ingredientId, null);
     }
 }

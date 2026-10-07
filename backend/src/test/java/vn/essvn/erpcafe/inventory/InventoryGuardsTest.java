@@ -86,8 +86,8 @@ class InventoryGuardsTest extends AbstractIntegrationTest {
         return "{\"supplierId\":\"%s\",\"lines\":[%s]}".formatted(supplierId, line);
     }
 
-    private String ingredientLine(String ingredientId) {
-        return "{\"ingredientId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}".formatted(ingredientId);
+    private String itemLine(String itemId) {
+        return "{\"itemId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}".formatted(itemId);
     }
 
     private int orderCount() throws Exception {
@@ -108,18 +108,10 @@ class InventoryGuardsTest extends AbstractIntegrationTest {
     void newOrder_forAnInactiveSupplier_isRefused() throws Exception {
         String ingredientId = ingredient();
         String supplierId = supplier();
+        String itemId = item(supplierId, ingredientId);
         deactivateSupplier(supplierId);
 
-        expectRefused(orderBody(supplierId, ingredientLine(ingredientId)), "inactive");
-    }
-
-    @Test
-    void newOrder_lineOfAnInactiveIngredient_isRefused() throws Exception {
-        String ingredientId = ingredient();
-        String supplierId = supplier();
-        deactivateIngredient(ingredientId);
-
-        expectRefused(orderBody(supplierId, ingredientLine(ingredientId)), "inactive");
+        expectRefused(orderBody(supplierId, itemLine(itemId)), "inactive");
     }
 
     @Test
@@ -148,7 +140,7 @@ class InventoryGuardsTest extends AbstractIntegrationTest {
     void receipt_onAnOrderWhoseSupplierWentInactive_isRefusedAndStockUnchanged() throws Exception {
         String ingredientId = ingredient();
         String supplierId = supplier();
-        String po = send(post("/api/v1/purchase-orders"), orderBody(supplierId, ingredientLine(ingredientId)));
+        String po = send(post("/api/v1/purchase-orders"), orderBody(supplierId, itemLine(item(supplierId, ingredientId))));
         String poId = JsonPath.read(po, "$.id");
         String lineId = JsonPath.read(po, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());
@@ -167,7 +159,7 @@ class InventoryGuardsTest extends AbstractIntegrationTest {
     void receipt_ofAnIngredientThatWentInactive_isRefusedAndStockUnchanged() throws Exception {
         String ingredientId = ingredient();
         String supplierId = supplier();
-        String po = send(post("/api/v1/purchase-orders"), orderBody(supplierId, ingredientLine(ingredientId)));
+        String po = send(post("/api/v1/purchase-orders"), orderBody(supplierId, itemLine(item(supplierId, ingredientId))));
         String poId = JsonPath.read(po, "$.id");
         String lineId = JsonPath.read(po, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());

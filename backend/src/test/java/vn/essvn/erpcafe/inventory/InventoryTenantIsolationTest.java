@@ -123,8 +123,8 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
         String ingredientId = JsonPath.read(createJson(admin, branchA, "/api/v1/ingredients",
                 "{\"name\":\"BeansPO%d\",\"baseUnit\":\"g\"}".formatted(n)), "$.id");
         String poId = JsonPath.read(createJson(admin, branchA, "/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}]}"
-                        .formatted(supplierId, ingredientId)), "$.id");
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":10,\"unitCost\":1}]}"
+                        .formatted(supplierId, itemFor(admin, branchA, supplierId, ingredientId))), "$.id");
 
         // Company B, acting in its own (accessible) branch, cannot see or act on A's PO.
         mockMvc.perform(get("/api/v1/purchase-orders/" + poId)
@@ -173,8 +173,8 @@ class InventoryTenantIsolationTest extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, authHeader(b.token()))
                         .header("X-Branch-Id", b.branchId())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
-                                .formatted(supplierId, ingredientId)))
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
+                                .formatted(supplierId, itemFor(admin, branchA, supplierId, ingredientId))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }

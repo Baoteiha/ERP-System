@@ -7,9 +7,8 @@ import java.util.UUID;
 public final class PurchaseInputs {
 
     /**
-     * A line to order: either an item (which fixes ingredient and unit) or an ingredient with a
-     * unit (blank = the ingredient's base unit), plus the quantity and the agreed cost, both per
-     * that unit.
+     * A line to order: a supplier item, plus the quantity and agreed cost in its ordering unit (its pack,
+     * or its unit). {@code ingredientId} and {@code unit} exist only so a request carrying them is refused.
      */
     public record LineInput(UUID itemId, UUID ingredientId, String unit, BigDecimal orderedQty,
             BigDecimal unitCost) {

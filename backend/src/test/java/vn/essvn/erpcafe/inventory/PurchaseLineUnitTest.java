@@ -22,7 +22,7 @@ import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
  * Class: PurchaseLineUnitTest
- * Purpose: A purchase line is counted and priced in its own unit, taken from an item or given with an ingredient.
+ * Purpose: A purchase line is a supplier item, counted and priced in the item's unit.
  */
 class PurchaseLineUnitTest extends AbstractIntegrationTest {
 
@@ -109,38 +109,42 @@ class PurchaseLineUnitTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void lineFromAnIngredientAndUnit_behavesTheSame() throws Exception {
+    void ingredientLine_isRefusedWithAClearMessage() throws Exception {
         String ingredientId = ingredient("g");
-
-        String po = order(supplier(),
-                "{\"ingredientId\":\"%s\",\"unit\":\"kg\",\"orderedQty\":10,\"unitCost\":210000}".formatted(ingredientId));
-        assertThat((String) JsonPath.read(po, "$.lines[0].unit")).isEqualTo("kg");
-
-        receive(po, "\"receivedQty\":10");
-
-        assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("10000");
-        assertThat(stockField(ingredientId, "avgUnitCost.amount")).isEqualByComparingTo("210");
+        mockMvc.perform(authed(post("/api/v1/purchase-orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content(("{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"unit\":\"kg\","
+                                + "\"orderedQty\":10,\"unitCost\":210000}]}").formatted(supplier(), ingredientId)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("must be a supplier item")));
     }
 
     @Test
-    void lineWithoutAUnit_isCountedInTheIngredientsBaseUnit() throws Exception {
-        String ingredientId = ingredient("g");
+    void packItemLine_copiesThePack_andRefusesHalfAPack() throws Exception {
+        String ingredientId = ingredient("pc");
+        String supplierId = supplier();
+        String boxId = JsonPath.read(create("/api/v1/items",
+                ("{\"name\":\"Straws box\",\"supplierId\":\"%s\",\"ingredientId\":\"%s\",\"unit\":\"pc\","
+                        + "\"packLabel\":\"hộp\",\"packSize\":100}").formatted(supplierId, ingredientId)), "$.id");
 
-        String po = order(supplier(), "{\"ingredientId\":\"%s\",\"orderedQty\":2000,\"unitCost\":0.20}"
-                .formatted(ingredientId));
-        assertThat((String) JsonPath.read(po, "$.lines[0].unit")).isEqualTo("g");
+        String po = order(supplierId, "{\"itemId\":\"%s\",\"orderedQty\":5,\"unitCost\":45000}".formatted(boxId));
+        assertThat((String) JsonPath.read(po, "$.lines[0].packLabel")).isEqualTo("hộp");
+        assertThat(new BigDecimal(String.valueOf((Object) JsonPath.read(po, "$.lines[0].packSize"))))
+                .isEqualByComparingTo("100");
+        assertThat((String) JsonPath.read(po, "$.kind")).isEqualTo("ORDER");
 
-        receive(po, "\"receivedQty\":2000");
-
-        assertThat(stockField(ingredientId, "quantityOnHand")).isEqualByComparingTo("2000");
-        assertThat(stockField(ingredientId, "avgUnitCost.amount")).isEqualByComparingTo("0.20");
+        mockMvc.perform(authed(post("/api/v1/purchase-orders")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":2.5,\"unitCost\":1}]}"
+                                .formatted(supplierId, boxId)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Packs are counted whole")));
     }
 
     @Test
     void receiptInAnotherUnit_countsAgainstTheLinesOutstandingQuantity() throws Exception {
         String ingredientId = ingredient("g");
-        String po = order(supplier(),
-                "{\"ingredientId\":\"%s\",\"unit\":\"kg\",\"orderedQty\":10,\"unitCost\":210000}".formatted(ingredientId));
+        String supplierId = supplier();
+        String po = order(supplierId, "{\"itemId\":\"%s\",\"orderedQty\":10,\"unitCost\":210000}"
+                .formatted(item(supplierId, ingredientId, "kg")));
 
         receive(po, "\"receivedQty\":4000,\"unit\":\"g\"");
         String poId = JsonPath.read(po, "$.id");
@@ -160,8 +164,9 @@ class PurchaseLineUnitTest extends AbstractIntegrationTest {
     @Test
     void costOverride_isPerTheReceiptUnit() throws Exception {
         String ingredientId = ingredient("g");
-        String po = order(supplier(),
-                "{\"ingredientId\":\"%s\",\"unit\":\"kg\",\"orderedQty\":10,\"unitCost\":210000}".formatted(ingredientId));
+        String supplierId = supplier();
+        String po = order(supplierId, "{\"itemId\":\"%s\",\"orderedQty\":10,\"unitCost\":210000}"
+                .formatted(item(supplierId, ingredientId, "kg")));
 
         receive(po, "\"receivedQty\":10,\"unitCostOverride\":200000");
 

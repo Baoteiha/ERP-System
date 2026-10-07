@@ -62,8 +62,8 @@ class ReceivingConversionTest extends AbstractIntegrationTest {
         String supplierId = JsonPath.read(create("/api/v1/suppliers",
                 "{\"name\":\"RecvRoaster%d\"}".formatted(n)), "$.id");
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":2000,\"unitCost\":0.20}]}"
-                        .formatted(supplierId, ingredientId));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":2000,\"unitCost\":0.20}]}"
+                        .formatted(supplierId, itemFor(token, branchId, supplierId, ingredientId)));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());
@@ -92,8 +92,8 @@ class ReceivingConversionTest extends AbstractIntegrationTest {
         String supplierId = JsonPath.read(create("/api/v1/suppliers",
                 "{\"name\":\"RecvDairy%d\"}".formatted(n)), "$.id");
         String poJson = create("/api/v1/purchase-orders",
-                "{\"supplierId\":\"%s\",\"lines\":[{\"ingredientId\":\"%s\",\"orderedQty\":1000,\"unitCost\":0.10}]}"
-                        .formatted(supplierId, ingredientId));
+                "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1000,\"unitCost\":0.10}]}"
+                        .formatted(supplierId, itemFor(token, branchId, supplierId, ingredientId)));
         String poId = JsonPath.read(poJson, "$.id");
         String lineId = JsonPath.read(poJson, "$.lines[0].id");
         mockMvc.perform(authed(post("/api/v1/purchase-orders/" + poId + "/send"))).andExpect(status().isOk());

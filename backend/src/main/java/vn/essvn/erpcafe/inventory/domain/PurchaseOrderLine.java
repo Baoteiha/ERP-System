@@ -13,10 +13,10 @@ import vn.essvn.erpcafe.common.domain.BaseEntity;
 import vn.essvn.erpcafe.common.domain.Money;
 
 /**
- * One ingredient line of a {@link PurchaseOrder}: how much was ordered, how much
+ * One supplier-item line of a {@link PurchaseOrder}: how much was ordered, how much
  * has been received so far, and the agreed unit cost. Quantities and cost are all
- * counted in the line's own {@code unit} (the one it is bought in, whether taken from
- * an {@link Item} or given with the ingredient), not the ingredient's base unit; the
+ * counted in the line's ordering unit: its pack when it has one, otherwise its own {@code unit}
+ * (taken from an {@link Item}), not the ingredient's base unit; the
  * ledger converts on receipt. The FK to the order is managed by {@code PurchaseOrder.lines}.
  */
 @Entity
@@ -46,15 +46,25 @@ public class PurchaseOrderLine extends BaseEntity {
     })
     private Money unitCost;
 
+    /** The item's pack when the order was placed ("hộp"), or null; a copy, so later item edits never reach it. */
+    @Column(name = "pack_label", length = 32)
+    private String packLabel;
+
+    @Column(name = "pack_size", precision = 19, scale = 4)
+    private BigDecimal packSize;
+
     protected PurchaseOrderLine() {
     }
 
-    public PurchaseOrderLine(UUID itemId, UUID ingredientId, String unit, BigDecimal orderedQty, Money unitCost) {
+    public PurchaseOrderLine(UUID itemId, UUID ingredientId, String unit, BigDecimal orderedQty, Money unitCost,
+            String packLabel, BigDecimal packSize) {
         this.itemId = itemId;
         this.ingredientId = ingredientId;
         this.unit = unit;
         this.orderedQty = orderedQty;
         this.unitCost = unitCost;
+        this.packLabel = packLabel;
+        this.packSize = packSize;
     }
 
     public UUID getIngredientId() {
@@ -87,6 +97,28 @@ public class PurchaseOrderLine extends BaseEntity {
 
     public boolean isFullyReceived() {
         return receivedQty.compareTo(orderedQty) >= 0;
+    }
+
+    public String getPackLabel() {
+        return packLabel;
+    }
+
+    public BigDecimal getPackSize() {
+        return packSize;
+    }
+
+    public boolean hasPack() {
+        return packLabel != null;
+    }
+
+    /** How many of {@code unit} one ordering unit holds: the pack's size, or 1 for a line without a pack. */
+    public BigDecimal unitsPerOrderingUnit() {
+        return hasPack() ? packSize : BigDecimal.ONE;
+    }
+
+    /** A charged over-delivery: more arrived than was ordered and it is paid for, so the order grows. */
+    public void growOrdered(BigDecimal extra) {
+        this.orderedQty = this.orderedQty.add(extra);
     }
 
     public Money getUnitCost() {

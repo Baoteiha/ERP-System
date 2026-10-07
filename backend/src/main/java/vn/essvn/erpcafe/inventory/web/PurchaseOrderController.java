@@ -93,12 +93,12 @@ public class PurchaseOrderController {
         List<PoLineResponse> lines = o.getLines().stream()
                 .map(PurchaseOrderController::toLine)
                 .toList();
-        return new PurchaseOrderResponse(o.getId(), o.getBranchId(), o.getSupplierId(),
+        return new PurchaseOrderResponse(o.getId(), o.getBranchId(), o.getSupplierId(), o.getKind().name(),
                 o.getStatus().name(), o.getNote(), lines);
     }
 
     private static PoLineResponse toLine(PurchaseOrderLine l) {
-        return new PoLineResponse(l.getId(), l.getItemId(), l.getIngredientId(), l.getUnit(), l.getOrderedQty(),
-                l.getReceivedQty(), MoneyDto.from(l.getUnitCost()));
+        return new PoLineResponse(l.getId(), l.getItemId(), l.getIngredientId(), l.getUnit(), l.getPackLabel(),
+                l.getPackSize(), l.getOrderedQty(), l.getReceivedQty(), MoneyDto.from(l.getUnitCost()));
     }
 }
