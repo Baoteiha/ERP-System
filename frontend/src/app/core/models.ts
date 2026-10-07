@@ -183,8 +183,8 @@ export interface PurchaseOrderResponse {
   id: UUID; branchId: UUID; supplierId: UUID; kind: 'ORDER' | 'RETAIL'; status: string; note?: string;
   lines: PoLineResponse[]; receipts: GoodsReceiptResponse[];
 }
-// A line is an item (unit comes from it) or an ingredient + unit — never both. Qty and cost are per `unit`.
-export interface PoLineRequest { itemId?: UUID; ingredientId?: UUID; unit?: string; orderedQty: string; unitCost: string; }
+// Every line is a supplier item; quantity and cost are in its ordering unit (its pack, or its unit).
+export interface PoLineRequest { itemId: UUID; orderedQty: string; unitCost: string; }
 export interface CreatePurchaseOrderRequest { supplierId: UUID; note?: string; lines: PoLineRequest[]; }
 export interface ReceiptRequest {
   lineId: UUID; receivedQty: string; unitCostOverride?: string | null; damagedQty?: string | null;

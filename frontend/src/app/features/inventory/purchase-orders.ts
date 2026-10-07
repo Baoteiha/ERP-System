@@ -7,21 +7,19 @@ import { ConfirmService } from '../../core/confirm.service';
 import { IngredientResponse, ItemResponse, PoLineRequest, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
-import { unitsFor } from '../../core/units';
 import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
+import { ItemFormComponent } from './item-form';
+import { PurchaseLine, PurchaseLinesComponent, newPurchaseLine, purchaseLinesError } from './purchase-lines';
 
-/** A line as edited: `source` is `item:<id>` or `ingredient:<id>`, `unit` only matters for an ingredient. */
-interface LineForm { source: string; unit: string; orderedQty: string; unitCost: string; }
-interface PoForm { supplierId: string; note: string; lines: LineForm[]; }
-const newLine = (): LineForm => ({ source: '', unit: '', orderedQty: '', unitCost: '' });
-const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] });
+interface PoForm { supplierId: string; note: string; lines: PurchaseLine[]; }
+const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLine()] });
 
 @Component({
   selector: 'app-purchase-orders',
   standalone: true,
-  imports: [FormsModule, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent],
+  imports: [FormsModule, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent, PurchaseLinesComponent, ItemFormComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -100,51 +98,32 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
       <app-modal variant="drawer" [width]="720" title="New purchase order" (close)="creating.set(false)">
         <div class="field">
           <label for="po-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
-          <select id="po-supplier" class="select" [ngModel]="form.supplierId" (ngModelChange)="onSupplierChange($event)" required>
-            <option value="">Select supplier</option>
-            @for (s of suppliers(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
-          </select>
-        </div>
-        <div class="field"><label for="po-note">Note</label><input id="po-note" class="input" [(ngModel)]="form.note" /></div>
-        <div class="line-editor">
-          @for (line of form.lines; track $index; let idx = $index) {
-            <div class="po-line">
-              <div class="source">
-                <select class="select" [ngModel]="line.source" (ngModelChange)="pickSource(line, $event)" aria-label="Item or ingredient">
-                  <option value="">Item or ingredient</option>
-                  @if (supplierItems().length) {
-                    <optgroup label="Supplier items">
-                      @for (it of supplierItems(); track it.id) { <option [value]="'item:' + it.id">{{ it.name }} ({{ it.unit }})</option> }
-                    </optgroup>
-                  }
-                  <optgroup label="Ingredients">
-                    @for (i of ingredients(); track i.id) { <option [value]="'ingredient:' + i.id">{{ i.name }}</option> }
-                  </optgroup>
-                </select>
-                @if (line.source.startsWith('ingredient:')) {
-                  <select class="select" [(ngModel)]="line.unit" aria-label="Unit">
-                    @for (u of unitChoices(line); track u.value) { <option [value]="u.value">{{ u.value }}</option> }
-                  </select>
-                }
-              </div>
-              <div class="with-unit">
-                <input class="input" type="number" min="0" step="0.001" [(ngModel)]="line.orderedQty" placeholder="Qty" aria-label="Quantity" />
-                <span class="unit">{{ editorUnit(line) }}</span>
-              </div>
-              <div class="with-unit">
-                <input class="input" type="number" min="0" step="1" [(ngModel)]="line.unitCost" placeholder="Unit cost" aria-label="Unit cost" />
-                @if (editorUnit(line); as u) { <span class="unit">per {{ u }}</span> }
-              </div>
-              <button class="btn btn-ghost btn-icon" (click)="removeLine(idx)" aria-label="Remove line"><app-icon name="close" [size]="16" /></button>
+          <div class="supplier-row">
+            <select id="po-supplier" class="select" [ngModel]="form.supplierId" (ngModelChange)="onSupplierChange($event)" required>
+              <option value="">Select supplier</option>
+              @for (s of suppliers(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
+            </select>
+            @if (auth.can('inventory:write')) { <button type="button" class="btn btn-sm btn-ghost" (click)="addingSupplier.set(!addingSupplier())">+ New supplier</button> }
+          </div>
+          @if (addingSupplier()) {
+            <div class="supplier-row">
+              <input class="input" [(ngModel)]="newSupplierName" placeholder="Supplier name" aria-label="New supplier name" />
+              <button type="button" class="btn btn-sm btn-primary" (click)="createSupplier()" [disabled]="!newSupplierName.trim()">Add</button>
             </div>
           }
-          <button class="btn btn-outline" (click)="addLine()"><app-icon name="plus" [size]="15" /> Add line</button>
         </div>
+        <div class="field"><label for="po-note">Note</label><input id="po-note" class="input" [(ngModel)]="form.note" /></div>
+        <app-purchase-lines [lines]="form.lines" [items]="supplierItems()" [ingredients]="ingredients()" [disabled]="!form.supplierId"
+                            [canCreateItem]="auth.can('inventory:write')" (newItem)="itemFormFor.set($event)" />
         <div footer>
           <button class="btn btn-outline" (click)="creating.set(false)">Cancel</button>
           <button class="btn btn-primary" (click)="save()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Create</button>
         </div>
       </app-modal>
+    }
+    @if (itemFormFor() !== null) {
+      <app-item-form [suppliers]="suppliers()" [ingredients]="ingredients()" [supplierId]="form.supplierId"
+                     (saved)="onItemCreated($event)" (closed)="itemFormFor.set(null)" />
     }
 
     @if (receiving(); as po) {
@@ -186,9 +165,9 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newLine()] })
     .with-unit .input { min-width: 0; }
     .unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
     .compact th, .compact td { padding: .65rem .55rem; }
-    .source { display: grid; gap: .35rem; min-width: 0; }
+    .supplier-row { display: flex; gap: .5rem; align-items: center; margin-top: .4rem; }
     .line-editor { display: grid; gap: .65rem; }
-    .po-line { display: grid; grid-template-columns: minmax(180px, 1fr) 140px 170px 40px; gap: .5rem; align-items: center; }
+    .po-line { display: grid; gap: .5rem; align-items: center; }
     .po-line.receive { grid-template-columns: 1fr 140px 190px; }
     @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } .po-line, .po-line.receive { grid-template-columns: 1fr; } }
   `],
@@ -258,30 +237,37 @@ export class PurchaseOrdersComponent {
   }
 
   openNew() { this.form = newForm(); this.formSupplier.set(''); this.creating.set(true); }
-  addLine() { this.form.lines.push(newLine()); }
+  itemFormFor = signal<number | null>(null);
+  addingSupplier = signal(false);
+  newSupplierName = '';
+
+  onItemCreated(item: ItemResponse) {
+    this.allItems.update((all) => [...all, item]);
+    const idx = this.itemFormFor();
+    if (idx !== null && this.form.lines[idx]) this.form.lines[idx].itemId = item.id;
+    this.itemFormFor.set(null);
+  }
+
+  createSupplier() {
+    const name = this.newSupplierName.trim();
+    if (!name) return;
+    this.api.createSupplier({ name }).subscribe({ next: (s) => {
+      this.suppliers.update((all) => [...all, s]);
+      this.newSupplierName = '';
+      this.addingSupplier.set(false);
+      this.onSupplierChange(s.id);
+    } });
+  }
+
   onSupplierChange(id: string) {
     this.form.supplierId = id;
     this.formSupplier.set(id);
     // an item belongs to one supplier, so lines picked from the previous one no longer apply
-    this.form.lines.filter((l) => l.source.startsWith('item:')).forEach((l) => Object.assign(l, newLine()));
+    this.form.lines = this.form.lines.map(() => newPurchaseLine());
   }
-  pickSource(line: LineForm, source: string) {
-    line.source = source;
-    line.unit = source.startsWith('ingredient:') ? this.unitOf(source.slice(11)) : '';
-  }
-  private itemOf(line: LineForm) { return this.allItems().find((i) => i.id === line.source.slice(5)); }
-  /** The unit the line is counted and priced in: the item's, or the ingredient unit picked. */
-  editorUnit(line: LineForm) {
-    if (line.source.startsWith('item:')) return this.itemOf(line)?.unit ?? '';
-    return line.source.startsWith('ingredient:') ? line.unit : '';
-  }
-  /** Only units of the ingredient's own dimension; conversion never crosses one. */
-  unitChoices(line: LineForm) { return unitsFor(this.unitOf(line.source.slice(11))); }
-  removeLine(idx: number) { if (this.form.lines.length > 1) this.form.lines.splice(idx, 1); }
   select(po: PurchaseOrderResponse) { this.selected.set(po); }
 
   supplierName(id: string) { return this.suppliers().find((s) => s.id === id)?.name ?? id.slice(0, 8); }
-  unitOf(ingredientId: string) { return this.ingredients().find((i) => i.id === ingredientId)?.baseUnit ?? ''; }
   lineUnit(lineId: string) { return this.receiving()?.lines.find((l) => l.id === lineId)?.unit ?? ''; }
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
   lineIngredientName(lineId: string) {
@@ -302,18 +288,12 @@ export class PurchaseOrdersComponent {
     return 'badge-gray';
   }
   save() {
-    if (!this.form.supplierId || this.form.lines.some((l) => !l.source || !l.orderedQty || !l.unitCost)) {
-      this.toast.error('Supplier and all line fields are required');
-      return;
-    }
+    const problem = !this.form.supplierId ? 'Choose a supplier' : purchaseLinesError(this.form.lines, this.supplierItems());
+    if (problem) { this.toast.error(problem); return; }
     this.saving.set(true);
-    const lines: PoLineRequest[] = this.form.lines.map((l) => {
-      const base = { orderedQty: l.orderedQty, unitCost: l.unitCost };
-      return l.source.startsWith('item:')
-        ? { itemId: l.source.slice(5), ...base }
-        : { ingredientId: l.source.slice(11), unit: l.unit, ...base };
-    });
-    this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines }).subscribe(afterSave(this.saving, (po) => { this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); }));
+    const lines: PoLineRequest[] = this.form.lines.map((l) => ({ itemId: l.itemId, orderedQty: l.quantity, unitCost: l.unitCost }));
+    this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines })
+      .subscribe(afterSave(this.saving, (po) => { this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); }));
   }
 
   send(po: PurchaseOrderResponse) {
