@@ -1,9 +1,11 @@
 package vn.essvn.erpcafe.inventory.web;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 public final class ItemDtos {
@@ -19,6 +21,9 @@ public final class ItemDtos {
             // The unit this is bought in. Must measure the same thing as the ingredient's
             // base unit — kg against g is fine, kg against ml is rejected (422).
             @NotBlank @Size(max = 16) String unit,
+            // An optional pack: a label over a quantity of `unit` ("hộp", 100). Both or neither.
+            @Size(max = 32) String packLabel,
+            @PositiveOrZero BigDecimal packSize,
             Boolean active,
             // Optimistic-lock guard for updates: the client echoes the version it loaded so a
             // stale-form edit is rejected (409) rather than silently overwriting a newer change.
@@ -34,6 +39,7 @@ public final class ItemDtos {
             UUID supplierId,
             UUID ingredientId,
             String unit,
+            String packLabel, BigDecimal packSize,
             boolean active,
             Long version) {
     }

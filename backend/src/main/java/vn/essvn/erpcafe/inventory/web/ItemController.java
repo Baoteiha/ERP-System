@@ -56,7 +56,8 @@ public class ItemController {
     @PreAuthorize("hasAuthority('inventory:write')")
     public ResponseEntity<ItemResponse> create(@Valid @RequestBody ItemRequest request) {
         ItemResponse body = itemMapper.toResponse(itemService.create(
-                request.sku(), request.name(), request.supplierId(), request.ingredientId(), request.unit()));
+                request.sku(), request.name(), request.supplierId(), request.ingredientId(), request.unit(),
+                request.packLabel(), request.packSize()));
         return ResponseEntity.created(URI.create(ApiVersions.V1 + "/items/" + body.id())).body(body);
     }
 
@@ -66,7 +67,7 @@ public class ItemController {
         boolean active = request.active() == null || request.active();
         return itemMapper.toResponse(itemService.update(
                 id, request.sku(), request.name(), request.supplierId(), request.ingredientId(),
-                request.unit(), active, request.version()));
+                request.unit(), request.packLabel(), request.packSize(), active, request.version()));
     }
 
     @DeleteMapping("/{id}")

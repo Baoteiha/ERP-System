@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.inventory.domain;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.hibernate.annotations.SQLDelete;
@@ -27,8 +28,8 @@ import vn.essvn.erpcafe.common.domain.TenantOwnedEntity;
  * <p>{@code unit} is the unit the item is <em>bought</em> in, and must share a
  * dimension with the ingredient's base unit ({@code ItemService} enforces this on
  * write). Conversion is then a pure function of the two units, needing no lookup.
- * Packaging ("25 kg sack") is deliberately absent: it is a label over a quantity of
- * a real unit, and adding it later is additive.
+ * An optional pack ("hộp" of 100 pc) is a label over a quantity of {@code unit} (ADR-0001); orders
+ * and receipts count it whole.
  *
  * <p>Company-scoped master data, soft-deletable. Uniqueness — one row per
  * {@code (supplier, sku)} and per {@code (supplier, ingredient, unit)} among live
@@ -60,6 +61,14 @@ public class Item extends TenantOwnedEntity {
 
     @Column(name = "unit", nullable = false, length = 16)
     private String unit;
+
+    /** The pack's name ("hộp"), or null when the item is bought loose. */
+    @Column(name = "pack_label", length = 32)
+    private String packLabel;
+
+    /** How many of {@code unit} one pack holds (100 for a box of 100 pc), or null without a pack. */
+    @Column(name = "pack_size", precision = 19, scale = 4)
+    private BigDecimal packSize;
 
     @Column(name = "active", nullable = false)
     private boolean active = true;
@@ -113,6 +122,24 @@ public class Item extends TenantOwnedEntity {
 
     public void setUnit(String unit) {
         this.unit = unit;
+    }
+
+    public String getPackLabel() {
+        return packLabel;
+    }
+
+    public BigDecimal getPackSize() {
+        return packSize;
+    }
+
+    public boolean hasPack() {
+        return packLabel != null;
+    }
+
+    /** Sets both halves of the pack together, or clears both; {@code ItemService} has validated them. */
+    public void setPack(String label, BigDecimal size) {
+        this.packLabel = label;
+        this.packSize = size;
     }
 
     public boolean isActive() {

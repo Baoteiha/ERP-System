@@ -23,5 +23,6 @@ public interface ItemRepository extends JpaRepository<Item, UUID> {
 
     boolean existsBySupplierIdAndSku(UUID supplierId, String sku);
 
-    boolean existsBySupplierIdAndIngredientIdAndUnit(UUID supplierId, UUID ingredientId, String unit);
+    /** The supplier's live items for an ingredient in one unit; the service compares their packs. */
+    List<Item> findBySupplierIdAndIngredientIdAndUnit(UUID supplierId, UUID ingredientId, String unit);
 }

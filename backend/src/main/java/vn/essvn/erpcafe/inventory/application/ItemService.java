@@ -1,5 +1,6 @@
 package vn.essvn.erpcafe.inventory.application;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,17 +59,20 @@ public class ItemService {
                 .orElseThrow(() -> ResourceNotFoundException.of("Item", id));
     }
 
-    public Item create(String sku, String name, UUID supplierId, UUID ingredientId, String unit) {
+    public Item create(String sku, String name, UUID supplierId, UUID ingredientId, String unit,
+            String packLabel, BigDecimal packSize) {
         requireSupplier(supplierId);
         Ingredient ingredient = requireIngredient(ingredientId);
 
         String canonicalUnit = compatibleUnit(unit, ingredient).symbol();
+        Pack pack = Pack.of(packLabel, packSize);
         String normalizedSku = normalizeSku(sku);
         requireUniqueSku(supplierId, normalizedSku);
-        requireUniqueMapping(supplierId, ingredientId, canonicalUnit);
+        requireUniqueWayOfBuying(supplierId, ingredientId, canonicalUnit, pack, null);
 
         Item item = new Item(supplierId, ingredientId, name, canonicalUnit);
         item.setSku(normalizedSku);
+        item.setPack(pack.label(), pack.size());
         return itemRepository.save(item);
     }
 
@@ -80,7 +84,7 @@ public class ItemService {
      * creating a second item and deactivating this one.
      */
     public Item update(UUID id, String sku, String name, UUID supplierId, UUID ingredientId,
-            String unit, boolean active, Long expectedVersion) {
+            String unit, String packLabel, BigDecimal packSize, boolean active, Long expectedVersion) {
         Item item = get(id);
         ConflictException.requireCurrentVersion(item.getVersion(), expectedVersion);
         if (supplierId != null && !supplierId.equals(item.getSupplierId())) {
@@ -95,9 +99,8 @@ public class ItemService {
         // converted. Movements already in the ledger were recorded in the ingredient's base
         // unit, so history keeps its meaning.
         String canonicalUnit = compatibleUnit(unit, ingredient).symbol();
-        if (!canonicalUnit.equals(item.getUnit())) {
-            requireUniqueMapping(item.getSupplierId(), item.getIngredientId(), canonicalUnit);
-        }
+        Pack pack = Pack.of(packLabel, packSize);
+        requireUniqueWayOfBuying(item.getSupplierId(), item.getIngredientId(), canonicalUnit, pack, item.getId());
         String normalizedSku = normalizeSku(sku);
         if (normalizedSku != null && !normalizedSku.equals(item.getSku())) {
             requireUniqueSku(item.getSupplierId(), normalizedSku);
@@ -106,6 +109,7 @@ public class ItemService {
         item.setSku(normalizedSku);
         item.setName(name);
         item.setUnit(canonicalUnit);
+        item.setPack(pack.label(), pack.size());
         item.setActive(active);
         return item;
     }
@@ -157,10 +161,40 @@ public class ItemService {
         }
     }
 
-    private void requireUniqueMapping(UUID supplierId, UUID ingredientId, String unit) {
-        if (itemRepository.existsBySupplierIdAndIngredientIdAndUnit(supplierId, ingredientId, unit)) {
-            throw new ConflictException(
-                    "This supplier already sells that ingredient by the " + unit);
+    // One row per way of buying a thing: a box of 100 and loose pieces are two ways, the same box twice is one.
+    private void requireUniqueWayOfBuying(UUID supplierId, UUID ingredientId, String unit, Pack pack, UUID self) {
+        boolean taken = itemRepository.findBySupplierIdAndIngredientIdAndUnit(supplierId, ingredientId, unit).stream()
+                .anyMatch(other -> !other.getId().equals(self) && pack.sameAs(other));
+        if (taken) {
+            throw new ConflictException(pack.label() == null
+                    ? "This supplier already sells that ingredient by the " + unit
+                    : "This supplier already sells that ingredient in a %s of %s %s".formatted(
+                            pack.label(), pack.size().stripTrailingZeros().toPlainString(), unit));
+        }
+    }
+
+    /**
+     * Class: Pack
+     * Purpose: An item's optional pack as the service validated it, both halves present or both absent.
+     */
+    private record Pack(String label, BigDecimal size) {
+
+        static Pack of(String label, BigDecimal size) {
+            String trimmed = label == null || label.isBlank() ? null : label.trim();
+            if (trimmed == null && size == null) {
+                return new Pack(null, null);
+            }
+            if (trimmed == null || size == null || size.signum() <= 0) {
+                throw new BusinessRuleException("A pack needs both a name and a size above 0");
+            }
+            return new Pack(trimmed, size);
+        }
+
+        boolean sameAs(Item item) {
+            if (label == null) {
+                return !item.hasPack();
+            }
+            return label.equalsIgnoreCase(item.getPackLabel()) && size.compareTo(item.getPackSize()) == 0;
         }
     }
 }
