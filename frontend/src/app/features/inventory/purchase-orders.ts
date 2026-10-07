@@ -14,7 +14,7 @@ import { IconComponent } from '../../shared/icon';
 import { ItemFormComponent } from './item-form';
 import { CompensationDialogComponent } from './compensation-dialog';
 import { ReceiveDrawerComponent } from './receive-drawer';
-import { conversionLine, orderingUnit } from './purchase-math';
+import { conversionLine, fmtQty, orderingUnit } from './purchase-math';
 import { PurchaseLine, PurchaseLinesComponent, newPurchaseLine, purchaseLinesError } from './purchase-lines';
 
 interface PoForm { supplierId: string; note: string; lines: PurchaseLine[]; }
@@ -347,11 +347,15 @@ export class PurchaseOrdersComponent {
   receiptLineText(po: PurchaseOrderResponse, rl: GoodsReceiptLineResponse) {
     const l = po.lines.find((x) => x.id === rl.purchaseOrderLineId);
     if (!l) return '';
-    if (Number(rl.replacementQty) > 0) return `${this.lineName(l)}: replaced ${rl.replacementQty} ${l.unit}`;
-    let s = `${this.lineName(l)}: delivered ${rl.deliveredQty} ${orderingUnit(l)}`;
-    if (Number(rl.overDeliveredQty) > 0) s += ` (${rl.overDeliveredQty} extra, ${rl.overDeliveryKind === 'FREE' ? 'free' : 'charged'})`;
-    if (Number(rl.damagedQty) > 0) s += ` · damaged ${rl.damagedQty} ${l.unit}`;
-    if (Number(rl.lossQty) > 0) s += ` · loss ${formatMoney(rl.lossAmount)}${Number(rl.compensatedQty) > 0 ? ` (replaced ${rl.compensatedQty})` : ''}`;
+    const q = (v: string) => fmtQty(Number(v));
+    if (Number(rl.replacementQty) > 0) return `${this.lineName(l)}: replaced ${q(rl.replacementQty)} ${l.unit}`;
+    let s = `${this.lineName(l)}: delivered ${q(rl.deliveredQty)} ${orderingUnit(l)}`;
+    if (Number(rl.overDeliveredQty) > 0) s += ` (${q(rl.overDeliveredQty)} extra, ${rl.overDeliveryKind === 'FREE' ? 'free' : 'charged'})`;
+    if (Number(rl.damagedQty) > 0) s += ` · damaged ${q(rl.damagedQty)} ${l.unit}`;
+    if (Number(rl.lossQty) > 0) {
+      s += ` · loss ${formatMoney(Number(rl.lossQty) * Number(rl.costPerUnit))}`;
+      if (Number(rl.compensatedQty) > 0) s += ` (replaced ${q(rl.compensatedQty)})`;
+    }
     return s;
   }
 }

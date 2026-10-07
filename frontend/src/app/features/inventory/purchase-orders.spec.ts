@@ -76,6 +76,24 @@ describe('PurchaseOrdersComponent', () => {
     orders.save();
     ctrl.expectNone(url('/api/v1/purchase-orders'));
   });
+
+  it('receipt history shows the original loss, the replaced quantity and formatted numbers', () => {
+    const order = {
+      ...po('a1', 'b1'),
+      lines: [{ id: 'l1', itemId: 'i1', ingredientId: 'g1', unit: 'pc', orderedQty: '10', receivedQty: '10', unitCost: { amount: '450', currency: 'VND' } }],
+    };
+    const rl = {
+      id: 'x', purchaseOrderLineId: 'l1', deliveredQty: '10000', damagedQty: '40', lossQty: '40', overDeliveredQty: '0',
+      unitCost: { amount: '450', currency: 'VND' }, costPerUnit: '450', compensatedQty: '40', replacementQty: '0',
+      lossAmount: { amount: '0', currency: 'VND' },
+    };
+    const text = orders.receiptLineText(order as never, rl as never);
+    expect(text).toContain('delivered 10.000 pc');
+    expect(text).toContain('damaged 40 pc');
+    expect(text).toContain('18.000');
+    expect(text).toContain('(replaced 40)');
+    expect(text).not.toContain('loss 0');
+  });
 });
 
 describe('PurchaseOrdersComponent route intent', () => {
@@ -122,3 +140,4 @@ describe('PurchaseOrdersComponent route intent', () => {
     void f;
   });
 });
+
