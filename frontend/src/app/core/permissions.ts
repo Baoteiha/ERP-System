@@ -23,6 +23,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'inventory:write', desc: 'Create/update ingredients, suppliers, adjustments' },
     { key: 'purchasing:read', desc: 'View purchase orders' },
     { key: 'purchasing:write', desc: 'Create/manage purchase orders and receiving' },
+    { key: 'purchasing:retail', desc: 'Record retail purchases' },
   ]},
   { label: 'Sales', perms: [
     { key: 'sales:read', desc: 'View orders' },
@@ -69,4 +70,5 @@ export const ACTION_LABELS: Record<string, string> = {
   write: 'manage',
   refund: 'refund',
   clock: 'clock in/out',
+  retail: 'retail purchases',
 };

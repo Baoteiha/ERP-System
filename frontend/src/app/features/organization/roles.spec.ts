@@ -23,3 +23,28 @@ describe('RolesComponent permSummary', () => {
     expect(summary.chips).toEqual([{ domain: 'Staff', actions: ['read', 'write', 'clock'] }]);
   });
 });
+
+describe('RolesComponent toggle', () => {
+  function create() {
+    stubLocalStorage();
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const ctrl = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(RolesComponent);
+    ctrl.match(() => true).forEach((r) => r.flush([]));
+    return fixture.componentInstance;
+  }
+
+  it('ticking purchasing:retail does not add purchasing:read', () => {
+    const c = create();
+    c.toggle('purchasing:retail');
+    expect([...c.selected()]).toEqual(['purchasing:retail']);
+  });
+
+  it('ticking purchasing:write still adds purchasing:read', () => {
+    const c = create();
+    c.toggle('purchasing:write');
+    expect([...c.selected()].sort()).toEqual(['purchasing:read', 'purchasing:write']);
+  });
+});

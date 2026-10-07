@@ -166,7 +166,7 @@ export class RolesComponent {
    */
   permSummary(r: RoleResponse): { chips: { domain: string; actions: string[] }[]; extras: string[] } {
     const domains = [...new Set(ALL_PERMISSIONS.map((k) => k.split(':')[0]))];
-    const rank: Record<string, number> = { read: 0, write: 1, refund: 2, clock: 3 };
+    const rank: Record<string, number> = { read: 0, write: 1, refund: 2, clock: 3, retail: 4 };
     const byDomain = new Map<string, string[]>();
     const extras: string[] = [];
     for (const p of r.permissions ?? []) {
@@ -188,7 +188,7 @@ export class RolesComponent {
 
   actionLabel(a: string) { return ACTION_LABELS[a] ?? a; }
 
-  /** Keep the set consistent: manage/refund implies view; dropping view drops the rest. */
+  /** Keep the set consistent: manage/refund implies view (retail purchases do not); dropping view drops the rest. */
   toggle(key: string) {
     const s = new Set(this.selected());
     const [domain, action] = key.split(':');
@@ -200,7 +200,7 @@ export class RolesComponent {
       }
     } else {
       s.add(key);
-      if (action !== 'read') s.add(`${domain}:read`);
+      if (action !== 'read' && action !== 'retail') s.add(`${domain}:read`);
     }
     this.selected.set(s);
   }
