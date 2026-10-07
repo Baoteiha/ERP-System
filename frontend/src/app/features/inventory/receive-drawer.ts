@@ -42,7 +42,9 @@ const text = (v: Typed) => (v === null || v === undefined ? '' : String(v).trim(
                   <label><input type="radio" [name]="'over-' + r.lineId" [checked]="r.overKind === 'FREE'" (change)="r.overKind = 'FREE'" /> Free gift (0 ₫)</label>
                 </div>
               }
-              @if (summary(r).error) { <div class="err">{{ summary(r).error }}</div> }
+              @if (rowState(r) === 'skip-fully-received') { <div class="soft">Fully received</div> }
+              @else if (rowState(r) === 'skip') { <div class="soft">Not in this delivery</div> }
+              @else if (rowState(r) === 'error') { <div class="err">{{ summary(r).error }}</div> }
               @else {
                 <div class="soft">→ {{ intoStockText(r) }}</div>
                 @if (lossText(r); as loss) { <div class="loss">→ {{ loss }}</div> }
@@ -104,6 +106,15 @@ export class ReceiveDrawerComponent implements OnInit {
       delivered: Number(text(r.delivered)), outstanding: Number(l.orderedQty) - Number(l.receivedQty), damaged: Number(text(r.damaged)) || 0,
       overKind: r.overKind, costPerOrdering: text(r.actualPrice) !== '' ? Number(text(r.actualPrice)) : Number(l.unitCost.amount), perOrdering: perOrdering(l),
     });
+  }
+
+  /** What to show under a row: a muted skip note when nothing is delivered, else the error or the stock summary. */
+  rowState(r: ReceiveRow): 'skip-fully-received' | 'skip' | 'error' | 'ok' {
+    if (!(Number(text(r.delivered)) > 0)) {
+      const l = this.line(r)!;
+      return Number(l.orderedQty) - Number(l.receivedQty) <= 0 ? 'skip-fully-received' : 'skip';
+    }
+    return this.summary(r).error ? 'error' : 'ok';
   }
 
   intoStockText(r: ReceiveRow) {

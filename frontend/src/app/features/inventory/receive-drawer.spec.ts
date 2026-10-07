@@ -61,4 +61,28 @@ describe('ReceiveDrawerComponent', () => {
     expect(req.request.body.receipts[0]).toEqual({ lineId: 'l1', receivedQty: '4', damagedQty: '10', unitCostOverride: '44000', overDeliveryKind: null, note: null });
     req.flush(po);
   });
+
+  it('marks rows with nothing delivered as skipped, not as errors', () => {
+    const row = drawer.rows[0];
+    row.delivered = '0';
+    expect(drawer.rowState(row)).toBe('skip');
+    row.delivered = '';
+    expect(drawer.rowState(row)).toBe('skip');
+    row.delivered = '5';
+    expect(drawer.rowState(row)).toBe('ok');
+    row.delivered = '6';
+    expect(drawer.rowState(row)).toBe('error');
+  });
+
+  it('says a line is fully received when nothing is outstanding', () => {
+    const f = TestBed.createComponent(ReceiveDrawerComponent);
+    f.componentRef.setInput('po', { ...po, status: 'PARTIALLY_RECEIVED', lines: [{ ...po.lines[0], receivedQty: '5' }] });
+    f.componentRef.setInput('items', []);
+    f.componentRef.setInput('ingredients', []);
+    f.detectChanges();
+    const row = f.componentInstance.rows[0];
+    expect(row.delivered).toBe('0');
+    expect(f.componentInstance.rowState(row)).toBe('skip-fully-received');
+  });
 });
+
