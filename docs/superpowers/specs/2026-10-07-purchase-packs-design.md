@@ -63,7 +63,8 @@ pack, so their ordering unit is their `unit`, exactly as today.
 | `purchase_order_line` | `pack_label` and `pack_size`, **copied from the item** when the PO is created. Editing the item later does not change existing lines |
 | `purchase_order` | `kind VARCHAR(16) NOT NULL DEFAULT 'ORDER'`, constrained to `ORDER` or `RETAIL` |
 | `goods_receipt` (new) | One row per delivery confirmed: `id`, `version`, `branch_id`, `purchase_order_id`, `kind` (`DELIVERY` or `COMPENSATION`), `note`, and the audit columns. Who received the goods and when are `created_by` and `created_at` |
-| `goods_receipt_line` (new) | `id`, `version`, `goods_receipt_id`, `purchase_order_line_id`, `delivered_qty` (ordering unit), `damaged_qty` (line unit, default 0), `over_delivered_qty` (ordering unit, default 0), `over_delivery_kind` (`CHARGED`, `FREE` or null), `unit_cost` (actual price per ordering unit), `cost_per_unit` (per line unit, which is what the ledger and the loss use), `compensated_qty` (line unit, default 0), `compensates_line_id` (on a COMPENSATION receipt, the damaged line it replaces), `note` |
+| `goods_receipt_line` (new) | `id`, `version`, `goods_receipt_id`, `purchase_order_line_id`, `delivered_qty` (ordering unit), `damaged_qty` (line unit, default 0), `loss_qty` (the damaged units that were paid for, line unit), `over_delivered_qty` (ordering unit, default 0), `over_delivery_kind` (`CHARGED`, `FREE` or null), `unit_cost` + `currency` (actual price per ordering unit), `cost_per_unit` (per line unit, which is what the ledger and the loss use), `compensated_qty` (line unit, default 0, never above `loss_qty`), `replacement_qty` (on a COMPENSATION line, the units it brings in), `compensates_line_id` (on a COMPENSATION line, the damaged line it replaces), `note` |
+| `item` index | `uk_item_supplier_ingredient_unit` (one live item per supplier, ingredient and unit) is replaced by `uk_item_supplier_ingredient_unit_pack`, which also keys on the pack (label case-insensitive, size). "Ống hút hộp 100" and loose "Ống hút" from one supplier, both in `pc`, are two ways of buying, as the owner decided. The same box twice is still a duplicate |
 | `stock_movement` | **No schema change.** Receipts made under this design write `ref_type = 'GOODS_RECEIPT'` and `ref_id` = the receipt's id. Older movements keep `PURCHASE_ORDER` |
 
 Both new tables get row-level security, following the `purchase_order` / `purchase_order_line`
@@ -138,8 +139,9 @@ Supplier *
   = 225,000 đ · = 500 pc".
 
 Backend:
-- `PoLineRequest` loses `ingredientId` and `unit`. A line without `itemId` is refused with "A
-  purchase line must be a supplier item".
+- A line without `itemId` is refused with "A purchase line must be a supplier item".
+  `PoLineRequest` keeps `ingredientId` and `unit` only so that it can refuse them clearly, as it
+  does today.
 - The item must belong to the PO's supplier and be active. Both checks exist already.
 - A pack line's `orderedQty` must be a whole number above 0.
 - `pack_label` and `pack_size` are copied onto the line at creation. POs cannot be edited after
@@ -233,23 +235,30 @@ kind `COMPENSATION`:
 
 ### API
 
-- `POST /purchase-orders/{id}/receive` (`purchasing:write`). Body: `note` and `lines[]`, each with
-  `lineId`, `deliveredQty`, `damagedQty?`, `unit?` (lines without a pack only), `actualUnitCost?`,
-  `overDeliveryKind?` and `note?`. It refuses:
+- `POST /purchase-orders/{id}/receive` (`purchasing:write`). The body keeps today's field names so
+  existing clients and tests carry on: `receipts[]`, each with `lineId`, `receivedQty` (meaning
+  delivered), `unit?` (lines without a pack only) and `unitCostOverride?` (the actual price). It adds
+  `damagedQty?`, `overDeliveryKind?`, a per-line `note?` and a top-level `note`. It refuses:
   - damaged above delivered;
   - a fractional number of packs;
   - over-delivery without a kind, or a kind without over-delivery;
   - a line not on this PO;
   - a PO not in SENT or PARTIALLY_RECEIVED.
 - `POST /purchase-orders/{id}/compensations` (`purchasing:write`). Body: `note` and `lines[]`, each
-  with `receiptLineId` and `quantity`.
+  with `receiptLineId` and `quantity`. A replacement covers lost units only, meaning damaged units
+  that were paid for, up to `loss_qty − compensated_qty`. Damaged free gifts cost nothing and are
+  not replaced.
+- `GET /purchase-orders/by-receipt/{receiptId}` (`purchasing:read`) returns the order a receipt
+  belongs to, so a stock movement can link to it. It is scoped to the active branch.
 - `PurchaseOrderResponse` gains `kind`, each line's pack, and `receipts[]` with their lines and loss
   amounts.
 
 ## 6. Retail purchase ("Mua lẻ")
 
-A **"Retail purchase"** button sits beside "New purchase order", and the same action is in the ⌘K
-palette.
+Retail purchase is its own page, `/inventory/retail-purchase`, guarded by `purchasing:retail`. It
+appears in the Inventory nav and the ⌘K palette, and a **"Retail purchase"** button beside "New
+purchase order" opens it. It is a page rather than a drawer on the Purchase orders screen because
+that screen needs `purchasing:read`, which a cashier with only the retail permission does not hold.
 
 ```
 Retail purchase · Branch: Quận 1
@@ -279,10 +288,13 @@ Note [Ran out of milk at 9pm             ]
 - **Known limit:** a saved retail purchase cannot be undone. This matches received POs, since the
   ledger never rewrites rows. Mistakes are corrected with a stock adjustment.
 
-API: `POST /purchase-orders/retail` (`purchasing:retail` or `purchasing:write`). Body: `supplier`,
-which is either `{ id }` or `{ name }` (an inline quick-create, so the retail permission does not
-need supplier-write access), plus `note` and `lines[]` of `{ itemId, quantity, unitCost }`. It
-uses the active branch.
+API: `POST /purchase-orders/retail` (`purchasing:retail`). It names exactly one permission, because
+`ArchitectureTest` requires every endpoint to be `hasAuthority('<one permission>')`. OWNER and
+MANAGER hold it anyway. Body: `supplierId`, `note` and `lines[]` of `{ itemId, quantity, unitCost }`.
+It uses the active branch. The lines must be the supplier's items, so a supplier with no items
+cannot be bought from until someone with `inventory:write` sets them up. For that reason the
+"+ New supplier" and "+ New item" shortcuts appear only for users who hold `inventory:write`, and
+they use the existing endpoints.
 
 ### Permission
 
@@ -292,9 +304,10 @@ uses the active branch.
 - MANAGER has it by default, and OWNER through `ALL`. CASHIER does not by default. The owner adds
   it on the Roles screen, which `RoleService.addPermissions` allows on default roles, and the sync
   never revokes it.
-- A user with only `purchasing:retail` can use the retail form: pick existing items and name a new
-  supplier. "+ New item" is hidden without `inventory:write`, so staff cannot declare packs by
-  accident. They cannot create ordinary POs.
+- A user with only `purchasing:retail` (plus the `inventory:read` that CASHIER already has, for the
+  supplier and item lists) can use the retail page and pick existing suppliers and items.
+  "+ New supplier" and "+ New item" are hidden without `inventory:write`, so staff cannot declare
+  packs by accident. They cannot create ordinary POs.
 
 ## 7. Stock screen
 
@@ -341,7 +354,9 @@ tests use Vitest.
 
 - `RlsEverywhereTest` covers `goods_receipt` and `goods_receipt_line`. Another company's receipts
   are not visible.
-- All existing ledger and stock-guard tests pass unchanged.
+- All existing ledger and stock-guard tests pass. The eleven test classes that buy stock through
+  ingredient lines switch to item lines through one shared helper, `AbstractIntegrationTest.itemFor`,
+  which finds or creates the supplier's loose item for an ingredient.
 
 ### Frontend (Vitest)
 
