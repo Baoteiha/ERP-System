@@ -3,13 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
-import { IngredientResponse, ItemRequest, ItemResponse, SupplierResponse } from '../../core/models';
+import { IngredientResponse, ItemResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
-import { afterSave } from '../../core/save-handler';
-import { unitsFor } from '../../core/units';
-import { ModalComponent } from '../../shared/modal';
+import { QtyPipe } from '../../core/util';
 import { IconComponent } from '../../shared/icon';
 import { StatusBadgeComponent } from '../../shared/status-badge';
+import { ItemFormComponent } from './item-form';
 
 /**
  * Items — what each supplier sells, and which ingredient it becomes in stock.
@@ -22,7 +21,7 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
 @Component({
   selector: 'app-items',
   standalone: true,
-  imports: [FormsModule, ModalComponent, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, IconComponent, StatusBadgeComponent, ItemFormComponent, QtyPipe],
   template: `
     <div class="page">
       <div class="page-head">
@@ -72,10 +71,13 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
                       @if (i.sku) { <div class="soft mono">{{ i.sku }}</div> }
                     </td>
                     <td>{{ supplierName(i.supplierId) }}</td>
-                    <td><span class="unit-chip">{{ i.unit }}</span></td>
+                    <td>
+                      @if (i.packLabel) { <span class="unit-chip">{{ i.packLabel }}</span> <span class="soft">({{ i.packSize | qty }} {{ i.unit }})</span> }
+                      @else { <span class="unit-chip">{{ i.unit }}</span> }
+                    </td>
                     <td>
                       {{ ingredientName(i.ingredientId) }}
-                      <div class="soft conv"><span class="unit-chip ghost">{{ i.unit }}</span> → <span class="unit-chip ghost">{{ baseUnitOf(i.ingredientId) }}</span></div>
+                      <div class="soft conv"><span class="unit-chip ghost">{{ i.packLabel || i.unit }}</span> → <span class="unit-chip ghost">{{ baseUnitOf(i.ingredientId) }}</span></div>
                     </td>
                     <td><app-status-badge size="sm" [active]="i.active" /></td>
                     <td>
@@ -95,46 +97,9 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
       }
     </div>
 
-    @if (editing()) {
-      <app-modal variant="drawer" [title]="form.id ? 'Edit item' : 'New item'" (close)="editing.set(null)">
-        <div class="two-col">
-          <div class="field">
-            <label for="item-supplier">Supplier <span class="req" aria-hidden="true">*</span></label>
-            <select id="item-supplier" class="select" [(ngModel)]="form.supplierId" [disabled]="!!form.id" required>
-              <option value="" disabled>Choose a supplier</option>
-              @for (s of suppliers(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
-            </select>
-          </div>
-          <div class="field">
-            <label for="item-ingredient">Ingredient <span class="req" aria-hidden="true">*</span></label>
-            <select id="item-ingredient" class="select" [ngModel]="form.ingredientId" (ngModelChange)="onIngredientChange($event)" [disabled]="!!form.id" required>
-              <option value="" disabled>Choose an ingredient</option>
-              @for (i of ingredients(); track i.id) { <option [value]="i.id">{{ i.name }} ({{ i.baseUnit }})</option> }
-            </select>
-          </div>
-        </div>
-        @if (form.id) { <div class="hint pin">Supplier and ingredient are fixed — they define what this item is. Create a second item to point elsewhere.</div> }
-
-        <div class="field"><label for="item-name">Name <span class="req" aria-hidden="true">*</span></label><input id="item-name" class="input" [(ngModel)]="form.name" placeholder="e.g. Whole beans 1 kg" required /></div>
-
-        <div class="two-col">
-          <div class="field">
-            <label for="item-unit">Bought in <span class="req" aria-hidden="true">*</span></label>
-            <select id="item-unit" class="select" [(ngModel)]="form.unit" [disabled]="!form.ingredientId" required>
-              <option value="" disabled>Choose a unit</option>
-              @for (u of availableUnits(); track u.value) { <option [value]="u.value">{{ u.label }}</option> }
-            </select>
-            @if (conversionHint()) { <div class="hint">{{ conversionHint() }}</div> }
-          </div>
-          <div class="field"><label for="item-sku">Supplier SKU</label><input id="item-sku" class="input" [(ngModel)]="form.sku" placeholder="Optional" maxlength="64" /></div>
-        </div>
-
-        <label class="checkbox"><input type="checkbox" [(ngModel)]="form.active" /> Active</label>
-        <div footer>
-          <button class="btn btn-outline" (click)="editing.set(null)">Cancel</button>
-          <button class="btn btn-primary" (click)="save()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Save</button>
-        </div>
-      </app-modal>
+    @if (editing(); as e) {
+      <app-item-form [suppliers]="suppliers()" [ingredients]="ingredients()" [item]="e.item" [supplierId]="e.item ? '' : supplierFilter()"
+                     (saved)="editing.set(null); load()" (closed)="editing.set(null)" />
     }
   `,
   styles: [`
@@ -145,7 +110,6 @@ import { StatusBadgeComponent } from '../../shared/status-badge';
     .unit-chip.ghost { background: transparent; }
     .conv { display: flex; align-items: center; gap: .3rem; margin-top: .15rem; font-size: 11.5px; }
     .mono { font-family: var(--font-mono); font-size: 11.5px; }
-    .hint.pin { margin: -.4rem 0 .8rem; font-size: 12px; color: var(--text-muted); }
   `],
 })
 export class ItemsComponent {
@@ -158,18 +122,13 @@ export class ItemsComponent {
   suppliers = signal<SupplierResponse[]>([]);
   ingredients = signal<IngredientResponse[]>([]);
   loading = signal(true);
-  saving = signal(false);
-  editing = signal<ItemResponse | null>(null);
+  editing = signal<{ item: ItemResponse | null } | null>(null);
   supplierFilter = signal('');
-  form: { id?: string } & ItemRequest = { name: '', sku: '', supplierId: '', ingredientId: '', unit: '', active: true };
 
   visible = computed(() => {
     const supplierId = this.supplierFilter();
     return supplierId ? this.items().filter((i) => i.supplierId === supplierId) : this.items();
   });
-
-  /** Only units of the ingredient's own dimension — kg for grams, never litres. */
-  availableUnits = computed(() => unitsFor(this.baseUnitOf(this.form.ingredientId)));
 
   constructor() { this.load(); }
 
@@ -189,46 +148,9 @@ export class ItemsComponent {
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? '—'; }
   baseUnitOf(id: string | undefined) { return this.ingredients().find((i) => i.id === id)?.baseUnit; }
 
-  /** States the conversion in words, so a wrong pick is visible before it is saved. */
-  conversionHint() {
-    const base = this.baseUnitOf(this.form.ingredientId);
-    if (!base || !this.form.unit) return '';
-    return this.form.unit === base
-      ? `Bought and counted in ${base} — no conversion.`
-      : `Ordered in ${this.form.unit}, counted in ${base}.`;
-  }
+  openNew() { this.editing.set({ item: null }); }
 
-  onIngredientChange(ingredientId: string) {
-    this.form.ingredientId = ingredientId;
-    // Default to the ingredient's own unit: always valid, and one click from the unit
-    // most things are actually bought in.
-    this.form.unit = this.baseUnitOf(ingredientId) ?? '';
-  }
-
-  openNew() {
-    this.form = { name: '', sku: '', supplierId: this.supplierFilter(), ingredientId: '', unit: '', active: true };
-    this.editing.set({} as ItemResponse);
-  }
-
-  openEdit(i: ItemResponse) {
-    if (!this.canWrite) return;
-    this.form = {
-      id: i.id, name: i.name, sku: i.sku ?? '', supplierId: i.supplierId,
-      ingredientId: i.ingredientId, unit: i.unit, active: i.active, version: i.version,
-    };
-    this.editing.set(i);
-  }
-
-  save() {
-    if (!this.form.supplierId || !this.form.ingredientId || !this.form.name || !this.form.unit) {
-      this.toast.error('Supplier, ingredient, name and unit are required');
-      return;
-    }
-    this.saving.set(true);
-    const { id, ...body } = this.form;
-    const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
-    req.subscribe(afterSave(this.saving, () => { this.editing.set(null); this.toast.success('Item saved'); this.load(); }));
-  }
+  openEdit(i: ItemResponse) { if (this.canWrite) this.editing.set({ item: i }); }
 
   async remove(i: ItemResponse) {
     const ok = await this.confirm.ask({ title: `Delete ${i.name}?`, danger: true, confirmText: 'Delete' });
