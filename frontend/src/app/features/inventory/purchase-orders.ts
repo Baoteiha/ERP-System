@@ -1,16 +1,20 @@
+import { DatePipe } from '@angular/common';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { InventoryService } from '../../core/api.services';
 import { AuthService } from '../../core/auth.service';
 import { ConfirmService } from '../../core/confirm.service';
-import { IngredientResponse, ItemResponse, PoLineRequest, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
+import { GoodsReceiptLineResponse, IngredientResponse, ItemResponse, PoLineRequest, PoLineResponse, PurchaseOrderResponse, SupplierResponse } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { afterSave } from '../../core/save-handler';
-import { LabelPipe, MoneyPipe, ShortIdPipe } from '../../core/util';
+import { LabelPipe, MoneyPipe, QtyPipe, ShortIdPipe, formatMoney } from '../../core/util';
 import { ModalComponent } from '../../shared/modal';
 import { IconComponent } from '../../shared/icon';
 import { ItemFormComponent } from './item-form';
+import { CompensationDialogComponent } from './compensation-dialog';
+import { ReceiveDrawerComponent } from './receive-drawer';
+import { conversionLine, orderingUnit } from './purchase-math';
 import { PurchaseLine, PurchaseLinesComponent, newPurchaseLine, purchaseLinesError } from './purchase-lines';
 
 interface PoForm { supplierId: string; note: string; lines: PurchaseLine[]; }
@@ -19,7 +23,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
 @Component({
   selector: 'app-purchase-orders',
   standalone: true,
-  imports: [FormsModule, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent, PurchaseLinesComponent, ItemFormComponent],
+  imports: [FormsModule, LabelPipe, MoneyPipe, ShortIdPipe, ModalComponent, IconComponent, PurchaseLinesComponent, ItemFormComponent, ReceiveDrawerComponent, CompensationDialogComponent, QtyPipe, DatePipe],
   template: `
     <div class="page">
       <div class="page-head">
@@ -40,7 +44,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
                     <tr (click)="select(po)" [class.row-selected]="selected()?.id === po.id">
                       <td><button type="button" class="row-open" (click)="select(po); $event.stopPropagation()">{{ po.id | shortId }}</button></td>
                       <td class="supplier-col">{{ supplierName(po.supplierId) }}</td>
-                      <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span></td>
+                      <td><span class="badge dot" [class]="statusClass(po.status)">{{ po.status | label }}</span>@if (po.kind === 'RETAIL') { <span class="badge badge-gray">Retail</span> }</td>
                       <td class="num">{{ po.lines.length }}</td>
                       <td class="num">{{ total(po) | money }}</td>
                       <td class="actions-col">
@@ -73,20 +77,37 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
             <div class="table-wrap">
               <table class="data compact">
                 <caption class="sr-only">Purchase order lines</caption>
-                <thead><tr><th scope="col">Ingredient</th><th scope="col" class="right">Ordered</th><th scope="col" class="right">Received</th><th scope="col" class="right">Unit cost</th></tr></thead>
+                <thead><tr><th scope="col">Item</th><th scope="col" class="right">Ordered</th><th scope="col" class="right">Received</th><th scope="col" class="right">Unit cost</th></tr></thead>
                 <tbody>
                   @for (l of po.lines; track l.id) {
                     <tr>
-                      <td>{{ ingredientName(l.ingredientId) }}</td>
-                      <td class="num">{{ l.orderedQty }} <span class="unit">{{ l.unit }}</span></td>
-                      <td class="num">{{ l.receivedQty }} <span class="unit">{{ l.unit }}</span></td>
-                      <td class="num">{{ l.unitCost | money }} <span class="unit">per {{ l.unit }}</span></td>
+                      <td>{{ lineName(l) }}@if (lineConversion(l); as c) { <div class="soft mini">{{ c }}</div> }</td>
+                      <td class="num">{{ l.orderedQty | qty }} <span class="unit">{{ ordering(l) }}</span></td>
+                      <td class="num">{{ l.receivedQty | qty }} <span class="unit">{{ ordering(l) }}</span></td>
+                      <td class="num">{{ l.unitCost | money }} <span class="unit">/ {{ ordering(l) }}</span></td>
                     </tr>
                   }
                 </tbody>
               </table>
             </div>
             <div class="card-pad po-total"><span class="soft">Total</span> <b class="num">{{ selectedTotal() | money }}</b></div>
+            @if (po.receipts.length) {
+              <div class="history">
+                <div class="history-head">
+                  <b>Receipt history</b>
+                  @if (auth.can('purchasing:write') && po.status !== 'CANCELLED' && hasLoss(po)) {
+                    <button class="btn btn-sm btn-ghost" (click)="replacing.set(po)">Receive replacement</button>
+                  }
+                </div>
+                @for (r of po.receipts; track r.id) {
+                  <div class="receipt" [class.highlight]="highlightReceipt() === r.id">
+                    <div class="soft mini">{{ r.receivedAt | date:'medium' }} · {{ r.receivedBy || '—' }} · {{ r.kind === 'COMPENSATION' ? 'Replacement' : 'Delivery' }}</div>
+                    @for (rl of r.lines; track rl.id) { <div class="mini">{{ receiptLineText(po, rl) }}</div> }
+                    @if (r.note) { <div class="soft mini">“{{ r.note }}”</div> }
+                  </div>
+                }
+              </div>
+            }
           } @else {
             <div class="empty"><div class="big"><app-icon name="clipboard" [size]="30" /></div>Select a purchase order</div>
           }
@@ -127,27 +148,12 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
     }
 
     @if (receiving(); as po) {
-      <app-modal variant="drawer" [width]="720" [title]="'Receive ' + (po.id | shortId)" (close)="receiving.set(null)">
-        <div class="line-editor">
-          @for (r of receiveLines; track r.lineId) {
-            <div class="po-line receive">
-              <div><b>{{ lineIngredientName(r.lineId) }}</b><div class="soft">Remaining {{ remaining(r.lineId) }} {{ lineUnit(r.lineId) }}</div></div>
-              <div class="with-unit">
-                <input class="input" type="number" min="0" step="0.001" [(ngModel)]="r.receivedQty" placeholder="Received qty" aria-label="Received qty" />
-                <span class="unit">{{ lineUnit(r.lineId) }}</span>
-              </div>
-              <div class="with-unit">
-                <input class="input" type="number" min="0" step="1" [(ngModel)]="r.unitCostOverride" placeholder="Override cost" aria-label="Override cost" />
-                @if (lineUnit(r.lineId); as u) { <span class="unit">per {{ u }}</span> }
-              </div>
-            </div>
-          }
-        </div>
-        <div footer>
-          <button class="btn btn-outline" (click)="receiving.set(null)">Cancel</button>
-          <button class="btn btn-primary" (click)="receive()" [disabled]="saving()">@if (saving()) { <span class="spinner"></span> } Receive</button>
-        </div>
-      </app-modal>
+      <app-receive-drawer [po]="po" [items]="allItems()" [ingredients]="ingredients()"
+                          (received)="afterChange($event); receiving.set(null)" (closed)="receiving.set(null)" />
+    }
+    @if (replacing(); as po) {
+      <app-compensation-dialog [po]="po" [items]="allItems()" [ingredients]="ingredients()"
+                               (done)="afterChange($event); replacing.set(null)" (closed)="replacing.set(null)" />
     }
   `,
   styles: [`
@@ -164,12 +170,16 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
     .with-unit { display: flex; align-items: center; gap: .4rem; min-width: 0; }
     .with-unit .input { min-width: 0; }
     .unit { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+    .history { border-top: 1px solid var(--border); padding: .7rem 1.35rem; display: grid; gap: .55rem; }
+    .history-head { display: flex; justify-content: space-between; align-items: center; }
+    .receipt { display: grid; gap: .15rem; padding: .35rem .5rem; border-radius: var(--radius); }
+    .receipt.highlight { background: var(--accent-soft); }
+    .mini { font-size: 12px; }
     .compact th, .compact td { padding: .65rem .55rem; }
     .supplier-row { display: flex; gap: .5rem; align-items: center; margin-top: .4rem; }
     .line-editor { display: grid; gap: .65rem; }
     .po-line { display: grid; gap: .5rem; align-items: center; }
-    .po-line.receive { grid-template-columns: 1fr 140px 190px; }
-    @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } .po-line, .po-line.receive { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } .po-line { grid-template-columns: 1fr; } }
   `],
 })
 export class PurchaseOrdersComponent {
@@ -188,7 +198,6 @@ export class PurchaseOrdersComponent {
   receiving = signal<PurchaseOrderResponse | null>(null);
   allItems = signal<ItemResponse[]>([]);
   form: PoForm = newForm();
-  receiveLines: { lineId: string; receivedQty: string; unitCostOverride?: string | null }[] = [];
 
   // the picked supplier's catalogue; the form re-reads it as the supplier changes
   private formSupplier = signal('');
@@ -268,16 +277,7 @@ export class PurchaseOrdersComponent {
   select(po: PurchaseOrderResponse) { this.selected.set(po); }
 
   supplierName(id: string) { return this.suppliers().find((s) => s.id === id)?.name ?? id.slice(0, 8); }
-  lineUnit(lineId: string) { return this.receiving()?.lines.find((l) => l.id === lineId)?.unit ?? ''; }
   ingredientName(id: string) { return this.ingredients().find((i) => i.id === id)?.name ?? id.slice(0, 8); }
-  lineIngredientName(lineId: string) {
-    const line = this.receiving()?.lines.find((l) => l.id === lineId);
-    return line ? this.ingredientName(line.ingredientId) : lineId.slice(0, 8);
-  }
-  remaining(lineId: string) {
-    const line = this.receiving()?.lines.find((l) => l.id === lineId);
-    return line ? Math.max(0, Number(line.orderedQty) - Number(line.receivedQty)).toString() : '0';
-  }
   total(po: PurchaseOrderResponse) {
     return po.lines.reduce((sum, line) => sum + Number(line.orderedQty) * Number(line.unitCost.amount), 0).toString();
   }
@@ -308,16 +308,30 @@ export class PurchaseOrdersComponent {
     this.api.cancelPurchaseOrder(po.id).subscribe({ next: (updated) => { this.toast.success('Purchase order cancelled'); this.selected.set(updated); this.load(); } });
   }
 
-  openReceive(po: PurchaseOrderResponse) {
-    this.receiving.set(po);
-    this.receiveLines = po.lines.map((l) => ({ lineId: l.id, receivedQty: Math.max(0, Number(l.orderedQty) - Number(l.receivedQty)).toString(), unitCostOverride: '' }));
-  }
+  replacing = signal<PurchaseOrderResponse | null>(null);
+  highlightReceipt = signal<string | null>(null);
 
-  receive() {
-    const po = this.receiving();
-    if (!po) return;
-    this.saving.set(true);
-    const receipts = this.receiveLines.filter((r) => Number(r.receivedQty) > 0).map((r) => ({ ...r, unitCostOverride: r.unitCostOverride || null }));
-    this.api.receivePurchaseOrder(po.id, { receipts }).subscribe(afterSave(this.saving, (updated) => { this.receiving.set(null); this.selected.set(updated); this.toast.success('Stock received'); this.load(); }));
+  openReceive(po: PurchaseOrderResponse) { this.receiving.set(po); }
+
+  afterChange(updated: PurchaseOrderResponse) { this.selected.set(updated); this.load(); }
+
+  ordering(l: PoLineResponse) { return orderingUnit(l); }
+  lineName(l: PoLineResponse) { return this.allItems().find((i) => i.id === l.itemId)?.name ?? this.ingredientName(l.ingredientId); }
+  lineConversion(l: PoLineResponse) {
+    const ing = this.ingredients().find((g) => g.id === l.ingredientId);
+    return l.packLabel ? conversionLine(Number(l.orderedQty), Number(l.unitCost.amount), l, ing?.baseUnit ?? '', ing?.name ?? '') : '';
+  }
+  hasLoss(po: PurchaseOrderResponse) {
+    return po.receipts.some((r) => r.lines.some((l) => Number(l.lossQty) - Number(l.compensatedQty) > 0));
+  }
+  receiptLineText(po: PurchaseOrderResponse, rl: GoodsReceiptLineResponse) {
+    const l = po.lines.find((x) => x.id === rl.purchaseOrderLineId);
+    if (!l) return '';
+    if (Number(rl.replacementQty) > 0) return `${this.lineName(l)}: replaced ${rl.replacementQty} ${l.unit}`;
+    let s = `${this.lineName(l)}: delivered ${rl.deliveredQty} ${orderingUnit(l)}`;
+    if (Number(rl.overDeliveredQty) > 0) s += ` (${rl.overDeliveredQty} extra, ${rl.overDeliveryKind === 'FREE' ? 'free' : 'charged'})`;
+    if (Number(rl.damagedQty) > 0) s += ` · damaged ${rl.damagedQty} ${l.unit}`;
+    if (Number(rl.lossQty) > 0) s += ` · loss ${formatMoney(rl.lossAmount)}${Number(rl.compensatedQty) > 0 ? ` (replaced ${rl.compensatedQty})` : ''}`;
+    return s;
   }
 }
