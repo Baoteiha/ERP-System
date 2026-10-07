@@ -138,12 +138,12 @@ export interface SupplierResponse {
 // unit it is bought in and must measure the same thing as the ingredient's base unit.
 export interface ItemResponse {
   id: UUID; companyId: UUID; sku?: string; name: string; supplierId: UUID; ingredientId: UUID;
-  unit: string; active: boolean; version: number;
+  unit: string; packLabel?: string | null; packSize?: string | null; active: boolean; version: number;
 }
-// supplierId/ingredientId are fixed after create — the server ignores them on update.
+// supplierId/ingredientId are fixed after create; the server ignores them on update. A pack is both halves or neither.
 export interface ItemRequest {
   sku?: string; name: string; supplierId: UUID; ingredientId: UUID; unit: string;
-  active?: boolean; version?: number;
+  packLabel?: string | null; packSize?: string | null; active?: boolean; version?: number;
 }
 export interface SupplierRequest {
   name: string; contactPhone?: string; contactEmail?: string; address?: string; active?: boolean; version?: number;
@@ -166,17 +166,33 @@ export interface ReorderLevelRequest { ingredientId: UUID; reorderLevel: string;
 
 export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
 export interface PoLineResponse {
-  id: UUID; itemId?: UUID; ingredientId: UUID; unit: string; orderedQty: string; receivedQty: string;
-  unitCost: Money;
+  id: UUID; itemId?: UUID; ingredientId: UUID; unit: string; packLabel?: string | null; packSize?: string | null;
+  orderedQty: string; receivedQty: string; unitCost: Money;
+}
+export type OverDeliveryKind = 'CHARGED' | 'FREE';
+export interface GoodsReceiptLineResponse {
+  id: UUID; purchaseOrderLineId: UUID; deliveredQty: string; damagedQty: string; lossQty: string;
+  overDeliveredQty: string; overDeliveryKind?: OverDeliveryKind | null; unitCost: Money; costPerUnit: string;
+  compensatedQty: string; replacementQty: string; compensatesLineId?: UUID | null; lossAmount: Money; note?: string | null;
+}
+export interface GoodsReceiptResponse {
+  id: UUID; kind: 'DELIVERY' | 'COMPENSATION'; note?: string | null; receivedAt: string; receivedBy?: string | null;
+  lines: GoodsReceiptLineResponse[];
 }
 export interface PurchaseOrderResponse {
-  id: UUID; branchId: UUID; supplierId: UUID; status: string; note?: string; lines: PoLineResponse[];
+  id: UUID; branchId: UUID; supplierId: UUID; kind: 'ORDER' | 'RETAIL'; status: string; note?: string;
+  lines: PoLineResponse[]; receipts: GoodsReceiptResponse[];
 }
 // A line is an item (unit comes from it) or an ingredient + unit — never both. Qty and cost are per `unit`.
 export interface PoLineRequest { itemId?: UUID; ingredientId?: UUID; unit?: string; orderedQty: string; unitCost: string; }
 export interface CreatePurchaseOrderRequest { supplierId: UUID; note?: string; lines: PoLineRequest[]; }
-export interface ReceiptRequest { lineId: UUID; receivedQty: string; unitCostOverride?: string | null; }
-export interface ReceiveRequest { receipts: ReceiptRequest[]; }
+export interface ReceiptRequest {
+  lineId: UUID; receivedQty: string; unitCostOverride?: string | null; damagedQty?: string | null;
+  overDeliveryKind?: OverDeliveryKind | null; note?: string | null;
+}
+export interface ReceiveRequest { note?: string | null; receipts: ReceiptRequest[]; }
+export interface CompensationRequest { note?: string | null; lines: { receiptLineId: UUID; quantity: string }[]; }
+export interface RetailPurchaseRequest { supplierId: UUID; note?: string | null; lines: { itemId: UUID; quantity: string; unitCost: string }[]; }
 
 /* ---- sales / POS ------------------------------------------------------ */
 export type OrderType = 'DINE_IN' | 'TAKEAWAY';

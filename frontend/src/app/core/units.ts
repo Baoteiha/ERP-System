@@ -36,3 +36,16 @@ export function unitsFor(baseUnit: string | undefined): UnitOption[] {
   const dimension = dimensionOf(baseUnit);
   return dimension ? UNITS.filter((u) => u.dimension === dimension) : UNITS;
 }
+
+/** Each unit's size in its dimension's canonical unit (g, ml, pc), mirroring the backend `Unit` factors. */
+export const FACTORS: Record<string, number> = { mg: 0.001, g: 1, kg: 1000, ml: 1, cl: 10, l: 1000, pc: 1 };
+
+/** Converts a quantity within one dimension; callers pair only units `unitsFor` allows together. */
+export function convertQty(qty: number, from: string, to: string): number {
+  return (qty * (FACTORS[from] ?? 1)) / (FACTORS[to] ?? 1);
+}
+
+/** Converts a per-unit rate, which scales inversely: 210.000 ₫/kg is 210 ₫/g. */
+export function convertRate(rate: number, from: string, to: string): number {
+  return (rate * (FACTORS[to] ?? 1)) / (FACTORS[from] ?? 1);
+}

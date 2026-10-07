@@ -156,6 +156,9 @@ export class InventoryService {
   sendPurchaseOrder(id: string) { return this.http.post<M.PurchaseOrderResponse>(`${V1}/purchase-orders/${id}/send`, {}); }
   receivePurchaseOrder(id: string, b: M.ReceiveRequest) { return this.http.post<M.PurchaseOrderResponse>(`${V1}/purchase-orders/${id}/receive`, b); }
   cancelPurchaseOrder(id: string) { return this.http.post<M.PurchaseOrderResponse>(`${V1}/purchase-orders/${id}/cancel`, {}); }
+  compensatePurchaseOrder(id: string, b: M.CompensationRequest) { return this.http.post<M.PurchaseOrderResponse>(`${V1}/purchase-orders/${id}/compensations`, b); }
+  retailPurchase(b: M.RetailPurchaseRequest) { return this.http.post<M.PurchaseOrderResponse>(`${V1}/purchase-orders/retail`, b); }
+  purchaseOrderByReceipt(receiptId: string) { return this.http.get<M.PurchaseOrderResponse>(`${V1}/purchase-orders/by-receipt/${receiptId}`); }
 }
 
 /* ---- sales / POS ------------------------------------------------------ */
