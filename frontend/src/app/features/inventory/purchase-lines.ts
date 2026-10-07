@@ -14,7 +14,8 @@ export const NEW_ITEM = '__new__';
 /** Why the lines cannot be saved yet, or '' when they can. */
 export function purchaseLinesError(lines: PurchaseLine[], items: ItemResponse[]): string {
   if (lines.some((l) => !l.itemId)) return 'Every line needs an item';
-  if (lines.some((l) => !(Number(l.quantity) > 0) || l.unitCost === '' || Number(l.unitCost) < 0)) return 'Every line needs a quantity above 0 and a cost';
+  const blank = (v: unknown) => v === null || v === undefined || String(v).trim() === '';
+  if (lines.some((l) => blank(l.quantity) || blank(l.unitCost) || !(Number(l.quantity) > 0) || Number(l.unitCost) < 0)) return 'Every line needs a quantity above 0 and a cost';
   for (const l of lines) {
     const item = items.find((i) => i.id === l.itemId);
     if (item?.packLabel && !Number.isInteger(Number(l.quantity))) return `Packs are counted whole: ${l.quantity} ${item.packLabel}`;
@@ -39,7 +40,7 @@ export function purchaseLinesError(lines: PurchaseLine[], items: ItemResponse[])
       }
       @for (line of lines(); track $index; let idx = $index) {
         <div class="po-line">
-          <select class="select" [ngModel]="line.itemId" (ngModelChange)="pick(idx, $event)" [disabled]="disabled()" aria-label="Item">
+          <select class="select" [ngModel]="line.itemId" (ngModelChange)="pick(idx, $event, sel)" #sel [disabled]="disabled()" aria-label="Item">
             <option value="">{{ disabled() ? 'Choose a supplier first' : 'Choose an item' }}</option>
             @for (it of items(); track it.id) { <option [value]="it.id">{{ it.name }}</option> }
             @if (canCreateItem() && !disabled()) { <option [value]="newItemValue">+ New item</option> }
@@ -89,9 +90,10 @@ export class PurchaseLinesComponent {
 
   itemOf(line: PurchaseLine) { return this.items().find((i) => i.id === line.itemId); }
 
-  pick(idx: number, value: string) {
+  pick(idx: number, value: string, sel: HTMLSelectElement) {
     if (value === NEW_ITEM) {
       this.lines()[idx].itemId = '';
+      sel.value = '';
       this.newItem.emit(idx);
       return;
     }

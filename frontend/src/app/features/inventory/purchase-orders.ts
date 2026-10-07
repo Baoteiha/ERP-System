@@ -291,7 +291,7 @@ export class PurchaseOrdersComponent {
     const problem = !this.form.supplierId ? 'Choose a supplier' : purchaseLinesError(this.form.lines, this.supplierItems());
     if (problem) { this.toast.error(problem); return; }
     this.saving.set(true);
-    const lines: PoLineRequest[] = this.form.lines.map((l) => ({ itemId: l.itemId, orderedQty: l.quantity, unitCost: l.unitCost }));
+    const lines: PoLineRequest[] = this.form.lines.map((l) => ({ itemId: l.itemId, orderedQty: String(l.quantity), unitCost: String(l.unitCost) }));
     this.api.createPurchaseOrder({ supplierId: this.form.supplierId, note: this.form.note, lines })
       .subscribe(afterSave(this.saving, (po) => { this.creating.set(false); this.toast.success('Purchase order created'); this.load(); this.selected.set(po); }));
   }
