@@ -22,6 +22,7 @@ import jakarta.validation.Valid;
 import vn.essvn.erpcafe.common.web.ApiVersions;
 import vn.essvn.erpcafe.common.web.MoneyDto;
 import vn.essvn.erpcafe.common.web.PageResponse;
+import vn.essvn.erpcafe.inventory.application.PurchaseInputs.CompensationInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseOrderService;
@@ -29,6 +30,7 @@ import vn.essvn.erpcafe.inventory.domain.GoodsReceipt;
 import vn.essvn.erpcafe.inventory.domain.GoodsReceiptLine;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrder;
 import vn.essvn.erpcafe.inventory.domain.PurchaseOrderLine;
+import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.CompensationRequest;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.CreatePurchaseOrderRequest;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.GoodsReceiptLineResponse;
 import vn.essvn.erpcafe.inventory.web.PurchaseOrderDtos.GoodsReceiptResponse;
@@ -97,6 +99,15 @@ public class PurchaseOrderController {
                         r.damagedQty(), r.overDeliveryKind(), r.note()))
                 .toList();
         return respond(purchaseOrderService.receive(id, receipts, request.note()));
+    }
+
+    @PostMapping("/{id}/compensations")
+    @PreAuthorize("hasAuthority('purchasing:write')")
+    public PurchaseOrderResponse compensate(@PathVariable UUID id, @Valid @RequestBody CompensationRequest request) {
+        List<CompensationInput> lines = request.lines().stream()
+                .map(l -> new CompensationInput(l.receiptLineId(), l.quantity()))
+                .toList();
+        return respond(purchaseOrderService.compensate(id, lines, request.note()));
     }
 
     @PostMapping("/{id}/cancel")

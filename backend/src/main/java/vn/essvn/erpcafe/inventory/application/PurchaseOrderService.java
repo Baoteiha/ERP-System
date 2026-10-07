@@ -16,6 +16,7 @@ import vn.essvn.erpcafe.common.context.BranchContext;
 import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.inventory.application.PurchaseInputs.CompensationInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.LineInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.domain.GoodsReceipt;
@@ -102,6 +103,13 @@ public class PurchaseOrderService {
         PurchaseOrder order = get(id);
         requireActiveSupplier(order.getSupplierId());
         receiving.receive(order, receipts, note);
+        return order;
+    }
+
+    /** Receives a supplier's replacement for lost units against the order's receipts. */
+    public PurchaseOrder compensate(UUID id, List<CompensationInput> lines, String note) {
+        PurchaseOrder order = get(id);
+        receiving.compensate(order, lines, note);
         return order;
     }
 

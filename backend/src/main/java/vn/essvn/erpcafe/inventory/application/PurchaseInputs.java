@@ -27,6 +27,13 @@ public final class PurchaseInputs {
             BigDecimal damagedQty, OverDeliveryKind overDeliveryKind, String note) {
     }
 
+    /**
+     * Class: CompensationInput
+     * Purpose: Units a supplier sent to replace units a receipt line lost, in the line's unit.
+     */
+    public record CompensationInput(UUID receiptLineId, BigDecimal quantity) {
+    }
+
     private PurchaseInputs() {
     }
 }

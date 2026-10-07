@@ -5,7 +5,10 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +17,7 @@ import vn.essvn.erpcafe.common.domain.Money;
 import vn.essvn.erpcafe.common.domain.Unit;
 import vn.essvn.erpcafe.common.exception.BusinessRuleException;
 import vn.essvn.erpcafe.common.exception.ResourceNotFoundException;
+import vn.essvn.erpcafe.inventory.application.PurchaseInputs.CompensationInput;
 import vn.essvn.erpcafe.inventory.application.PurchaseInputs.ReceiptInput;
 import vn.essvn.erpcafe.inventory.domain.GoodsReceipt;
 import vn.essvn.erpcafe.inventory.domain.GoodsReceiptKind;
@@ -45,6 +49,47 @@ public class GoodsReceivingService {
         this.receiptRepository = receiptRepository;
         this.ingredientRepository = ingredientRepository;
         this.ledger = ledger;
+    }
+
+    /** Receives replacements for units a delivery lost, at the price those units cost; the loss shrinks by as much. */
+    public GoodsReceipt compensate(PurchaseOrder order, List<CompensationInput> inputs, String note) {
+        if (order.getStatus() == PurchaseOrderStatus.CANCELLED) {
+            throw new BusinessRuleException("Cannot receive replacements on a cancelled order");
+        }
+        if (inputs == null || inputs.isEmpty()) {
+            throw new BusinessRuleException("A replacement needs at least one line");
+        }
+        Map<UUID, GoodsReceiptLine> received = receiptRepository.findByPurchaseOrderIdOrderByCreatedAtAsc(order.getId())
+                .stream().flatMap(r -> r.getLines().stream())
+                .collect(Collectors.toMap(GoodsReceiptLine::getId, Function.identity()));
+        /**
+         * Class: Resolved
+         * Purpose: A replacement input paired with the lost receipt line and purchase line it answers.
+         */
+        record Resolved(CompensationInput input, GoodsReceiptLine lost, PurchaseOrderLine line) {
+        }
+        List<Resolved> resolved = new ArrayList<>();
+        for (CompensationInput input : inputs) {
+            GoodsReceiptLine lost = received.get(input.receiptLineId());
+            if (lost == null) {
+                throw ResourceNotFoundException.of("GoodsReceiptLine", input.receiptLineId());
+            }
+            resolved.add(new Resolved(input, lost, lineOf(order, lost.getPurchaseOrderLineId())));
+        }
+        resolved.sort(Comparator.comparing(r -> r.line().getIngredientId()));
+        GoodsReceipt receipt = receiptRepository.save(
+                new GoodsReceipt(order.getId(), order.getBranchId(), GoodsReceiptKind.COMPENSATION, note));
+        for (Resolved r : resolved) {
+            requireActive(requireIngredient(r.line().getIngredientId()));
+            r.lost().compensate(r.input().quantity());
+            Unit lineUnit = Unit.parse(r.line().getUnit());
+            BigDecimal rate = ledger.toBaseRate(order.getBranchId(), r.line().getIngredientId(),
+                    r.lost().getCostPerUnit(), lineUnit.symbol());
+            ledger.receive(order.getBranchId(), r.line().getIngredientId(), r.input().quantity(), lineUnit.symbol(),
+                    Money.of(rate), REF_TYPE, receipt.getId());
+            receipt.addLine(GoodsReceiptLine.replacement(r.lost(), r.input().quantity(), null));
+        }
+        return receipt;
     }
 
     /** Receives a delivery against a sent order: each line's split decides the order's progress, stock and loss. */

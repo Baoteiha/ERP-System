@@ -48,6 +48,24 @@ public final class PurchaseOrderDtos {
     }
 
     /**
+     * Class: CompensationLineRequest
+     * Purpose: One lost receipt line and how many replacement units the supplier sent for it.
+     */
+    public record CompensationLineRequest(
+            @NotNull UUID receiptLineId,
+            @NotNull @Positive BigDecimal quantity) {
+    }
+
+    /**
+     * Class: CompensationRequest
+     * Purpose: A supplier's replacement for lost units, as lines against earlier receipt lines.
+     */
+    public record CompensationRequest(
+            @Size(max = 255) String note,
+            @NotEmpty @Valid List<CompensationLineRequest> lines) {
+    }
+
+    /**
      * Class: GoodsReceiptLineResponse
      * Purpose: What one purchase line received, as the API returns it.
      */
