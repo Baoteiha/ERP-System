@@ -26,6 +26,7 @@ export const routes: Routes = [
       { path: 'inventory/suppliers', loadComponent: () => import('./features/inventory/suppliers').then((m) => m.SuppliersComponent), canMatch: [permissionGuard('inventory:read')] },
       { path: 'inventory/items', loadComponent: () => import('./features/inventory/items').then((m) => m.ItemsComponent), canMatch: [permissionGuard('inventory:read')] },
       { path: 'inventory/purchase-orders', loadComponent: () => import('./features/inventory/purchase-orders').then((m) => m.PurchaseOrdersComponent), canMatch: [permissionGuard('purchasing:read')] },
+      { path: 'inventory/retail-purchase', loadComponent: () => import('./features/inventory/retail-purchase').then((m) => m.RetailPurchaseComponent), canMatch: [permissionGuard('purchasing:retail')] },
       { path: 'staff/team', loadComponent: () => import('./features/staff/team').then((m) => m.TeamComponent), canMatch: [permissionGuard('staff:read')] },
       { path: 'staff/shifts', loadComponent: () => import('./features/staff/shifts').then((m) => m.ShiftsComponent), canMatch: [permissionGuard('staff:read')] },
       { path: 'reports', loadComponent: () => import('./features/reports/reports').then((m) => m.ReportsComponent), canMatch: [permissionGuard('report:read')] },

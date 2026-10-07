@@ -28,7 +28,10 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
     <div class="page">
       <div class="page-head">
         <div><h1>Purchase orders</h1><div class="sub">Branch procurement workflow: draft, send, receive, cancel.</div></div>
-        @if (auth.can('purchasing:write')) { <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New purchase order</button> }
+        <div class="head-actions">
+          @if (auth.can('purchasing:retail')) { <button class="btn btn-outline" (click)="openRetail()"><app-icon name="receipt" [size]="16" /> Retail purchase</button> }
+          @if (auth.can('purchasing:write')) { <button class="btn btn-primary" (click)="openNew()"><app-icon name="plus" [size]="16" /> New purchase order</button> }
+        </div>
       </div>
 
       <div class="split">
@@ -157,6 +160,7 @@ const newForm = (): PoForm => ({ supplierId: '', note: '', lines: [newPurchaseLi
     }
   `,
   styles: [`
+    .head-actions { display: flex; gap: .5rem; }
     .split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.15rem; align-items: start; }
     table.data tbody tr { cursor: pointer; }
     .detail .empty { min-height: 320px; }
@@ -245,6 +249,7 @@ export class PurchaseOrdersComponent {
     });
   }
 
+  openRetail() { void this.router.navigateByUrl('/inventory/retail-purchase'); }
   openNew() { this.form = newForm(); this.formSupplier.set(''); this.creating.set(true); }
   itemFormFor = signal<number | null>(null);
   addingSupplier = signal(false);

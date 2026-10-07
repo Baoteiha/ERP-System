@@ -146,6 +146,7 @@ export class CommandPaletteComponent {
     };
     to('act:new-order', 'New order', 'cart', 'sales:write', '/pos');
     to('act:new-po', 'New purchase order', 'clipboard', 'purchasing:write', '/inventory/purchase-orders?new=1');
+    to('act:retail', 'Retail purchase', 'receipt', 'purchasing:retail', '/inventory/retail-purchase');
     to('act:adjust', 'Adjust stock', 'sliders', 'inventory:write', '/inventory/stock?action=adjust');
     for (const b of this.branches().filter((x) => x.id !== this.auth.activeBranchId())) {
       actions.push({ id: 'branch:' + b.id, group: 'Actions', label: 'Switch branch: ' + b.name, icon: 'pin', run: () => this.switcher.switchTo(b.id) });

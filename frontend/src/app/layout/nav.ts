@@ -24,6 +24,7 @@ export const NAV_SECTIONS: NavSection[] = [
     { label: 'Suppliers', path: '/inventory/suppliers', perms: ['inventory:read'], icon: 'truck' },
     { label: 'Items', path: '/inventory/items', perms: ['inventory:read'], icon: 'tag' },
     { label: 'Purchase Orders', path: '/inventory/purchase-orders', perms: ['purchasing:read'], icon: 'clipboard' },
+    { label: 'Retail purchase', path: '/inventory/retail-purchase', perms: ['purchasing:retail'], icon: 'receipt' },
   ]},
   { title: 'Staff', items: [
     { label: 'Team', path: '/staff/team', perms: ['staff:read'], icon: 'users' },
