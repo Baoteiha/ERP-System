@@ -60,6 +60,10 @@ public class GoodsReceivingService {
                 new GoodsReceipt(order.getId(), order.getBranchId(), GoodsReceiptKind.DELIVERY, note));
         // Process in ingredientId order: stock rows must be locked in one global order on every path, or a
         // receipt and an order completion touching the same two ingredients can deadlock.
+        /**
+         * Class: Resolved
+         * Purpose: Pairs a receipt input with the purchase line it names.
+         */
         record Resolved(ReceiptInput input, PurchaseOrderLine line) {
         }
         List<Resolved> resolved = new ArrayList<>();
@@ -121,7 +125,8 @@ public class GoodsReceivingService {
                     Money.zero(), REF_TYPE, receiptId);
         }
         return GoodsReceiptLine.delivered(line.getId(), deliveredOrdering, damaged, split, input.overDeliveryKind(),
-                Money.of(costPerOrdering, line.getUnitCost().getCurrency()), costPerUnit, input.note());
+                Money.of(costPerOrdering, line.getUnitCost().getCurrency()),
+                costPerUnit.setScale(Money.SCALE, RoundingMode.HALF_EVEN), input.note());
     }
 
     static PurchaseOrderLine lineOf(PurchaseOrder order, UUID lineId) {

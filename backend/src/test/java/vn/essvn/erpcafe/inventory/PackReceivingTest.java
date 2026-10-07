@@ -133,6 +133,17 @@ class PackReceivingTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void costPerUnit_isStoredAtMoneyScaleHalfEven() throws Exception {
+        String thirtyTwo = id(send(post("/api/v1/items"), ("{\"name\":\"Ống hút hộp 32\",\"supplierId\":\"%s\",\"ingredientId\":\"%s\","
+                + "\"unit\":\"pc\",\"packLabel\":\"hộp\",\"packSize\":32}").formatted(shop, straws)));
+
+        String after = body(receive(sentOrder(thirtyTwo, "1", "45001"), "\"receivedQty\":1"));
+
+        assertThat(num(after, "$.receipts[0].lines[0].costPerUnit")).isEqualByComparingTo("1406.2812");
+        assertThat(stock("avgUnitCost.amount")).isEqualByComparingTo("1406.2812");
+    }
+
+    @Test
     void shortDelivery_leavesTheLineOutstanding() throws Exception {
         String after = body(receive(sentOrder(box, "5", "45000"), "\"receivedQty\":4"));
 

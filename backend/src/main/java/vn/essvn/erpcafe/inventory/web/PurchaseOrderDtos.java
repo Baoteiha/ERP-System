@@ -47,6 +47,10 @@ public final class PurchaseOrderDtos {
             @NotEmpty @Valid List<ReceiptRequest> receipts) {
     }
 
+    /**
+     * Class: GoodsReceiptLineResponse
+     * Purpose: What one purchase line received, as the API returns it.
+     */
     public record GoodsReceiptLineResponse(
             UUID id,
             UUID purchaseOrderLineId,
@@ -64,6 +68,10 @@ public final class PurchaseOrderDtos {
             String note) {
     }
 
+    /**
+     * Class: GoodsReceiptResponse
+     * Purpose: One goods receipt with its lines, as the API returns it.
+     */
     public record GoodsReceiptResponse(
             UUID id,
             String kind,
