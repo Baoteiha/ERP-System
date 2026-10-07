@@ -1,14 +1,14 @@
 package vn.essvn.erpcafe.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -22,7 +22,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.jayway.jsonpath.JsonPath;
 
-import vn.essvn.erpcafe.identity.persistence.RoleRepository;
 import vn.essvn.erpcafe.support.AbstractIntegrationTest;
 
 /**
@@ -33,10 +32,8 @@ class RetailPurchaseTest extends AbstractIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
-    @Autowired
-    private RoleRepository roles;
-
-    private final List<UUID> createdRoles = new ArrayList<>();
+    private String createdUserId;
+    private String createdRoleId;
     private String token;
     private String branchId;
     private String coffee;
@@ -57,10 +54,21 @@ class RetailPurchaseTest extends AbstractIntegrationTest {
                 + "\"ingredientId\":\"%s\",\"unit\":\"g\",\"packLabel\":\"bịch\",\"packSize\":500}").formatted(shop, coffee)));
     }
 
-    /** A branch holding stock cannot be deleted, so the test works in the owner's own branch and removes only its role. */
+    /**
+     * A branch holding stock cannot be deleted, so the test works in the owner's own branch and, through the API,
+     * revokes the retail user's grant, disables the user (accounts cannot be deleted) and deletes the role.
+     */
     @AfterEach
-    void cleanUp() {
-        createdRoles.forEach(roles::deleteById);
+    void cleanUp() throws Exception {
+        if (createdUserId != null) {
+            send(delete("/api/v1/users/" + createdUserId + "/access/" + branchId), token, null, null)
+                    .andExpect(status().isNoContent());
+            send(put("/api/v1/users/" + createdUserId + "/status"), token, null, "{\"status\":\"DISABLED\"}")
+                    .andExpect(status().is2xxSuccessful());
+        }
+        if (createdRoleId != null) {
+            send(delete("/api/v1/roles/" + createdRoleId), token, null, null).andExpect(status().is2xxSuccessful());
+        }
     }
 
     private ResultActions send(MockHttpServletRequestBuilder b, String tok, String branch, String body) throws Exception {
@@ -125,30 +133,30 @@ class RetailPurchaseTest extends AbstractIntegrationTest {
     @Test
     void retailOnly_recordsARetailPurchase_butCannotOrderOrDeclareItems() throws Exception {
         int n = SEQ.incrementAndGet();
-        String branch = branchId;
         String roleId = id(send(post("/api/v1/roles"), token, null,
                 "{\"name\":\"RETAIL_ONLY_%d\",\"description\":\"d\",\"permissions\":[\"inventory:read\",\"purchasing:retail\"]}"
                         .formatted(n)));
-        createdRoles.add(UUID.fromString(roleId));
+        createdRoleId = roleId;
         String email = "retail%d@t.test".formatted(n);
         String userId = id(send(post("/api/v1/users"), token, null,
                 "{\"email\":\"%s\",\"password\":\"password123\",\"fullName\":\"Retail Only\"}".formatted(email)));
+        createdUserId = userId;
         body(send(post("/api/v1/users/" + userId + "/access"), token, null,
-                "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branch, roleId)));
+                "{\"branchId\":\"%s\",\"roleId\":\"%s\"}".formatted(branchId, roleId)));
         String cashier = accessToken(email, "password123");
 
-        send(post("/api/v1/purchase-orders/retail"), cashier, branch,
+        send(post("/api/v1/purchase-orders/retail"), cashier, branchId,
                 "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"quantity\":2,\"unitCost\":95000}]}"
                         .formatted(shop, bag))
                 .andExpect(status().isCreated());
-        send(post("/api/v1/purchase-orders"), cashier, branch,
+        send(post("/api/v1/purchase-orders"), cashier, branchId,
                 "{\"supplierId\":\"%s\",\"lines\":[{\"itemId\":\"%s\",\"orderedQty\":1,\"unitCost\":1}]}"
                         .formatted(shop, bag))
                 .andExpect(status().isForbidden());
-        send(post("/api/v1/items"), cashier, branch,
+        send(post("/api/v1/items"), cashier, branchId,
                 "{\"name\":\"x\",\"supplierId\":\"%s\",\"ingredientId\":\"%s\",\"unit\":\"g\"}".formatted(shop, coffee))
                 .andExpect(status().isForbidden());
 
-        assertThat(stock(cashier, branch, "quantityOnHand")).isEqualByComparingTo("1000");
+        assertThat(stock(cashier, branchId, "quantityOnHand")).isEqualByComparingTo("1000");
     }
 }
