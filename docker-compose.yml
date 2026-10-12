@@ -1,0 +1,136 @@
+# The whole app in containers: PostgreSQL, the Spring Boot backend (prod profile) and the Angular
+# frontend behind nginx.
+#
+#   cp .env.example .env      # then fill in the secrets
+#   docker compose up -d --build
+#   open http://localhost:8095 (or the WEB_PORT you chose) and sign in as ADMIN_EMAIL
+#
+#   docker compose logs -f backend    # follow the backend's log
+#   docker compose down               # stop (the database volume is kept)
+#   docker compose down -v            # stop and delete the database
+#
+# COMPOSE_PROFILES in .env adds the optional containers at the bottom: a Cloudflare tunnel that puts
+# the site on the internet over HTTPS, and a daily backup. Deploying on a server: docs/deploy.md.
+#
+# For day-to-day development, backend/docker-compose.yml (database only) with ./gradlew bootRun and
+# ng serve is still the faster loop.
+name: erpcafe
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erpcafe}
+      # the schema owner: Flyway migrates as this role and login/refresh run on it
+      POSTGRES_USER: ${POSTGRES_USER:-erpcafe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # read by the init script, which creates erp_app (the role row-level security binds)
+      ERP_APP_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # without it the database stays down after Docker restarts, and the backend with it
+    restart: unless-stopped
+    # not published to the host; uncomment to reach it with a SQL client (5432/5433 are taken here)
+    # ports:
+    #   - "5434:5432"
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-erpcafe}
+      DB_APP_PASSWORD: ${APP_DB_PASSWORD}
+      DB_OWNER_USER: ${POSTGRES_USER:-erpcafe}
+      DB_OWNER_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8095}
+      # false only for plain http://localhost; set true once the site is served over HTTPS
+      APP_SECURITY_REFRESHCOOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
+    healthcheck:
+      # no actuator: healthy once the server accepts connections on 8080
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # this machine only: everyone else comes in through the tunnel, never around it
+      - "127.0.0.1:${WEB_PORT:-8095}:80"
+    restart: unless-stopped
+
+  # Cloudflare Tunnel: cloudflared dials out to Cloudflare, which serves the site over HTTPS, so no
+  # port is opened to the internet. The client address still reaches the login throttle: Cloudflare
+  # puts it in X-Forwarded-For, and cloudflared and nginx are private addresses Tomcat trusts.
+
+  # quick-tunnel: no account or domain needed. A random https://<words>.trycloudflare.com address,
+  # new each time this container starts; read it with `docker compose logs tunnel-quick`.
+  tunnel-quick:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: [quick-tunnel]
+    command: tunnel --no-autoupdate --url http://frontend:80
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  # tunnel: a named tunnel on your own domain, created in the Cloudflare dashboard with its public
+  # hostname pointing at http://frontend:80. TUNNEL_TOKEN is the token the dashboard shows.
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  # backup: a pg_dump of the database into ./backups once a day (file names in UTC), keeping
+  # BACKUP_KEEP_DAYS days of them. Restoring one is in docs/deploy.md.
+  backup:
+    image: postgres:16
+    profiles: [backup]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-erpcafe}
+      PGUSER: ${POSTGRES_USER:-erpcafe}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+    # a dump is written under .part and renamed when complete, so a half-written file never looks
+    # like a backup
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          f=/backups/erpcafe-$$(date +%Y%m%d-%H%M).dump
+          pg_dump --format=custom --file="$$f.part" && mv "$$f.part" "$$f" && echo "backup: wrote $$f"
+          find /backups -name 'erpcafe-*.dump' -mtime +$$KEEP_DAYS -delete
+          sleep 86400
+        done
+    restart: unless-stopped
+
+volumes:
+  pgdata:

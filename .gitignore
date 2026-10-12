@@ -1,0 +1,4 @@
+# secrets for the root docker-compose.yml (.env.example is the committed template)
+.env
+# database dumps from the backup container hold real data
+backups/

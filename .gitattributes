@@ -1,0 +1,4 @@
+# Text files keep LF line endings in every checkout, Windows included: the shell scripts and gradlew
+# run inside Linux containers, where a CRLF line fails with "/bin/sh^M: bad interpreter".
+# backend/.gitattributes still gives *.bat files CRLF.
+* text=auto eol=lf
