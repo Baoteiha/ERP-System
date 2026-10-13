@@ -2,7 +2,8 @@
 # frontend behind nginx.
 #
 #   cp .env.example .env      # then fill in the secrets
-#   docker compose up -d --build
+#   docker compose pull           # the images CI published from main (or: up -d --build, to build here)
+#   docker compose up -d
 #   open http://localhost:8095 (or the WEB_PORT you chose) and sign in as ADMIN_EMAIL
 #
 #   docker compose logs -f backend    # follow the backend's log
@@ -10,7 +11,8 @@
 #   docker compose down -v            # stop and delete the database
 #
 # COMPOSE_PROFILES in .env adds the optional containers at the bottom: a Cloudflare tunnel that puts
-# the site on the internet over HTTPS, and a daily backup. Deploying on a server: docs/deploy.md.
+# the site on the internet over HTTPS, a daily backup, and automatic updates when main changes.
+# Deploying on a server: docs/deploy.md.
 #
 # For day-to-day development, backend/docker-compose.yml (database only) with ./gradlew bootRun and
 # ng serve is still the faster loop.
@@ -41,7 +43,12 @@ services:
     #   - "5434:5432"
 
   backend:
+    # published by CI for each push to main that passes the tests; --build makes it here instead
+    image: ghcr.io/baoteiha/erp-system-backend:latest
     build: ./backend
+    labels:
+      # the autoupdate profile's Watchtower replaces only containers carrying this label
+      - com.centurylinklabs.watchtower.enable=true
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +74,10 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: ghcr.io/baoteiha/erp-system-frontend:latest
     build: ./frontend
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     depends_on:
       backend:
         condition: service_healthy
@@ -130,6 +140,23 @@ services:
           find /backups -name 'erpcafe-*.dump' -mtime +$$KEEP_DAYS -delete
           sleep 86400
         done
+    restart: unless-stopped
+
+  # autoupdate: every 5 minutes Watchtower asks ghcr.io for newer backend and frontend images and
+  # swaps them in, deleting the old ones. Only the two labelled containers are touched; a change to
+  # this file or .env still needs `git pull` and `docker compose up -d` on the server.
+  watchtower:
+    image: nickfedor/watchtower:1.22.3
+    profiles: [autoupdate]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+      WATCHTOWER_CLEANUP: "true"
+      # the images are private packages: a GitHub token with only the read:packages scope
+      REPO_USER: ${GHCR_USER:-}
+      REPO_PASS: ${GHCR_TOKEN:-}
     restart: unless-stopped
 
 volumes:

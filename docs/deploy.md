@@ -131,7 +131,7 @@ HTTPS.
 
 | What | Command |
 |---|---|
-| Update to the latest code | `git pull` then `docker compose up -d --build` |
+| Update to the latest code | `git pull` then `docker compose up -d --build` (automatic after [Part 3](#part-3-automatic-updates-cicd)) |
 | See what is running | `docker compose ps` |
 | Follow the backend's log | `docker compose logs -f backend` (Ctrl+C to stop following) |
 | Stop everything (data is kept) | `docker compose down` |
@@ -240,6 +240,94 @@ the restore collides with them.
 
 ---
 
+## Part 3: automatic updates (CI/CD)
+
+Once this is set up, you never update the PC by hand for code changes:
+
+```
+push to dev  ──▶ GitHub runs the tests (CI)
+push to main ──▶ GitHub runs the tests ──▶ passed? builds the two images and stores them, privately,
+                                             in GitHub's registry (ghcr.io)
+                                                   │
+             the PC's Watchtower asks every 5 minutes "anything new?" ──▶ swaps in the new images
+```
+
+- **CI** (continuous integration): `.github/workflows/ci.yml` runs the backend tests and the
+  frontend lint, tests and build on every push to `dev` or `main` and on every pull request. You see
+  the result on GitHub under the **Actions** tab: a green tick means it passed, a red cross means it
+  failed.
+- **CD** (continuous deployment): only a push to `main` that passes publishes images. So **pushing
+  to `main` is deploying.** Keep working on `dev`, and move `main` forward when you want the café to
+  get the new version.
+- **Each update means about a minute of downtime** while the new backend starts. Database changes
+  (Flyway migrations) run by themselves during that minute. So push to `main` outside opening hours,
+  and have backups on.
+
+### 12. Make a read-only token for the PC
+
+The images are private, so the PC must sign in to download them.
+
+1. On GitHub: your profile picture → **Settings** → **Developer settings** → **Personal access
+   tokens** → **Tokens (classic)** → **Generate new token (classic)**. GitHub's registry needs a
+   *classic* token.
+2. Note: `erp-cafe server`. Expiration: **1 year**. Put a reminder in your calendar, because when the
+   token expires, updates quietly stop.
+3. Tick **only `read:packages`**. The token can then download your images and do nothing else.
+4. **Generate token** and copy it right away. GitHub shows it only once.
+
+### 13. Switch the PC to the published images
+
+The images exist only after the first push to `main` that passes. Check the **Actions** tab on
+GitHub: the "Publish" jobs should be green.
+
+First check that the PC's processor matches the images, which are built for `amd64` (ordinary
+Intel and AMD PCs):
+
+```powershell
+docker version --format '{{.Server.Arch}}'
+```
+
+It should print `amd64`. If it prints anything else, stop and ask, because the images won't run.
+
+Then, in `C:\erp-cafe`:
+
+```powershell
+git pull
+docker login ghcr.io -u Baoteiha
+```
+
+When it asks for a password, paste the token. Then edit `.env`:
+
+```
+COMPOSE_PROFILES=tunnel,autoupdate
+GHCR_USER=Baoteiha
+GHCR_TOKEN=<the token from step 12>
+```
+
+Add `backup` to `COMPOSE_PROFILES` as well once you have real data. Then:
+
+```powershell
+docker compose pull
+docker compose up -d
+docker compose logs watchtower
+```
+
+`pull` downloads the published images. From then on, `up` uses them and no longer builds anything
+on the PC. The Watchtower log should show it starting and scheduling its checks, with no
+`unauthorized` errors.
+
+### Day to day with CI/CD
+
+| What | How |
+|---|---|
+| Test a change | Push to `dev`, then watch the **Actions** tab. |
+| Deploy | On your Mac: `git switch main`, `git merge --ff-only dev`, `git push`, `git switch dev`. About 5–10 minutes after the Actions run turns green, the PC runs the new version. |
+| Undo a bad deploy | `git revert <the bad commit>` on `main` and push. CI publishes the previous code as the newest version. |
+| `docker-compose.yml` or `.env.example` changed | Watchtower only swaps images, so on the PC run `git pull` then `docker compose up -d`. |
+| Watch the updates | `docker compose logs watchtower` |
+
+---
+
 ## Troubleshooting
 
 **`backend` keeps restarting.** Read its log with `docker compose logs --tail=80 backend`. The cause
@@ -265,6 +353,11 @@ cloudflared prefers (UDP 7844). In `docker-compose.yml`, change the `tunnel-quic
 
 **Signed out every 15 minutes.** `REFRESH_COOKIE_SECURE` must be `true`, and the site must be opened
 through its `https://` address.
+
+**The site stopped updating, or `docker compose pull` says `unauthorized` or `denied`.** The
+GitHub token has probably expired, or it lacks `read:packages`. Make a new one (step 12), put it
+in `GHCR_TOKEN` in `.env`, run `docker login ghcr.io -u Baoteiha` again, then
+`docker compose up -d`.
 
 **The named tunnel shows as down in the dashboard.** Run `docker compose logs tunnel`. An empty or
 wrong `TUNNEL_TOKEN` is the usual cause. Check that `.env` has the token and that
